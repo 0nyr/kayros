@@ -1,0 +1,30 @@
+cmake_minimum_required(VERSION 3.26)
+project(kayros LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Local-benchmarking builds only: never enabled for shipped wheels/sdists.
+option(KAYROS_NATIVE "Build with -march=native (local benchmarking only)" OFF)
+# CPLEX-based Lera-Romero BPC component: requires a local CPLEX install.
+# The default build must stay free of any proprietary dependency.
+option(KAYROS_WITH_LERA "Build the CPLEX-based exact BPC component" OFF)
+
+find_package(pybind11 CONFIG REQUIRED)
+
+pybind11_add_module(_core
+    cpp/bindings/module.cpp
+)
+target_include_directories(_core PRIVATE cpp)
+target_compile_definitions(_core PRIVATE KAYROS_VERSION="${SKBUILD_PROJECT_VERSION_FULL}")
+
+if(KAYROS_NATIVE)
+    target_compile_options(_core PRIVATE -march=native)
+endif()
+
+if(KAYROS_WITH_LERA)
+    message(FATAL_ERROR "KAYROS_WITH_LERA is a placeholder: the Lera BPC component lands at milestone M3.7.")
+endif()
+
+install(TARGETS _core DESTINATION kayros)

@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# scikit-build-core / CMake
+_skbuild/
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+
+# Compiled extensions
+*.so
+*.pyd
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Nix
+result
+result-*

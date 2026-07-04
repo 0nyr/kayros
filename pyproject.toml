@@ -1,0 +1,59 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "kayros"
+version = "0.0.1.dev0"
+description = "KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP)"
+readme = "README.md"
+authors = [
+    { name = "Florian Rascoussier (Onyr)", email = "rascoussier.florian@gmail.com" },
+]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+# NOTE: the canonical benchmark/checker dependency (mamut-routing-lib) is a
+# direct git reference until the lib is released on PyPI, and PyPI rejects
+# distributions whose metadata carries direct URLs. It therefore lives in the
+# [dependency-groups] below (not shipped in wheel metadata); installing kayros
+# from GitHub or from a clone with `--group dev` (pip >= 25.1) or `uv sync`
+# pulls it in. TODO: move it here as `mamut-routing-lib>=X` once on PyPI.
+dependencies = []
+
+[project.optional-dependencies]
+# lera: the CPLEX-based Lera-Romero BPC component (source build only, requires
+# a CPLEX install and -DKAYROS_WITH_LERA=ON). Placeholder until M3.7.
+lera = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@td",
+]
+
+[project.urls]
+Homepage = "https://github.com/0nyr/kayros"
+Issues = "https://github.com/0nyr/kayros/issues"
+Benchmarks = "https://github.com/ANR-MAMUT/MAMUT-routing"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.26"
+wheel.packages = ["src/kayros"]
+sdist.exclude = [".github", "nix-dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
