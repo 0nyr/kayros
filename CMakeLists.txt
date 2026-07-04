@@ -15,9 +15,14 @@ find_package(pybind11 CONFIG REQUIRED)
 
 pybind11_add_module(_core
     cpp/bindings/module.cpp
+    cpp/pwlf/pwlf.cpp
+    cpp/core/route_eval.cpp
 )
 target_include_directories(_core PRIVATE cpp)
 target_compile_definitions(_core PRIVATE KAYROS_VERSION="${SKBUILD_PROJECT_VERSION_FULL}")
+# Bit-identical agreement with the Python reference checker requires plain
+# IEEE-754 double arithmetic: no FMA contraction, ever.
+target_compile_options(_core PRIVATE -ffp-contract=off)
 
 if(KAYROS_NATIVE)
     target_compile_options(_core PRIVATE -march=native)

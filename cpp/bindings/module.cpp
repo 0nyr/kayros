@@ -1,4 +1,14 @@
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+#include <optional>
+#include <stdexcept>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+#include "core/instance.h"
+#include "pwlf/pwlf.h"
 
 namespace py = pybind11;
 
@@ -6,7 +16,151 @@ namespace py = pybind11;
 #define KAYROS_VERSION "0.0.0"
 #endif
 
+namespace {
+
+kayros::Pwlf make_pwlf(std::vector<double> xs, std::vector<double> ys) {
+    if (xs.size() != ys.size()) {
+        throw std::invalid_argument("xs and ys must have the same length");
+    }
+    return {std::move(xs), std::move(ys)};
+}
+
+using ArcSpec = std::tuple<std::int32_t, std::int32_t, std::vector<double>,
+                           std::vector<double>>;
+
+kayros::Instance make_instance(
+    std::int32_t num_customers, std::optional<std::int32_t> num_vehicles,
+    std::int64_t vehicle_capacity, std::pair<double, double> horizon,
+    std::optional<std::vector<std::pair<double, double>>> time_windows,
+    std::vector<std::int64_t> demands, std::vector<double> service_times,
+    const std::vector<ArcSpec>& arcs) {
+    kayros::Instance inst;
+    inst.num_customers = num_customers;
+    inst.num_vehicles = num_vehicles.value_or(-1);
+    inst.vehicle_capacity = vehicle_capacity;
+    inst.horizon_start = horizon.first;
+    inst.horizon_end = horizon.second;
+    const std::int64_t nv = inst.num_vertices();
+    const std::size_t expected = static_cast<std::size_t>(nv);
+    if (demands.size() != expected || service_times.size() != expected) {
+        throw std::invalid_argument(
+            "demands and service_times must have num_customers + 1 entries");
+    }
+    inst.demands = std::move(demands);
+    inst.service_times = std::move(service_times);
+    if (time_windows.has_value()) {
+        if (time_windows->size() != expected) {
+            throw std::invalid_argument(
+                "time_windows must have num_customers + 1 entries");
+        }
+        inst.has_time_windows = true;
+        inst.tw_earliest.reserve(expected);
+        inst.tw_latest.reserve(expected);
+        for (const auto& [earliest, latest] : *time_windows) {
+            inst.tw_earliest.push_back(earliest);
+            inst.tw_latest.push_back(latest);
+        }
+    }
+
+    const std::int64_t num_arcs = nv * nv;
+    std::vector<std::int64_t> lengths(static_cast<std::size_t>(num_arcs), 0);
+    std::int64_t total = 0;
+    for (const auto& [i, j, xs, ys] : arcs) {
+        if (i < 0 || i >= nv || j < 0 || j >= nv || i == j) {
+            throw std::invalid_argument("invalid arc endpoints");
+        }
+        if (xs.size() != ys.size() || xs.size() < 2) {
+            throw std::invalid_argument("arc ATF must have >= 2 breakpoints");
+        }
+        const std::int64_t a = static_cast<std::int64_t>(i) * nv + j;
+        if (lengths[static_cast<std::size_t>(a)] != 0) {
+            throw std::invalid_argument("duplicate arc");
+        }
+        lengths[static_cast<std::size_t>(a)] =
+            static_cast<std::int64_t>(xs.size());
+        total += static_cast<std::int64_t>(xs.size());
+    }
+    inst.atf_offset.assign(static_cast<std::size_t>(num_arcs) + 1, 0);
+    for (std::int64_t a = 0; a < num_arcs; ++a) {
+        inst.atf_offset[static_cast<std::size_t>(a) + 1] =
+            inst.atf_offset[static_cast<std::size_t>(a)] +
+            lengths[static_cast<std::size_t>(a)];
+    }
+    inst.atf_xs.assign(static_cast<std::size_t>(total), 0.0);
+    inst.atf_ys.assign(static_cast<std::size_t>(total), 0.0);
+    for (const auto& [i, j, xs, ys] : arcs) {
+        const std::int64_t a = static_cast<std::int64_t>(i) * nv + j;
+        const std::int64_t b = inst.atf_offset[static_cast<std::size_t>(a)];
+        std::copy(xs.begin(), xs.end(),
+                  inst.atf_xs.begin() + static_cast<std::ptrdiff_t>(b));
+        std::copy(ys.begin(), ys.end(),
+                  inst.atf_ys.begin() + static_cast<std::ptrdiff_t>(b));
+    }
+    return inst;
+}
+
+}  // namespace
+
 PYBIND11_MODULE(_core, m) {
-    m.doc() = "kayros compiled core: NDCPWLF engine, POD instance/route model, heuristics";
+    m.doc() =
+        "kayros compiled core: NDCPWLF engine, POD instance/route model, "
+        "heuristics";
     m.attr("__version__") = KAYROS_VERSION;
+
+    // --- pwlf primitives (exposed for the checker-equivalence test suite) ---
+    m.def("pwlf_identity", [](double low, double high) {
+        kayros::Pwlf f = kayros::identity(low, high);
+        return py::make_tuple(std::move(f.xs), std::move(f.ys));
+    });
+    m.def("pwlf_evaluate", [](std::vector<double> xs, std::vector<double> ys,
+                              double x) {
+        const kayros::Pwlf f = make_pwlf(std::move(xs), std::move(ys));
+        return kayros::evaluate(kayros::view(f), x);
+    });
+    m.def("pwlf_compose", [](std::vector<double> f_xs, std::vector<double> f_ys,
+                             std::vector<double> g_xs,
+                             std::vector<double> g_ys) {
+        const kayros::Pwlf f = make_pwlf(std::move(f_xs), std::move(f_ys));
+        const kayros::Pwlf g = make_pwlf(std::move(g_xs), std::move(g_ys));
+        kayros::Pwlf h = kayros::compose(kayros::view(f), kayros::view(g));
+        return py::make_tuple(std::move(h.xs), std::move(h.ys));
+    });
+    m.def("pwlf_min_shifted_image",
+          [](std::vector<double> xs, std::vector<double> ys) {
+              const kayros::Pwlf f = make_pwlf(std::move(xs), std::move(ys));
+              const kayros::MinShift s = kayros::min_shifted_image(kayros::view(f));
+              return py::make_tuple(s.value, s.argmin_x);
+          });
+    m.def("pwlf_make_theta",
+          [](double earliest, double latest, double service_time) {
+              kayros::Pwlf f = kayros::make_theta(earliest, latest, service_time);
+              return py::make_tuple(std::move(f.xs), std::move(f.ys));
+          });
+
+    // --- instance + route evaluation ---
+    py::class_<kayros::Instance>(m, "Instance")
+        .def(py::init(&make_instance), py::arg("num_customers"),
+             py::arg("num_vehicles"), py::arg("vehicle_capacity"),
+             py::arg("horizon"), py::arg("time_windows"), py::arg("demands"),
+             py::arg("service_times"), py::arg("arcs"))
+        .def_readonly("num_customers", &kayros::Instance::num_customers)
+        .def_readonly("num_vehicles", &kayros::Instance::num_vehicles)
+        .def_readonly("vehicle_capacity", &kayros::Instance::vehicle_capacity)
+        .def_readonly("has_time_windows", &kayros::Instance::has_time_windows)
+        .def("evaluate_route",
+             [](const kayros::Instance& inst,
+                const std::vector<std::int32_t>& route) {
+                 const kayros::RouteEval r = kayros::evaluate_route(
+                     inst, route.data(),
+                     static_cast<std::int64_t>(route.size()));
+                 return py::make_tuple(r.feasible, r.duration, r.departure);
+             })
+        .def("route_ready_time_function",
+             [](const kayros::Instance& inst,
+                const std::vector<std::int32_t>& route) {
+                 kayros::Pwlf d = kayros::route_ready_time_function(
+                     inst, route.data(),
+                     static_cast<std::int64_t>(route.size()));
+                 return py::make_tuple(std::move(d.xs), std::move(d.ys));
+             });
 }
