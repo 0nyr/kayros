@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "core/instance.h"
+#include "heuristics/heuristics.h"
 #include "pwlf/pwlf.h"
 
 namespace py = pybind11;
@@ -163,4 +164,48 @@ PYBIND11_MODULE(_core, m) {
                      static_cast<std::int64_t>(route.size()));
                  return py::make_tuple(std::move(d.xs), std::move(d.ys));
              });
+
+    // --- heuristics ---
+    py::class_<kayros::AcoParams>(m, "AcoParams")
+        .def(py::init<>())
+        .def_readwrite("max_iterations", &kayros::AcoParams::max_iterations)
+        .def_readwrite("max_no_improvement", &kayros::AcoParams::max_no_improvement)
+        .def_readwrite("nb_ants", &kayros::AcoParams::nb_ants)
+        .def_readwrite("alpha", &kayros::AcoParams::alpha)
+        .def_readwrite("beta", &kayros::AcoParams::beta)
+        .def_readwrite("rho", &kayros::AcoParams::rho)
+        .def_readwrite("tau_min", &kayros::AcoParams::tau_min)
+        .def_readwrite("tau_0", &kayros::AcoParams::tau_0)
+        .def_readwrite("tau_max", &kayros::AcoParams::tau_max)
+        .def_readwrite("delta_pheromone_threshold",
+                       &kayros::AcoParams::delta_pheromone_threshold);
+
+    py::class_<kayros::Incumbent>(m, "Incumbent")
+        .def_readonly("value", &kayros::Incumbent::value)
+        .def_readonly("seconds", &kayros::Incumbent::seconds)
+        .def_readonly("iteration", &kayros::Incumbent::iteration)
+        .def_readonly("origin", &kayros::Incumbent::origin);
+
+    py::enum_<kayros::SolveStatus>(m, "SolveStatus")
+        .value("Finished", kayros::SolveStatus::Finished)
+        .value("Converged", kayros::SolveStatus::Converged)
+        .value("TimeLimit", kayros::SolveStatus::TimeLimit)
+        .value("Infeasible", kayros::SolveStatus::Infeasible);
+
+    py::class_<kayros::SolveResult>(m, "SolveResult")
+        .def_readonly("routes", &kayros::SolveResult::routes)
+        .def_readonly("value", &kayros::SolveResult::value)
+        .def_readonly("incumbents", &kayros::SolveResult::incumbents)
+        .def_readonly("status", &kayros::SolveResult::status)
+        .def_readonly("iterations_run", &kayros::SolveResult::iterations_run);
+
+    m.def("greedy_makespan", [](const kayros::Instance& inst) {
+        std::vector<std::vector<std::int32_t>> routes;
+        const bool ok = kayros::greedy_makespan(inst, routes);
+        return py::make_tuple(ok, std::move(routes));
+    });
+    m.def("solution_duration", &kayros::solution_duration);
+    m.def("solve_aco", &kayros::solve_aco, py::arg("instance"),
+          py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
+          py::call_guard<py::gil_scoped_release>());
 }

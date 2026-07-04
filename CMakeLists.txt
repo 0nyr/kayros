@@ -17,6 +17,8 @@ pybind11_add_module(_core
     cpp/bindings/module.cpp
     cpp/pwlf/pwlf.cpp
     cpp/core/route_eval.cpp
+    cpp/heuristics/greedy_makespan.cpp
+    cpp/heuristics/aco.cpp
 )
 target_include_directories(_core PRIVATE cpp)
 target_compile_definitions(_core PRIVATE KAYROS_VERSION="${SKBUILD_PROJECT_VERSION_FULL}")
