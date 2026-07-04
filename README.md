@@ -30,11 +30,11 @@ Requirements: Python ≥ 3.11, a C++23 compiler and CMake ≥ 3.26 (fetched auto
 ## Roadmap (stage 1)
 
 - [x] M3.0 — package scaffold, CI, PyPI wiring
-- [ ] M3.1 — NDCPWLF composition engine + POD instance/route core
-- [ ] M3.2 — exact equivalence gate against the reference checker (Dabia2013)
-- [ ] M3.3 — `kayros.solve()`: greedy/regret construction + TD-ACO
-- [ ] M3.4 — all four MAMUT TD families × {TDVRPTW, TDVRP}
-- [ ] M3.5 — large-scale runs, best-known-solution seeding, ACO tuning
+- [x] M3.1 — NDCPWLF composition engine + POD instance/route core
+- [x] M3.2 — exact equivalence gate against the reference checker (Dabia2013): 513 tests, 336 instances, zero divergences
+- [x] M3.3 — `kayros.solve()`: greedy construction + TD-ACO
+- [x] M3.4 — all four MAMUT TD families × {TDVRPTW, TDVRP}
+- [ ] M3.5 — large-scale runs, best-known-solution seeding, ACO tuning (in progress)
 - [ ] M3.6 — anytime API (`on_incumbent`, time budgets) + **v0.1.0 on PyPI**
 - Later: time-dependent local search layer; optional exact BPC (`kayros[lera]`)
 
