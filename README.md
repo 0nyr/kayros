@@ -12,17 +12,17 @@
 
 ## Install
 
-From a clone (or directly from GitHub), inside your Python environment:
+One command, directly from GitHub, inside your Python environment:
 
 ```sh
 pip install git+https://github.com/0nyr/kayros
 ```
 
-Until `mamut-routing-lib` is released on PyPI, the benchmark loaders and the reference checker are pulled from the MAMUT-routing `td` branch; for development installs use the `dev` dependency group, which pins it:
+This pulls everything, including the benchmark loaders and the reference checker (`mamut-routing-lib`, pinned to the MAMUT-routing `td` branch until it is released on PyPI). For development:
 
 ```sh
 git clone https://github.com/0nyr/kayros && cd kayros
-pip install -e . --group dev    # pip >= 25.1 (or: uv sync)
+pip install -e . --group dev    # pip >= 25.1 (or: uv pip install -e . --group dev)
 ```
 
 Requirements: Python ≥ 3.11, a C++23 compiler and CMake ≥ 3.26 (fetched automatically by the build backend when missing).

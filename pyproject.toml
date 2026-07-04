@@ -25,12 +25,15 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 # NOTE: the canonical benchmark/checker dependency (mamut-routing-lib) is a
-# direct git reference until the lib is released on PyPI, and PyPI rejects
-# distributions whose metadata carries direct URLs. It therefore lives in the
-# [dependency-groups] below (not shipped in wheel metadata); installing kayros
-# from GitHub or from a clone with `--group dev` (pip >= 25.1) or `uv sync`
-# pulls it in. TODO: move it here as `mamut-routing-lib>=X` once on PyPI.
-dependencies = []
+# direct git reference (td branch) until the lib is released on PyPI, so the
+# one-command install `pip install git+https://github.com/0nyr/kayros` pulls
+# everything. Caveat: PyPI rejects metadata with direct URLs — uploading to
+# PyPI requires either the lib released on PyPI first, or a stub build with
+# this dependency stripped. TODO: repoint to `mamut-routing-lib>=X` once the
+# td branch merges and the lib is published.
+dependencies = [
+    "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@td",
+]
 
 [project.optional-dependencies]
 # lera: the CPLEX-based Lera-Romero BPC component (source build only, requires
@@ -38,10 +41,7 @@ dependencies = []
 lera = []
 
 [dependency-groups]
-dev = [
-    "pytest>=8",
-    "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@td",
-]
+dev = ["pytest>=8"]
 
 [project.urls]
 Homepage = "https://github.com/0nyr/kayros"
