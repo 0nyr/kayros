@@ -30,5 +30,13 @@ jobs:
         run: python -m pip install --upgrade pip
       - name: Install (editable + dev group)
         run: pip install -e . --group dev
-      - name: Run tests
+      - name: Fetch Dabia2013 n=25 benchmarks (sparse, td branch)
+        run: |
+          git clone --depth 1 --branch td --filter=blob:none --sparse \
+            https://github.com/ANR-MAMUT/MAMUT-routing.git "$RUNNER_TEMP/mamut-routing"
+          git -C "$RUNNER_TEMP/mamut-routing" sparse-checkout set \
+            benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25
+      - name: Run tests (incl. checker-equivalence gate on Dabia n=25)
+        env:
+          MAMUT_ROUTING_ROOT: ${{ runner.temp }}/mamut-routing
         run: pytest
