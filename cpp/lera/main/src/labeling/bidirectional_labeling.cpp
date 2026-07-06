@@ -18,6 +18,61 @@ namespace solver
 {
 namespace
 {
+// kayros (M5.7): bridge upward value jumps of a monotone PWL function with
+// steep segments so that Inverse() yields gap-free departure functions.
+// Interior plateaus of the forward arrival function (Rifki-style stepwise
+// travel times encode tau down-steps as slope -1 arrival segments) become
+// value jumps in dep and hence in the reverse arrival below; inverting a
+// jump produces an interior domain gap and DepartureTime()/Value() then
+// fails. The bridged function never exceeds the original (the steep segment
+// stays below the following piece), so reverse arrivals are under-estimated
+// on a measure-delta sliver per jump: pricing/bounds stay valid lower bounds
+// and no wrong optimum can be certified (costs are checker-exact via the
+// stage-A repricing in the kayros bridge).
+PWLFunction continuize_value_jumps(const PWLFunction& f)
+{
+	const double delta = 1e-3; // >> goc EPS (1e-6), dust vs any horizon
+	if (f.PieceCount() <= 1) return f;
+	// Piecewise breakpoints; value jumps appear as duplicate-x pairs.
+	vector<Point2D> bp;
+	for (int k = 0; k < f.PieceCount(); ++k)
+	{
+		const LinearFunction& p = f.Piece(k);
+		Point2D l(p.domain.left, p.Value(p.domain.left));
+		Point2D r(p.domain.right, p.Value(p.domain.right));
+		if (bp.empty() || bp.back().x != l.x || bp.back().y != l.y) bp.push_back(l);
+		if (r.x != l.x || r.y != l.y) bp.push_back(r);
+	}
+	PWLFunction g;
+	size_t k = 0;
+	while (k < bp.size())
+	{
+		size_t j = k;
+		while (j + 1 < bp.size() && bp[j + 1].x == bp[k].x) ++j;
+		Point2D lo(bp[k].x, bp[k].y), hi(bp[j].x, bp[j].y);
+		Point2D cur = lo;
+		if (hi.y > lo.y && j + 1 < bp.size())
+		{
+			// Steep bridge from the lower value onto the following segment.
+			const Point2D& nxt = bp[j + 1];
+			double d = min(delta, (nxt.x - hi.x) / 2.0);
+			double t = d / (nxt.x - hi.x);
+			Point2D mid(hi.x + d, hi.y + t * (nxt.y - hi.y));
+			g.AddPiece(LinearFunction(cur, mid));
+			cur = mid;
+		}
+		if (j + 1 < bp.size())
+		{
+			const Point2D& nxt = bp[j + 1];
+			// Continue to the next breakpoint's lower value.
+			size_t j2 = j + 1;
+			g.AddPiece(LinearFunction(cur, Point2D(nxt.x, bp[j2].y)));
+		}
+		k = j + 1;
+	}
+	return g;
+}
+
 // Reverses a VRP instance.
 // o' := d
 // d' := o
@@ -37,6 +92,7 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 			// Compute reverse travel functions.
 			r.arr[v][u] = vrp.T - vrp.dep[u][v].Compose(vrp.T - PWLFunction::IdentityFunction({0.0, vrp.T}));
 			r.arr[v][u] = Min(PWLFunction::ConstantFunction(min(img(r.arr[v][u])), {min(r.tw[v]), min(dom(r.arr[v][u]))}), r.arr[v][u]);
+			r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
 			r.tau[v][u] = r.arr[v][u] - PWLFunction::IdentityFunction({0.0, vrp.T});
 			r.dep[v][u] = r.arr[v][u].Inverse();
 			r.pretau[v][u] = PWLFunction::IdentityFunction(dom(r.dep[v][u])) - r.dep[v][u];

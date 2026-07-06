@@ -29,13 +29,56 @@ from typing import Any, Callable
 from mamut_routing_lib.td import LoadedTDInstance
 
 
+_JUMP_DELTA = 1e-3  # mollifier width, seconds; >> goc EPS (1e-6), dust vs any horizon
+
+
+def _continuize_breakpoints(xs: list[float], ys: list[float]) -> tuple[list[float], list[float]]:
+    """Collapse duplicate-x breakpoints (arrival jumps) into steep segments.
+
+    Rifki2020-style stepwise travel times encode a jump as two breakpoints at the
+    same x. Lera's goc PWL machinery (Max/RestrictImage/... in preprocessing)
+    assumes continuous functions and produces piece lists with interior gaps on
+    such input, which later fails ``PWLFunction::Value``. We hand Lera a
+    continuous under-approximation instead: each jump ``(x0,y_lo)->(x0,y_hi)``
+    becomes a segment from ``(x0,y_lo)`` to ``(x0+delta, line(x0+delta))`` on
+    the following piece. This matches the checker exactly at every breakpoint —
+    ``kayros::evaluate`` is left-continuous at duplicates (lower_bound returns
+    the FIRST y on an exact hit) — and sits at or below the checker curve on
+    the measure-delta sliver after each jump. Lera therefore never overestimates
+    arrivals: pricing/bounds stay valid and no wrong optimum can be certified;
+    costs are checker-exact anyway via M5.6 stage-A repricing of every column.
+    A jump at the domain end is dropped (its upper value is unreachable in
+    checker semantics: no departure evaluates to it).
+    """
+    out_x: list[float] = []
+    out_y: list[float] = []
+    k, m = 0, len(xs)
+    while k < m:
+        j = k
+        while j + 1 < m and xs[j + 1] == xs[k]:
+            j += 1
+        x0, y_lo, y_hi = xs[k], ys[k], ys[j]
+        out_x.append(x0)
+        out_y.append(y_lo)
+        if y_hi > y_lo and j + 1 < m:
+            x1, y1 = xs[j + 1], ys[j + 1]
+            d = min(_JUMP_DELTA, (x1 - x0) / 2.0)
+            t = d / (x1 - x0)
+            out_x.append(x0 + d)
+            out_y.append(y_hi + t * (y1 - y_hi))
+        k = j + 1
+    return out_x, out_y
+
+
 def _atf_to_travel_time_pieces(xs, ys) -> list[list[list[float]]]:
     """ATF breakpoints -> Lera PWL travel-time pieces tau(t) = f(t) - t.
 
     Each piece is ``[[x1, y1], [x2, y2]]`` (goc ``LinearFunction`` JSON).
+    Duplicate-x breakpoints are continuized first (see
+    :func:`_continuize_breakpoints`); for jump-free ATFs this is a no-op and
+    the emitted floats are bit-identical to the raw breakpoints.
     """
-    xs = [float(x) for x in xs]
-    ys = [float(y) for y in ys]
+    xs, ys = _continuize_breakpoints([float(x) for x in xs], [float(y) for y in ys])
     return [
         [[xs[k], ys[k] - xs[k]], [xs[k + 1], ys[k + 1] - xs[k + 1]]]
         for k in range(len(xs) - 1)
