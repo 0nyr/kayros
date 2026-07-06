@@ -36,8 +36,9 @@ endif()
 
 add_library(lera STATIC ${LERA_GOC_SOURCES} ${LERA_NYR_SOURCES} ${LERA_MAIN_SOURCES})
 
-# Upstream compiles as C++26; the vendored code predates kayros' C++23 baseline.
-target_compile_features(lera PUBLIC cxx_std_26)
+# kayros' C++23 baseline; the vendored code predates it (upstream used C++26
+# permissively, but nothing needs it — 23 keeps GCC 13 toolchains buildable).
+target_compile_features(lera PUBLIC cxx_std_23)
 set_target_properties(lera PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Same bit-identical arithmetic policy as kayros' _core.
 target_compile_options(lera PRIVATE -ffp-contract=off)
