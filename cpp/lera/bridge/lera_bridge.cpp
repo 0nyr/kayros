@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <goc/goc.h>
@@ -100,11 +102,22 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     // A checker-infeasible single-customer route keeps Lera's INFTY cost: it
     // stays as an artificial column guaranteeing RMP feasibility and can
     // never enter a finite-value solution.
+    // Column fingerprints (per path): duplicates must never re-enter the SPF —
+    // under smoothed duals (stabilization below) existing master columns can
+    // price negative again, and re-adding them makes no LP progress.
+    unordered_set<string> column_keys;
+    auto path_key = [](const GraphPath& p) {
+        string k;
+        for (goc::Vertex v : p) { k += to_string(v); k += ','; }
+        return k;
+    };
+
     SPF spf(vrp.D.NbVertices());
     for (Vertex i : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) {
         const GraphPath seed_path{vrp.o, i, vrp.d};
         auto r = vrp.BestDurationRoute(seed_path);
         auto ev = checker_eval(checker_inst, seed_path);
+        column_keys.insert(path_key(seed_path));
         spf.AddRoute(ev.feasible ? Route(seed_path, ev.departure, ev.duration)
                                  : Route(r.path, r.t0, r.value));
     }
@@ -131,6 +144,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             path.push_back(vrp.d);
             auto ev = checker_eval(checker_inst, path);
             if (!ev.feasible) { valid_ub = false; continue; }
+            column_keys.insert(path_key(path));
             spf.AddRoute(Route(path, ev.departure, ev.duration));
             ++added;
             ub_value += ev.duration;
@@ -168,14 +182,13 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         LabelingLevel::HeuristicCost, LabelingLevel::HeuristicElementarity, LabelingLevel::Exact};
     const vector<string> level_names = {"Heuristic Cost", "Heuristic Elementarity", "Exact"};
     size_t heuristic_level = 0;
-    bcp.pricing_solver = [&](const PricingProblem& pricing_problem, int /*node_number*/,
-                             Duration /*tlimit*/, CGExecutionLog* cg_execution_log) {
+    auto run_ladder = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
         vector<Route> R;
         while (heuristic_level < levels.size()) {
             // (M5.2) Residual budget from the BCP's single absolute deadline,
             // not from a per-call stopwatch chain.
             lbl.time_limit = bcp.deadline.Remaining();
-            auto lbl_log = lbl.Run(pricing_problem, &R, levels[heuristic_level]);
+            auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
 
             // Add iteration log.
             cg_execution_log->iterations->push_back(lbl_log);
@@ -189,32 +202,86 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             if (!R.empty()) break;
             ++heuristic_level;
         }
-        // Add negative reduced cost routes with checker-exact costs (M5.6
-        // stage A). A route the labeling prices but the checker rejects would
-        // break certification integrity — fail loudly, never drop silently
-        // (dropping could let CG claim optimality with improving columns
-        // outstanding). Pricing emits only reduced costs < -1e-6 while the
-        // Lera-vs-checker cost dust is ~1e-11, so every priced column is
-        // still strictly improving under checker costs. (M5.2) The adds are
-        // deadline-checked per route: a full pool is thousands of ~1 ms
-        // formulation inserts, the dominant non-interruptible tail otherwise.
-        // Once the deadline fired the CG status is stamped so a truncated
-        // pricing pass can never masquerade as "no new columns = node
-        // optimal".
-        for (auto& r : R) {
-            if (bcp.deadline.Reached()) break;
-            auto ev = checker_eval(checker_inst, r.path);
-            if (!ev.feasible)
-                fail("M5.6: labeling priced a checker-infeasible route (path " + STR(r.path) + ")");
-            spf.AddRoute(Route(r.path, ev.departure, ev.duration));
-        }
-        if (bcp.deadline.Reached())
-            cg_execution_log->status = CGStatus::TimeLimitReached;
         if (heuristic_level >= levels.size()) {
             heuristic_level = 0;
             lbl.closing_state = false;
             lbl.merge_start = 0;
         }
+        return R;
+    };
+
+    // Column adds, shared by both pricing passes below. Checker-exact costs
+    // (M5.6 stage A): a route the labeling prices but the checker rejects
+    // would break certification integrity — fail loudly, never drop silently
+    // (dropping could let CG claim optimality with improving columns
+    // outstanding). Pricing emits only reduced costs < -1e-6 while the
+    // Lera-vs-checker cost dust is ~1e-11, so every priced column is still
+    // strictly improving under checker costs. Duplicate columns are skipped
+    // by path fingerprint: under SMOOTHED duals existing master columns can
+    // price negative again, and re-adding them makes no LP progress (the
+    // no-new-columns outcome is the misprice signal instead). (M5.2) The
+    // adds are deadline-checked per route: a full pool is thousands of ~1 ms
+    // formulation inserts, the dominant non-interruptible tail otherwise.
+    auto add_columns = [&](const vector<Route>& R) {
+        int added = 0;
+        for (const auto& r : R) {
+            if (bcp.deadline.Reached()) break;
+            if (!column_keys.insert(path_key(r.path)).second) continue;
+            auto ev = checker_eval(checker_inst, r.path);
+            if (!ev.feasible)
+                fail("M5.6: labeling priced a checker-infeasible route (path " + STR(r.path) + ")");
+            spf.AddRoute(Route(r.path, ev.departure, ev.duration));
+            ++added;
+        }
+        return added;
+    };
+
+    // Dual stabilization (M5.1b residual), Neame's rule: pricing runs on the
+    // exponential moving average pi_s = alpha*pi_s_prev + (1-alpha)*pi, which
+    // tracks the dual trajectory while damping the oscillations HiGHS's
+    // alternative optima feed to the labeling (the diagnosed dual-trajectory
+    // sensitivity). A Wentges center-on-misprice-only variant was tried first
+    // and froze the center at the first iteration's duals (C103 12 s -> TL).
+    // Correctness is untouched by any center/alpha policy: CG termination is
+    // only ever decided on TRUE duals — a smoothed pass that adds no NEW
+    // column triggers an immediate true-duals pass (misprice), which resets
+    // the center to pi. New cuts enter the center with dual 0.
+    vector<double> center_P, center_sigma;
+    bool center_set = false;
+    int misprice_count = 0;
+    const double alpha = params.stab_alpha;
+    bcp.pricing_solver = [&](const PricingProblem& pricing_problem, int /*node_number*/,
+                             Duration /*tlimit*/, CGExecutionLog* cg_execution_log) {
+        if (alpha > 0.0 && center_set) {
+            PricingProblem pps = pricing_problem;  // A and S are structural.
+            for (size_t i = 0; i < pps.P.size(); ++i)
+                pps.P[i] = alpha * center_P[i] + (1.0 - alpha) * pricing_problem.P[i];
+            center_sigma.resize(pricing_problem.sigma.size(), 0.0);
+            for (size_t i = 0; i < pps.sigma.size(); ++i)
+                pps.sigma[i] = alpha * center_sigma[i] + (1.0 - alpha) * pricing_problem.sigma[i];
+            int added = add_columns(run_ladder(pps, cg_execution_log));
+            if (added == 0 && !bcp.deadline.Reached()) {
+                ++misprice_count;
+                add_columns(run_ladder(pricing_problem, cg_execution_log));
+                center_P = pricing_problem.P;
+                center_sigma = pricing_problem.sigma;
+            } else {
+                // Neame EMA: the center is the point we just priced at.
+                center_P = std::move(pps.P);
+                center_sigma = std::move(pps.sigma);
+            }
+        } else {
+            add_columns(run_ladder(pricing_problem, cg_execution_log));
+            if (!center_set) {
+                center_P = pricing_problem.P;
+                center_sigma = pricing_problem.sigma;
+                center_set = true;
+            }
+        }
+        // (M5.2) A deadline hit must never masquerade as "no new columns =
+        // node optimal".
+        if (bcp.deadline.Reached())
+            cg_execution_log->status = CGStatus::TimeLimitReached;
     };
 
     VRPSolution solution(INFTY, {});
@@ -224,6 +291,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["exact_log"] = log;
     result["incumbents"] = incumbents;
     if (!warm_log.is_null()) result["warm_start"] = warm_log;
+    if (alpha > 0.0) result["stabilization"] = {{"alpha", alpha}, {"misprices", misprice_count}};
     if (solution.value != INFTY) {
         // (M5.6 stage A) Column costs are checker-exact, but the LP solver's
         // reported objective sums them in its own order: re-sum the route

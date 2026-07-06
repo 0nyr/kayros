@@ -16,8 +16,9 @@ checker-exact (every column repriced by the kayros port of the reference
 checker on the raw MAMUT ATFs) and the reported ``value`` of a solution is
 bit-identical to ``compute_solution_cost`` on its routes. An optimality
 certificate reads: optimal under checker-exact route costs and standard
-LP/pricing tolerances, with pricing completeness still modulo Lera's epsilon
-arithmetic (stage B — labeling on the checker engine — pending).
+LP/pricing tolerances, with pricing completeness modulo Lera's epsilon
+arithmetic (the labeling-internal engine swap was deliberately skipped —
+Onyr, 2026-07-06: dust-probability residue, zero divergences observed).
 """
 
 from __future__ import annotations
@@ -51,13 +52,23 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
     # TDVRP instances carry no time windows (M5.4): trivial-TW encoding maps
     # every vertex to the full horizon; Lera's own preprocessing then tightens
     # (earliest arrivals / latest feasible departures) to recover pruning.
+    # Checker TDVRP semantics: only DEPARTURES must lie in the ATF domains
+    # (the horizon); the return arrival at the depot is unbounded ("the route
+    # ends upon arrival"), so the end-depot window and Lera's planning horizon
+    # must extend to the maximum ATF image, not stop at h1 — capping at h1
+    # shrinks the feasible set and produced provably-wrong "optima" on the
+    # short-horizon R1xx TDVRP twins (M5.4 gate anomaly).
     tws = getattr(instance, "time_windows", None)
+    horizon = [float(atfs.horizon[0]), float(atfs.horizon[1])]
     if tws is None:
-        h0, h1 = float(atfs.horizon[0]), float(atfs.horizon[1])
+        h0, h1 = horizon
+        t_ext = max(h1, max(max(f.ys) for f in atfs.arcs.values()))
         time_windows = [[h0, h1] for _ in range(n + 1)]
+        time_windows.append([h0, t_ext])  # end depot: arrival may exceed h1
+        horizon = [h0, t_ext]
     else:
         time_windows = [[float(earliest), float(latest)] for earliest, latest in tws]
-    time_windows.append(list(time_windows[0]))  # end depot mirrors the depot
+        time_windows.append(list(time_windows[0]))  # end depot mirrors the depot
 
     demands = [int(q) for q in instance.demands] + [0]
     service_times = [float(s) for s in instance.service_times] + [0.0]
@@ -103,7 +114,7 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
         "end_depot": n + 1,
         "nb_vehicles": int(getattr(instance, "num_vehicles", -1) or -1),
         "vehicle_capacity": float(instance.vehicle_capacity),
-        "horizon": [float(atfs.horizon[0]), float(atfs.horizon[1])],
+        "horizon": horizon,
         "time_windows": time_windows,
         "demands": demands,
         "service_times": service_times,
@@ -122,6 +133,7 @@ def solve_duration(
     solution_limit: int = 3000,
     on_incumbent: Callable[[dict[str, Any]], None] | None = None,
     initial_routes: list[list[int]] | None = None,
+    stab_alpha: float = 0.0,
 ) -> dict[str, Any]:
     """Run the Lera BPC (duration objective) on a loaded MAMUT TD instance.
 
@@ -152,6 +164,12 @@ def solve_duration(
     ``exact_log.best_int_value`` the best upper bound, so
     ``(best_int_value - best_bound) / best_int_value`` is the proven gap.
     ``exact_log.root_lp_value`` carries the root LP bound itself.
+
+    ``stab_alpha`` (M5.1b) is the Neame dual-smoothing factor in [0, 1):
+    pricing runs on EMA-smoothed duals with misprice-safe termination (CG
+    only ever stops on true duals). Default 0.0 (off): smoothing measured
+    monotonically harmful with the pool-based pricing ladder — experimental
+    knob only. When on, the result carries a ``stabilization`` record.
     """
     try:
         from kayros import _lera
@@ -167,6 +185,7 @@ def solve_duration(
         "time_limit_s": time_limit_s,
         "cut_limit": cut_limit,
         "solution_limit": solution_limit,
+        "stab_alpha": float(stab_alpha),
     }
     if node_limit is not None:
         kwargs["node_limit"] = node_limit

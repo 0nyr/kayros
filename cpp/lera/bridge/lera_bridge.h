@@ -17,10 +17,17 @@ struct SolveParams {
     int solution_limit = 3000;  // labeling negative-reduced-cost pool size
     // Warm start (M5.3): heuristic incumbent routes as customer-id sequences
     // (MAMUT numbering 1..n, no depots — e.g. kayros Solution.routes). Each
-    // route is repriced under Lera arithmetic and added as an initial SPF
-    // column; when the surviving routes partition the customers exactly, their
-    // Lera-arithmetic total becomes the initial UB for pruning.
+    // route is repriced (checker-exact fold since M5.6) and added as an
+    // initial SPF column; when the surviving routes partition the customers
+    // exactly, their total becomes the initial UB for pruning.
     std::vector<std::vector<int>> initial_routes;
+    // Dual stabilization (M5.1b): Neame smoothing factor in [0, 1); pricing
+    // runs on the EMA alpha*center + (1-alpha)*duals with misprice-safe
+    // termination (CG only ever stops on true duals). Default OFF: measured
+    // monotonically harmful with this pool-based pricing ladder (thousands of
+    // columns per pass tuned to the wrong duals beat any oscillation damping
+    // — C103: 15 s at 0.0, 37 s at 0.3, TL at >=0.5). Experimental knob.
+    double stab_alpha = 0.0;
     // Anytime hook (M5.2): called synchronously on every new BCP incumbent
     // with the incumbent record as a JSON string ({time, value, origin,
     // routes}); the same records are also collected in the result's

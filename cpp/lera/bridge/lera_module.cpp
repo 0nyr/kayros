@@ -18,13 +18,14 @@ PYBIND11_MODULE(_lera, m) {
         "solve_duration_json",
         [](const std::string& payload, double time_limit_s, int cut_limit, int node_limit,
            int solution_limit, py::object on_incumbent,
-           std::vector<std::vector<int>> initial_routes) {
+           std::vector<std::vector<int>> initial_routes, double stab_alpha) {
             kayros::lera::SolveParams params;
             params.time_limit_s = time_limit_s;
             params.cut_limit = cut_limit;
             params.node_limit = node_limit;
             params.solution_limit = solution_limit;
             params.initial_routes = std::move(initial_routes);
+            params.stab_alpha = stab_alpha;
             // The py::object must be captured while the GIL is still held (the
             // copy increfs); the hook itself re-acquires the GIL per call.
             if (!on_incumbent.is_none()) {
@@ -39,5 +40,6 @@ PYBIND11_MODULE(_lera, m) {
         py::arg("payload"), py::arg("time_limit_s") = 7200.0, py::arg("cut_limit") = 100,
         py::arg("node_limit") = INT_MAX, py::arg("solution_limit") = 3000,
         py::arg("on_incumbent") = py::none(),
-        py::arg("initial_routes") = std::vector<std::vector<int>>{});
+        py::arg("initial_routes") = std::vector<std::vector<int>>{},
+        py::arg("stab_alpha") = 0.0);
 }
