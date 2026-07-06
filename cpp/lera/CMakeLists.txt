@@ -64,12 +64,19 @@ else()
 endif()
 
 # kayros-owned bridge (bridge/ is not vendored code): MAMUT instance payload
-# -> Lera preprocessing -> VRPInstance -> duration-objective BCP.
+# -> Lera preprocessing -> VRPInstance -> duration-objective BCP. Links the
+# kayros checker-exact engine (cpp/pwlf + cpp/core route eval) for M5.6
+# checker-exact column costs.
 pybind11_add_module(_lera
     bridge/lera_module.cpp
     bridge/lera_bridge.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../pwlf/pwlf.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../core/route_eval.cpp
 )
-target_include_directories(_lera PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bridge)
+target_include_directories(_lera PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 target_compile_options(_lera PRIVATE -ffp-contract=off)
 target_link_libraries(_lera PRIVATE lera)
 

@@ -10,6 +10,14 @@ solver's preprocessing expects; no legacy instance files are involved.
 Vertex conventions: MAMUT uses ``0..n`` with the depot at 0; Lera's BPC uses a
 start depot ``o = 0``, customers ``1..n`` and a distinct end depot ``d = n+1``
 (a copy of the depot). ``routes_to_mamut`` maps solver paths back.
+
+Certificate arithmetic (M5.6 stage A): all master objective coefficients are
+checker-exact (every column repriced by the kayros port of the reference
+checker on the raw MAMUT ATFs) and the reported ``value`` of a solution is
+bit-identical to ``compute_solution_cost`` on its routes. An optimality
+certificate reads: optimal under checker-exact route costs and standard
+LP/pricing tolerances, with pricing completeness still modulo Lera's epsilon
+arithmetic (stage B — labeling on the checker engine — pending).
 """
 
 from __future__ import annotations
@@ -65,8 +73,29 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
         arcs[i2][j2] = 1
         travel_times[i2][j2] = pieces
 
+    # Raw MAMUT data for the bridge's checker-exact route pricing (M5.6 stage
+    # A). Lera's preprocessing mutates travel_times/time_windows in place and
+    # the tau pieces store y-x (whose re-addition is not bit-exact), so the
+    # certification arithmetic gets the untouched ATF breakpoints verbatim.
+    mamut_raw = {
+        "num_customers": n,
+        "num_vehicles": int(getattr(instance, "num_vehicles", -1) or -1),
+        "vehicle_capacity": int(instance.vehicle_capacity),
+        "horizon": [float(atfs.horizon[0]), float(atfs.horizon[1])],
+        "has_time_windows": tws is not None,
+        "demands": [int(q) for q in instance.demands],
+        "service_times": [float(s) for s in instance.service_times],
+        "tw_earliest": [float(e) for e, _ in tws] if tws is not None else [],
+        "tw_latest": [float(l) for _, l in tws] if tws is not None else [],
+        "atfs": [
+            [int(i), int(j), [float(x) for x in f.xs], [float(y) for y in f.ys]]
+            for (i, j), f in atfs.arcs.items()
+        ],
+    }
+
     return {
         "problem_type": "TDVRPTW" if tws is not None else "TDVRP",
+        "mamut_raw": mamut_raw,
         "benchmark_basename": "MAMUT-TD",
         "instance_basename": getattr(instance, "name", "mamut-td-instance"),
         "nb_vertices": nv,

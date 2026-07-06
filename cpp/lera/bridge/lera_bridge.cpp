@@ -1,6 +1,7 @@
 // kayros-owned bridge to the vendored Lera-Romero BPC (NOT vendored code).
 #include "lera_bridge.h"
 
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -10,6 +11,7 @@
 #include "bcp/bcp.h"
 #include "bcp/pricing_problem.h"
 #include "bcp/spf.h"
+#include "core/instance.h"
 #include "labeling/bidirectional_labeling.h"
 #include "labeling/labeling_level.h"
 #include "preprocess/preprocess_capacity.h"
@@ -23,8 +25,63 @@ using namespace solver;
 
 namespace kayros::lera {
 
+namespace {
+
+// Checker-exact certification instance (M5.6 stage A) built from the payload's
+// mamut_raw section: untouched MAMUT ATF breakpoints, TWs and service times
+// (Lera's preprocessing folds service/waiting into travel times and shifts
+// TWs, and the tau pieces store y-x whose re-addition is not bit-exact — the
+// certification arithmetic must run on the verbatim data).
+kayros::Instance build_checker_instance(const nlohmann::json& raw) {
+    kayros::Instance ci;
+    ci.num_customers = raw.at("num_customers").get<int32_t>();
+    ci.num_vehicles = raw.at("num_vehicles").get<int32_t>();
+    ci.vehicle_capacity = raw.at("vehicle_capacity").get<int64_t>();
+    ci.horizon_start = raw.at("horizon")[0].get<double>();
+    ci.horizon_end = raw.at("horizon")[1].get<double>();
+    ci.has_time_windows = raw.at("has_time_windows").get<bool>();
+    ci.demands = raw.at("demands").get<vector<int64_t>>();
+    ci.service_times = raw.at("service_times").get<vector<double>>();
+    if (ci.has_time_windows) {
+        ci.tw_earliest = raw.at("tw_earliest").get<vector<double>>();
+        ci.tw_latest = raw.at("tw_latest").get<vector<double>>();
+    }
+    const int64_t nv = ci.num_vertices();
+    vector<vector<double>> xs(nv * nv), ys(nv * nv);
+    for (const auto& e : raw.at("atfs")) {
+        const int64_t a = e[0].get<int64_t>() * nv + e[1].get<int64_t>();
+        xs[a] = e[2].get<vector<double>>();
+        ys[a] = e[3].get<vector<double>>();
+    }
+    ci.atf_offset.assign(nv * nv + 1, 0);
+    for (int64_t a = 0; a < nv * nv; ++a)
+        ci.atf_offset[a + 1] = ci.atf_offset[a] + (int64_t)xs[a].size();
+    ci.atf_xs.reserve(ci.atf_offset.back());
+    ci.atf_ys.reserve(ci.atf_offset.back());
+    for (int64_t a = 0; a < nv * nv; ++a) {
+        ci.atf_xs.insert(ci.atf_xs.end(), xs[a].begin(), xs[a].end());
+        ci.atf_ys.insert(ci.atf_ys.end(), ys[a].begin(), ys[a].end());
+    }
+    return ci;
+}
+
+// Lera path (o=0, customers..., d=n+1) -> checker evaluation of the customers.
+kayros::RouteEval checker_eval(const kayros::Instance& ci, const goc::GraphPath& path) {
+    vector<int32_t> customers;
+    for (goc::Vertex v : path)
+        if (v != 0 && v != ci.num_customers + 1) customers.push_back(v);
+    return kayros::evaluate_route(ci, customers.data(), (int64_t)customers.size());
+}
+
+}  // namespace
+
 std::string solve_duration_json(const std::string& payload, const SolveParams& params) {
     nlohmann::json inst = nlohmann::json::parse(payload);
+
+    // Checker-exact certification instance (M5.6 stage A), grabbed before
+    // Lera's preprocessing mutates the payload.
+    const kayros::Instance checker_inst = build_checker_instance(inst.at("mamut_raw"));
+    inst.erase("mamut_raw");
 
     // Lera's shared preprocessing. travel_times are already in the payload
     // (derived from MAMUT ATF sidecars), so the per-benchmark travel-time
@@ -37,11 +94,19 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
 
     nyr::VRPInstance vrp = inst.get<nyr::VRPInstance>();
 
-    // Create SPF and add initial routes (o, i, d).
+    // Create SPF and add initial routes (o, i, d) with checker-exact costs
+    // (M5.6 stage A: every master objective coefficient is the checker value
+    // of its route, so LP bounds and incumbents live in checker arithmetic).
+    // A checker-infeasible single-customer route keeps Lera's INFTY cost: it
+    // stays as an artificial column guaranteeing RMP feasibility and can
+    // never enter a finite-value solution.
     SPF spf(vrp.D.NbVertices());
     for (Vertex i : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) {
-        auto r = vrp.BestDurationRoute({vrp.o, i, vrp.d});
-        spf.AddRoute(Route(r.path, r.t0, r.value));
+        const GraphPath seed_path{vrp.o, i, vrp.d};
+        auto r = vrp.BestDurationRoute(seed_path);
+        auto ev = checker_eval(checker_inst, seed_path);
+        spf.AddRoute(ev.feasible ? Route(seed_path, ev.departure, ev.duration)
+                                 : Route(r.path, r.t0, r.value));
     }
 
     BCP bcp(vrp.D, &spf);
@@ -49,11 +114,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     bcp.cut_limit = params.cut_limit;
     bcp.node_limit = params.node_limit;
 
-    // Warm start (M5.3): reprice each heuristic route under Lera arithmetic
-    // (never the checker value — a tighter-by-dust UB could prune the true
-    // optimum) and add it as an initial column. Routes that fail Lera
-    // repricing (boundary dust or preprocessing) are skipped; the UB is only
-    // set when the added routes still partition the customers exactly.
+    // Warm start (M5.3): reprice each heuristic route with the checker-exact
+    // fold (M5.6 stage A: the master's arithmetic) and add it as an initial
+    // column. Checker-infeasible routes are skipped; the UB is only set when
+    // the added routes still partition the customers exactly.
     nlohmann::json warm_log;
     if (!params.initial_routes.empty()) {
         vector<int> cover(vrp.D.NbVertices(), 0);
@@ -65,11 +129,11 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             path.push_back(vrp.o);
             for (int c : customers) path.push_back(c);
             path.push_back(vrp.d);
-            auto r = vrp.BestDurationRoute(path);
-            if (r.value == INFTY) { valid_ub = false; continue; }
-            spf.AddRoute(Route(r.path, r.t0, r.value));
+            auto ev = checker_eval(checker_inst, path);
+            if (!ev.feasible) { valid_ub = false; continue; }
+            spf.AddRoute(Route(path, ev.departure, ev.duration));
             ++added;
-            ub_value += r.value;
+            ub_value += ev.duration;
             for (int c : customers) ++cover[c];
         }
         for (Vertex v : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) valid_ub &= cover[v] == 1;
@@ -125,14 +189,24 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             if (!R.empty()) break;
             ++heuristic_level;
         }
-        // Add negative reduced cost routes. (M5.2) The adds are deadline-
-        // checked per route: a full pool is thousands of ~1 ms formulation
-        // inserts, the dominant non-interruptible tail otherwise. Once the
-        // deadline fired the CG status is stamped so a truncated pricing pass
-        // can never masquerade as "no new columns = node optimal".
+        // Add negative reduced cost routes with checker-exact costs (M5.6
+        // stage A). A route the labeling prices but the checker rejects would
+        // break certification integrity — fail loudly, never drop silently
+        // (dropping could let CG claim optimality with improving columns
+        // outstanding). Pricing emits only reduced costs < -1e-6 while the
+        // Lera-vs-checker cost dust is ~1e-11, so every priced column is
+        // still strictly improving under checker costs. (M5.2) The adds are
+        // deadline-checked per route: a full pool is thousands of ~1 ms
+        // formulation inserts, the dominant non-interruptible tail otherwise.
+        // Once the deadline fired the CG status is stamped so a truncated
+        // pricing pass can never masquerade as "no new columns = node
+        // optimal".
         for (auto& r : R) {
             if (bcp.deadline.Reached()) break;
-            spf.AddRoute(r);
+            auto ev = checker_eval(checker_inst, r.path);
+            if (!ev.feasible)
+                fail("M5.6: labeling priced a checker-infeasible route (path " + STR(r.path) + ")");
+            spf.AddRoute(Route(r.path, ev.departure, ev.duration));
         }
         if (bcp.deadline.Reached())
             cg_execution_log->status = CGStatus::TimeLimitReached;
@@ -151,7 +225,22 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["incumbents"] = incumbents;
     if (!warm_log.is_null()) result["warm_start"] = warm_log;
     if (solution.value != INFTY) {
-        result["value"] = solution.value;
+        // (M5.6 stage A) Column costs are checker-exact, but the LP solver's
+        // reported objective sums them in its own order: re-sum the route
+        // costs in the checker's canonical route order (sorted by first
+        // customer, compute_solution_cost convention, left fold) so the
+        // reported value is bit-identical to the checker sum.
+        if (!solution.routes.empty()) {
+            vector<const Route*> ordered;
+            for (const auto& r : solution.routes) ordered.push_back(&r);
+            sort(ordered.begin(), ordered.end(),
+                 [](const Route* a, const Route* b) { return a->path[1] < b->path[1]; });
+            double v = 0.0;
+            for (const Route* r : ordered) v += r->duration;
+            result["value"] = v;
+        } else {
+            result["value"] = solution.value;
+        }
         result["routes"] = solution.routes;
     }
     return result.dump();
