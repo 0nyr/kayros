@@ -22,6 +22,9 @@ struct AcoParams {
     double tau_0 = 2.0;
     double tau_max = 10.0;
     double delta_pheromone_threshold = 1e-4;
+    // M3.7 TD-LS: descend on the greedy seed and on each iteration's best ant
+    // (LCA-BST ranked moves, checker-fold repriced commits).
+    bool use_local_search = true;
 };
 
 struct Incumbent {

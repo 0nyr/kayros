@@ -5,6 +5,7 @@
 
 #include "heuristics/construct.h"
 #include "heuristics/heuristics.h"
+#include "ls/ls.h"
 
 namespace kayros {
 
@@ -174,7 +175,10 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
     {
         std::vector<std::vector<std::int32_t>> greedy_routes;
         if (greedy_makespan(inst, greedy_routes)) {
-            const double value = solution_duration(inst, greedy_routes);
+            double value = solution_duration(inst, greedy_routes);
+            if (params.use_local_search && value != kInfeasible) {
+                value = local_search(inst, greedy_routes);
+            }
             if (value != kInfeasible) {
                 best_value = value;
                 result.routes = std::move(greedy_routes);
@@ -206,6 +210,21 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
             values[ant] = build_ant(inst, pheromone, params, rng, scratch, ants[ant])
                               ? solution_duration(inst, ants[ant])
                               : kInfeasible;
+        }
+
+        // (a') TD-LS on the iteration-best ant (MMAS + local search): the
+        // improved solution both competes for the incumbent and deposits.
+        if (params.use_local_search) {
+            std::uint32_t best_it = params.nb_ants;
+            for (std::uint32_t ant = 0; ant < params.nb_ants; ++ant) {
+                if (values[ant] == kInfeasible) continue;
+                if (best_it == params.nb_ants || values[ant] < values[best_it]) {
+                    best_it = ant;
+                }
+            }
+            if (best_it < params.nb_ants) {
+                values[best_it] = local_search(inst, ants[best_it]);
+            }
         }
 
         // (b) evaporation on the full matrix, floor-clamped at tau_min

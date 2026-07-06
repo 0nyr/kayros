@@ -36,6 +36,10 @@ class Params:
     tau_0: float = 2.0
     tau_max: float = 10.0
     delta_pheromone_threshold: float = 1e-4
+    # TD local search (M3.7): first-improvement descent (inter/intra relocate,
+    # swap, 2-opt*) on the greedy seed and on each iteration's best ant, with
+    # LCA-BST ranked move evaluation and checker-fold repriced commits.
+    local_search: bool = True
 
     def _to_core(self) -> _core.AcoParams:
         params = _core.AcoParams()
@@ -49,6 +53,7 @@ class Params:
         params.tau_0 = self.tau_0
         params.tau_max = self.tau_max
         params.delta_pheromone_threshold = self.delta_pheromone_threshold
+        params.use_local_search = self.local_search
         return params
 
 

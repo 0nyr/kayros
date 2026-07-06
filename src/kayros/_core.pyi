@@ -47,6 +47,7 @@ class AcoParams:
     tau_0: float
     tau_max: float
     delta_pheromone_threshold: float
+    use_local_search: bool
 
 class Incumbent:
     value: float
@@ -68,6 +69,21 @@ class SolveResult:
     iterations_run: int
 
 def greedy_makespan(instance: Instance) -> tuple[bool, list[list[int]]]: ...
+def ls_local_search(
+    instance: Instance, routes: list[list[int]]
+) -> tuple[list[list[int]], float, int, int]: ...
+def ls_evaluate_splice(
+    instance: Instance,
+    route1: list[int],
+    i1: int,
+    j1: int,
+    route2: list[int],
+    i2: int,
+    j2: int,
+) -> tuple[bool, float, float]: ...
+def ls_evaluate_intra_relocate(
+    instance: Instance, route: list[int], i: int, p: int
+) -> tuple[bool, float, float]: ...
 def solution_duration(instance: Instance, routes: list[list[int]]) -> float: ...
 def solve_aco(
     instance: Instance,

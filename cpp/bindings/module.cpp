@@ -10,6 +10,7 @@
 
 #include "core/instance.h"
 #include "heuristics/heuristics.h"
+#include "ls/ls.h"
 #include "pwlf/pwlf.h"
 
 namespace py = pybind11;
@@ -179,7 +180,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("tau_0", &kayros::AcoParams::tau_0)
         .def_readwrite("tau_max", &kayros::AcoParams::tau_max)
         .def_readwrite("delta_pheromone_threshold",
-                       &kayros::AcoParams::delta_pheromone_threshold);
+                       &kayros::AcoParams::delta_pheromone_threshold)
+        .def_readwrite("use_local_search", &kayros::AcoParams::use_local_search);
 
     py::class_<kayros::Incumbent>(m, "Incumbent")
         .def_readonly("value", &kayros::Incumbent::value)
@@ -212,4 +214,48 @@ PYBIND11_MODULE(_core, m) {
           py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
           py::arg("on_incumbent") = kayros::IncumbentCallback{},
           py::call_guard<py::gil_scoped_release>());
+
+    // --- TD-LS layer (M3.7): exposed for the gate tests and experiments ---
+    m.def(
+        "ls_local_search",
+        [](const kayros::Instance& inst,
+           std::vector<std::vector<std::int32_t>> routes) {
+            kayros::LsStats stats;
+            const double value = kayros::local_search(inst, routes, &stats);
+            return py::make_tuple(std::move(routes), value, stats.applied,
+                                  stats.reverted);
+        },
+        py::arg("instance"), py::arg("routes"));
+    m.def(
+        "ls_evaluate_splice",
+        [](const kayros::Instance& inst, const std::vector<std::int32_t>& route1,
+           std::int64_t i1, std::int64_t j1,
+           const std::vector<std::int32_t>& route2, std::int64_t i2,
+           std::int64_t j2) {
+            kayros::RouteState r1, r2;
+            if (!kayros::build_route_state(inst, route1, r1)) {
+                throw std::invalid_argument("route1 is infeasible");
+            }
+            if (!kayros::build_route_state(inst, route2, r2)) {
+                throw std::invalid_argument("route2 is infeasible");
+            }
+            const kayros::RouteEval e =
+                kayros::evaluate_splice(inst, r1, i1, j1, r2, i2, j2);
+            return py::make_tuple(e.feasible, e.duration, e.departure);
+        },
+        py::arg("instance"), py::arg("route1"), py::arg("i1"), py::arg("j1"),
+        py::arg("route2"), py::arg("i2"), py::arg("j2"));
+    m.def(
+        "ls_evaluate_intra_relocate",
+        [](const kayros::Instance& inst, const std::vector<std::int32_t>& route,
+           std::int64_t i, std::int64_t p) {
+            kayros::RouteState r;
+            if (!kayros::build_route_state(inst, route, r)) {
+                throw std::invalid_argument("route is infeasible");
+            }
+            const kayros::RouteEval e =
+                kayros::evaluate_intra_relocate(inst, r, i, p);
+            return py::make_tuple(e.feasible, e.duration, e.departure);
+        },
+        py::arg("instance"), py::arg("route"), py::arg("i"), py::arg("p"));
 }

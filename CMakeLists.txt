@@ -19,6 +19,10 @@ pybind11_add_module(_core
     cpp/core/route_eval.cpp
     cpp/heuristics/greedy_makespan.cpp
     cpp/heuristics/aco.cpp
+    cpp/ls/lca_tree.cpp
+    cpp/ls/leaves.cpp
+    cpp/ls/splice.cpp
+    cpp/ls/local_search.cpp
 )
 target_include_directories(_core PRIVATE cpp)
 target_compile_definitions(_core PRIVATE KAYROS_VERSION="${SKBUILD_PROJECT_VERSION_FULL}")
@@ -31,7 +35,7 @@ if(KAYROS_NATIVE)
 endif()
 
 if(KAYROS_WITH_LERA)
-    message(FATAL_ERROR "KAYROS_WITH_LERA is a placeholder: the Lera BPC component lands at milestone M3.7.")
+    message(FATAL_ERROR "KAYROS_WITH_LERA is a placeholder: the Lera BPC component is not integrated yet.")
 endif()
 
 install(TARGETS _core DESTINATION kayros)
