@@ -49,6 +49,38 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     bcp.cut_limit = params.cut_limit;
     bcp.node_limit = params.node_limit;
 
+    // Warm start (M5.3): reprice each heuristic route under Lera arithmetic
+    // (never the checker value — a tighter-by-dust UB could prune the true
+    // optimum) and add it as an initial column. Routes that fail Lera
+    // repricing (boundary dust or preprocessing) are skipped; the UB is only
+    // set when the added routes still partition the customers exactly.
+    nlohmann::json warm_log;
+    if (!params.initial_routes.empty()) {
+        vector<int> cover(vrp.D.NbVertices(), 0);
+        double ub_value = 0.0;
+        int added = 0;
+        bool valid_ub = true;
+        for (const auto& customers : params.initial_routes) {
+            GraphPath path;
+            path.push_back(vrp.o);
+            for (int c : customers) path.push_back(c);
+            path.push_back(vrp.d);
+            auto r = vrp.BestDurationRoute(path);
+            if (r.value == INFTY) { valid_ub = false; continue; }
+            spf.AddRoute(Route(r.path, r.t0, r.value));
+            ++added;
+            ub_value += r.value;
+            for (int c : customers) ++cover[c];
+        }
+        for (Vertex v : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) valid_ub &= cover[v] == 1;
+        if (valid_ub && added > 0) bcp.SetInitialIncumbent(ub_value);
+        warm_log["routes_given"] = params.initial_routes.size();
+        warm_log["routes_added"] = added;
+        if (valid_ub && added > 0) warm_log["ub"] = ub_value;
+        clog << "Warm start: " << added << "/" << params.initial_routes.size()
+             << " columns added" << (valid_ub && added > 0 ? ", UB set" : ", no UB") << endl;
+    }
+
     nlohmann::json incumbents = nlohmann::json::array();
     bcp.on_incumbent = [&](Duration elapsed, const VRPSolution& sol, const std::string& origin) {
         nlohmann::json entry = {
@@ -117,6 +149,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     nlohmann::json result;
     result["exact_log"] = log;
     result["incumbents"] = incumbents;
+    if (!warm_log.is_null()) result["warm_start"] = warm_log;
     if (solution.value != INFTY) {
         result["value"] = solution.value;
         result["routes"] = solution.routes;

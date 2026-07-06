@@ -65,6 +65,11 @@ BCP::BCP(
 	};
 }
 
+void BCP::SetInitialIncumbent(double value)
+{
+	if (value < z_ub) z_ub = value;
+}
+
 BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 {
 	// Init variables.
@@ -129,7 +134,13 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		if (q.empty() && log.status == BCStatus::DidNotStart) z_lb = z_ub;
 		
 		tstream.WriteRow({STR(rolex.Peek()), STR(log.nodes_closed), STR(log.nodes_open), STR(z_lb), STR(z_ub), STR(spf->formulation->VariableCount())});
-		
+
+		// (kayros M5.5) On an aborted search the global lower bound is the best
+		// open node's bound (q is best-bound-first), not the last popped one —
+		// report it so the final incumbent's true gap is known. If the TL hit
+		// during root CG there is no valid LB and best_bound stays unset.
+		if (!q.empty()) z_lb = std::max(z_lb, q.top()->bound);
+
 		// Delete nodes that were not processed.
 		while (!q.empty()) { delete q.top(); q.pop(); }
 	}

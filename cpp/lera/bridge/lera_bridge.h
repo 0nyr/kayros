@@ -6,6 +6,7 @@
 #include <climits>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace kayros::lera {
 
@@ -14,6 +15,12 @@ struct SolveParams {
     int cut_limit = 100;
     int node_limit = INT_MAX;
     int solution_limit = 3000;  // labeling negative-reduced-cost pool size
+    // Warm start (M5.3): heuristic incumbent routes as customer-id sequences
+    // (MAMUT numbering 1..n, no depots — e.g. kayros Solution.routes). Each
+    // route is repriced under Lera arithmetic and added as an initial SPF
+    // column; when the surviving routes partition the customers exactly, their
+    // Lera-arithmetic total becomes the initial UB for pruning.
+    std::vector<std::vector<int>> initial_routes;
     // Anytime hook (M5.2): called synchronously on every new BCP incumbent
     // with the incumbent record as a JSON string ({time, value, origin,
     // routes}); the same records are also collected in the result's

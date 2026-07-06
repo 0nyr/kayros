@@ -40,9 +40,15 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
     n = instance.num_customers
     nv = n + 2  # 0 = start depot, 1..n = customers, n+1 = end depot (copy of 0)
 
-    time_windows = [
-        [float(earliest), float(latest)] for earliest, latest in instance.time_windows
-    ]
+    # TDVRP instances carry no time windows (M5.4): trivial-TW encoding maps
+    # every vertex to the full horizon; Lera's own preprocessing then tightens
+    # (earliest arrivals / latest feasible departures) to recover pruning.
+    tws = getattr(instance, "time_windows", None)
+    if tws is None:
+        h0, h1 = float(atfs.horizon[0]), float(atfs.horizon[1])
+        time_windows = [[h0, h1] for _ in range(n + 1)]
+    else:
+        time_windows = [[float(earliest), float(latest)] for earliest, latest in tws]
     time_windows.append(list(time_windows[0]))  # end depot mirrors the depot
 
     demands = [int(q) for q in instance.demands] + [0]
@@ -60,7 +66,7 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
         travel_times[i2][j2] = pieces
 
     return {
-        "problem_type": "TDVRPTW",
+        "problem_type": "TDVRPTW" if tws is not None else "TDVRP",
         "benchmark_basename": "MAMUT-TD",
         "instance_basename": getattr(instance, "name", "mamut-td-instance"),
         "nb_vertices": nv,
@@ -86,6 +92,7 @@ def solve_duration(
     node_limit: int | None = None,
     solution_limit: int = 3000,
     on_incumbent: Callable[[dict[str, Any]], None] | None = None,
+    initial_routes: list[list[int]] | None = None,
 ) -> dict[str, Any]:
     """Run the Lera BPC (duration objective) on a loaded MAMUT TD instance.
 
@@ -99,6 +106,23 @@ def solve_duration(
     ``incumbents`` array (``{"time", "value", "origin", "routes"}``, routes in
     Lera numbering). Keep the hook cheap — the solve blocks on it; an exception
     raised inside it aborts the solve and propagates.
+
+    ``initial_routes`` warm-starts the BPC (M5.3) with heuristic incumbent
+    routes as customer-id sequences without depots (``kayros.Solution.routes``
+    fits directly). They are repriced under the solver's own arithmetic, added
+    as initial columns, and — when they still partition the customers — their
+    total becomes the initial upper bound; the result carries a ``warm_start``
+    record. If the BPC proves optimality without improving on that bound, the
+    result has the proven ``value`` but an **empty** ``routes`` list: the
+    initial routes are the optimum and the caller already holds them.
+
+    Gap diagnostic (M5.5): on ``TimeLimitReached``, ``exact_log.best_bound``
+    is a valid lower bound whenever the root relaxation finished (the best
+    open node's bound; absent when the TL hit during root CG — a truncated
+    restricted master value is *not* a valid bound), and
+    ``exact_log.best_int_value`` the best upper bound, so
+    ``(best_int_value - best_bound) / best_int_value`` is the proven gap.
+    ``exact_log.root_lp_value`` carries the root LP bound itself.
     """
     try:
         from kayros import _lera
@@ -122,6 +146,8 @@ def solve_duration(
             on_incumbent(json.loads(incumbent_json))
 
         kwargs["on_incumbent"] = _hook
+    if initial_routes is not None:
+        kwargs["initial_routes"] = [[int(c) for c in route] for route in initial_routes]
     result = _lera.solve_duration_json(json.dumps(payload), **kwargs)
     return json.loads(result)
 
