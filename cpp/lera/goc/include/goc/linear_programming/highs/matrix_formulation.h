@@ -7,7 +7,9 @@
 #ifndef GOC_LINEAR_PROGRAMMING_HIGHS_MATRIX_FORMULATION_H
 #define GOC_LINEAR_PROGRAMMING_HIGHS_MATRIX_FORMULATION_H
 
+#include <cstdint>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -18,6 +20,25 @@ namespace goc
 class MatrixFormulation : public Formulation
 {
 public:
+	// Incremental-sync journal (M5.1b): every mutation is recorded so a
+	// persistent solver backend can replay only the ops it has not consumed
+	// yet (keeping its warm simplex basis) instead of rebuilding the model.
+	// Destructive ops (removals, objective replacement) record FullRebuild.
+	struct Op
+	{
+		enum Type { NewVariable, NewConstraint, ObjectiveCoefficient, ConstraintCoefficient, VariableBounds, ConstraintRightHandSide, FullRebuild } type;
+		int index; // variable index (NewVariable/ObjectiveCoefficient/VariableBounds) or constraint index (NewConstraint/ConstraintRightHandSide); constraint index for ConstraintCoefficient.
+		int index2; // variable index for ConstraintCoefficient.
+		double a, b; // op payload: coefficient / rhs / (lower, upper) bounds.
+	};
+
+	const std::vector<Op>& Journal() const { return journal_; }
+
+	// Opaque per-formulation slots where a solver backend caches its
+	// persistent session (LP and MIP separately). Owned here so the session
+	// dies with the formulation.
+	mutable std::shared_ptr<void> lp_session, mip_session;
+
 	MatrixFormulation();
 	virtual ~MatrixFormulation();
 
@@ -66,6 +87,7 @@ private:
 	std::vector<std::pair<double, double>> variable_bounds_;
 	std::vector<int*> variable_indices_; // heap ints referenced by Variable objects (kept in sync on removal).
 	std::vector<SeparationRoutine*> lazy_constraints_;
+	std::vector<Op> journal_;
 };
 } // namespace goc
 

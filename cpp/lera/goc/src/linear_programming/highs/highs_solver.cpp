@@ -115,6 +115,91 @@ Valuation values_to_valuation(MatrixFormulation* formulation, const vector<doubl
 		valuation.SetValue(formulation->VariableAtIndex(j), values[j]);
 	return valuation;
 }
+
+// Persistent LP session (M5.1b): one Highs instance per formulation, kept in
+// the formulation's opaque lp_session slot. Between solves only the journal
+// ops not yet consumed are replayed (addCol/addRow/changeCoeff/...), so the
+// warm simplex basis survives across CG iterations.
+struct LPSession
+{
+	Highs solver;
+	size_t ops_consumed = 0;
+	bool model_built = false;
+};
+
+void row_bounds_for(const Constraint& constraint, double rhs, double* lower, double* upper)
+{
+	switch (constraint.Sense())
+	{
+		case Constraint::LessEqual: *lower = -kHighsInf; *upper = rhs; break;
+		case Constraint::GreaterEqual: *lower = rhs; *upper = kHighsInf; break;
+		case Constraint::Equality: *lower = *upper = rhs; break;
+	}
+}
+
+// Brings the session's HiGHS model in sync with the formulation.
+void sync_session(LPSession* session, MatrixFormulation* formulation)
+{
+	const auto& journal = formulation->Journal();
+	bool rebuild = !session->model_built;
+	for (size_t k = session->ops_consumed; k < journal.size() && !rebuild; ++k)
+		if (journal[k].type == MatrixFormulation::Op::FullRebuild) rebuild = true;
+
+	if (rebuild)
+	{
+		session->solver.passModel(materialize(formulation, /*relax=*/true));
+		session->model_built = true;
+	}
+	else
+	{
+		Highs& h = session->solver;
+		auto constraints = formulation->Constraints();
+		for (size_t k = session->ops_consumed; k < journal.size(); ++k)
+		{
+			const auto& op = journal[k];
+			double lower, upper;
+			switch (op.type)
+			{
+				case MatrixFormulation::Op::NewVariable:
+					h.addCol(0.0, to_highs_bound(op.a), to_highs_bound(op.b), 0, nullptr, nullptr);
+					break;
+				case MatrixFormulation::Op::NewConstraint:
+				{
+					// Row created from its *current* state (rhs and coefficients);
+					// later journaled ops for this row replay idempotently on top.
+					const Constraint& constraint = constraints[op.index];
+					row_bounds_for(constraint, constraint.RightSide(), &lower, &upper);
+					vector<HighsInt> indices;
+					vector<double> values;
+					for (auto& term: constraint.LeftSide().Terms())
+					{
+						if (term.second == 0.0) continue;
+						indices.push_back(term.first.Index());
+						values.push_back(term.second);
+					}
+					h.addRow(lower, upper, (HighsInt)indices.size(), indices.data(), values.data());
+					break;
+				}
+				case MatrixFormulation::Op::ObjectiveCoefficient:
+					h.changeColCost(op.index, op.a);
+					break;
+				case MatrixFormulation::Op::ConstraintCoefficient:
+					h.changeCoeff(op.index, op.index2, op.a);
+					break;
+				case MatrixFormulation::Op::VariableBounds:
+					h.changeColBounds(op.index, to_highs_bound(op.a), to_highs_bound(op.b));
+					break;
+				case MatrixFormulation::Op::ConstraintRightHandSide:
+					row_bounds_for(constraints[op.index], op.a, &lower, &upper);
+					h.changeRowBounds(op.index, lower, upper);
+					break;
+				case MatrixFormulation::Op::FullRebuild:
+					break; // handled above.
+			}
+		}
+	}
+	session->ops_consumed = journal.size();
+}
 } // anonymous namespace
 
 LPExecutionLog solve_lp(MatrixFormulation* formulation, ostream* screen_output, Duration time_limit,
@@ -122,9 +207,15 @@ LPExecutionLog solve_lp(MatrixFormulation* formulation, ostream* screen_output, 
 {
 	LPExecutionLog execution_log;
 
-	Highs solver;
+	auto session = static_pointer_cast<LPSession>(formulation->lp_session);
+	if (!session)
+	{
+		session = make_shared<LPSession>();
+		formulation->lp_session = session;
+	}
+	Highs& solver = session->solver;
 	configure(solver, screen_output, time_limit, config);
-	solver.passModel(materialize(formulation, /*relax=*/true));
+	sync_session(session.get(), formulation);
 
 	Stopwatch rolex(true);
 	solver.run();

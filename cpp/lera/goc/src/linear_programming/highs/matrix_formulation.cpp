@@ -24,13 +24,16 @@ MatrixFormulation::~MatrixFormulation()
 int MatrixFormulation::AddConstraint(const Constraint& constraint)
 {
 	constraints_.push_back(constraint);
-	return (int)constraints_.size() - 1;
+	int index = (int)constraints_.size() - 1;
+	journal_.push_back({Op::NewConstraint, index, 0, 0.0, 0.0});
+	return index;
 }
 
 void MatrixFormulation::RemoveConstraint(int constraint_index)
 {
 	if (constraint_index < 0 || constraint_index >= (int)constraints_.size()) return;
 	constraints_.erase(constraints_.begin() + constraint_index);
+	journal_.push_back({Op::FullRebuild, 0, 0, 0.0, 0.0});
 }
 
 void MatrixFormulation::AddLazyConstraint(SeparationRoutine* lazy_constraint)
@@ -58,6 +61,7 @@ Variable MatrixFormulation::AddVariable(const string& name, VariableDomain domai
 	variable_domains_.push_back(domain);
 	variable_bounds_.push_back({lower_bound, upper_bound});
 	variable_indices_.push_back(new int((int)variable_indices_.size()));
+	journal_.push_back({Op::NewVariable, *variable_indices_.back(), 0, lower_bound, upper_bound});
 	return Variable(name, variable_indices_.back());
 }
 
@@ -71,43 +75,51 @@ void MatrixFormulation::RemoveVariable(const Variable& variable)
 	variable_domains_.erase(variable_domains_.begin() + i);
 	variable_bounds_.erase(variable_bounds_.begin() + i);
 	for (int j = i; j < (int)variable_indices_.size(); ++j) *variable_indices_[j] = j;
+	journal_.push_back({Op::FullRebuild, 0, 0, 0.0, 0.0});
 }
 
 void MatrixFormulation::SetVariableDomain(const Variable& variable, VariableDomain domain)
 {
 	variable_domains_[variable.Index()] = domain;
+	// Integrality only matters to the (stateless) MIP path; no LP journal op.
 }
 
 void MatrixFormulation::SetVariableBound(const Variable& v, double lower_bound, double upper_bound)
 {
 	variable_bounds_[v.Index()] = {lower_bound, upper_bound};
+	journal_.push_back({Op::VariableBounds, v.Index(), 0, lower_bound, upper_bound});
 }
 
 void MatrixFormulation::SetVariableLowerBound(const Variable& v, double lower_bound)
 {
 	variable_bounds_[v.Index()].first = lower_bound;
+	journal_.push_back({Op::VariableBounds, v.Index(), 0, lower_bound, variable_bounds_[v.Index()].second});
 }
 
 void MatrixFormulation::SetVariableUpperBound(const Variable& v, double upper_bound)
 {
 	variable_bounds_[v.Index()].second = upper_bound;
+	journal_.push_back({Op::VariableBounds, v.Index(), 0, variable_bounds_[v.Index()].first, upper_bound});
 }
 
 void MatrixFormulation::Minimize(const Expression& objective_function)
 {
 	objective_sense_ = Minimization;
 	objective_ = objective_function;
+	journal_.push_back({Op::FullRebuild, 0, 0, 0.0, 0.0});
 }
 
 void MatrixFormulation::Maximize(const Expression& objective_function)
 {
 	objective_sense_ = Maximization;
 	objective_ = objective_function;
+	journal_.push_back({Op::FullRebuild, 0, 0, 0.0, 0.0});
 }
 
 void MatrixFormulation::SetConstraintRightHandSide(int constraint_index, double value)
 {
 	ReplaceConstraint(constraint_index, constraints_[constraint_index].LeftSide(), value);
+	journal_.push_back({Op::ConstraintRightHandSide, constraint_index, 0, value, 0.0});
 }
 
 void MatrixFormulation::SetConstraintCoefficient(int constraint_index, const Variable& variable, double coefficient)
@@ -115,11 +127,13 @@ void MatrixFormulation::SetConstraintCoefficient(int constraint_index, const Var
 	Expression left = constraints_[constraint_index].LeftSide();
 	left.SetVariableCoefficient(variable, coefficient);
 	ReplaceConstraint(constraint_index, left, constraints_[constraint_index].RightSide());
+	journal_.push_back({Op::ConstraintCoefficient, constraint_index, variable.Index(), coefficient, 0.0});
 }
 
 void MatrixFormulation::SetObjectiveCoefficient(const Variable& variable, double coefficient)
 {
 	objective_.SetVariableCoefficient(variable, coefficient);
+	journal_.push_back({Op::ObjectiveCoefficient, variable.Index(), 0, coefficient, 0.0});
 }
 
 Formulation::ObjectiveSense MatrixFormulation::GetObjectiveSense() const
