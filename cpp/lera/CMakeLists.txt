@@ -1,10 +1,19 @@
 # Build for the vendored Lera-Romero BPC component (see NOTICE.md).
-# Only entered when KAYROS_WITH_LERA=ON. Requires a local CPLEX install and
-# Boost, both provided by the nix dev shell (never by shipped wheels).
+# Only entered when KAYROS_WITH_LERA=ON. LP/MIP backend is compile-time:
+#   -DLERA_LP_BACKEND=highs (default) — fully open-source (HiGHS); kayros
+#                                       stays one-line installable
+#   -DLERA_LP_BACKEND=cplex           — optional fast backend, needs a local
+#                                       CPLEX install (nix shell env)
+# Boost is required either way (goc uses Boost.Graph).
 
-if("$ENV{CPLEX_INCLUDE}" STREQUAL "" OR "$ENV{CPLEX_BIN}" STREQUAL "")
-    message(FATAL_ERROR "KAYROS_WITH_LERA needs CPLEX_INCLUDE and CPLEX_BIN in the environment. Enter the nix dev shell (nix develop ./nix-dev), which exports them.")
+set(LERA_LP_BACKEND "highs" CACHE STRING "LP/MIP backend for the Lera BPC: highs | cplex")
+if(NOT LERA_LP_BACKEND MATCHES "^(cplex|highs)$")
+    message(FATAL_ERROR "LERA_LP_BACKEND must be 'highs' or 'cplex' (got: ${LERA_LP_BACKEND})")
 endif()
+if(LERA_LP_BACKEND STREQUAL "highs" AND NOT "$ENV{CPLEX_BIN}" STREQUAL "")
+    message(STATUS "Lera BPC: building the default HiGHS backend. A CPLEX install was detected (CPLEX_BIN set); rebuild with -DLERA_LP_BACKEND=cplex to use it.")
+endif()
+
 if("$ENV{BOOST_INCLUDE}" STREQUAL "" OR "$ENV{BOOST_BIN}" STREQUAL "")
     message(FATAL_ERROR "KAYROS_WITH_LERA needs BOOST_INCLUDE and BOOST_BIN in the environment. Enter the nix dev shell (nix develop ./nix-dev), which exports them.")
 endif()
@@ -15,6 +24,15 @@ find_package(Boost REQUIRED COMPONENTS graph)
 file(GLOB_RECURSE LERA_GOC_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/goc/src/*.cpp)
 file(GLOB_RECURSE LERA_NYR_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/nyr/src/*.cpp)
 file(GLOB_RECURSE LERA_MAIN_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/main/src/*.cpp)
+
+# Backend-specific sources: exactly one backend is compiled in.
+file(GLOB_RECURSE LERA_CPLEX_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/goc/src/linear_programming/cplex/*.cpp)
+file(GLOB_RECURSE LERA_HIGHS_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/goc/src/linear_programming/highs/*.cpp)
+if(LERA_LP_BACKEND STREQUAL "highs")
+    list(REMOVE_ITEM LERA_GOC_SOURCES ${LERA_CPLEX_SOURCES})
+else()
+    list(REMOVE_ITEM LERA_GOC_SOURCES ${LERA_HIGHS_SOURCES})
+endif()
 
 add_library(lera STATIC ${LERA_GOC_SOURCES} ${LERA_NYR_SOURCES} ${LERA_MAIN_SOURCES})
 
@@ -30,12 +48,20 @@ target_include_directories(lera PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/main/include
     ${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include
 )
-target_include_directories(lera SYSTEM PUBLIC
-    $ENV{CPLEX_INCLUDE}
-    ${Boost_INCLUDE_DIRS}
-)
+target_include_directories(lera SYSTEM PUBLIC ${Boost_INCLUDE_DIRS})
+target_link_libraries(lera PUBLIC ${Boost_LIBRARIES} dl m)
 
-target_link_libraries(lera PUBLIC "$ENV{CPLEX_BIN}" ${Boost_LIBRARIES} dl m)
+if(LERA_LP_BACKEND STREQUAL "highs")
+    find_package(highs CONFIG REQUIRED)
+    target_compile_definitions(lera PUBLIC GOC_LP_BACKEND_HIGHS)
+    target_link_libraries(lera PUBLIC highs::highs)
+else()
+    if("$ENV{CPLEX_INCLUDE}" STREQUAL "" OR "$ENV{CPLEX_BIN}" STREQUAL "")
+        message(FATAL_ERROR "LERA_LP_BACKEND=cplex needs CPLEX_INCLUDE and CPLEX_BIN in the environment. Enter the nix dev shell (nix develop ./nix-dev), which exports them, or build with -DLERA_LP_BACKEND=highs.")
+    endif()
+    target_include_directories(lera SYSTEM PUBLIC $ENV{CPLEX_INCLUDE})
+    target_link_libraries(lera PUBLIC "$ENV{CPLEX_BIN}")
+endif()
 
 # kayros-owned bridge (bridge/ is not vendored code): MAMUT instance payload
 # -> Lera preprocessing -> VRPInstance -> duration-objective BCP.
