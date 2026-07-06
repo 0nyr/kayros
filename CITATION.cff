@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+title: KAYROS
+message: >-
+  If you use KAYROS, please cite it using the metadata
+  from this file.
+type: software
+authors:
+  - given-names: Florian
+    family-names: Rascoussier
+    alias: Onyr
+    affiliation: IMT Atlantique; INSA Lyon
+    orcid: "https://orcid.org/0009-0005-3253-9814"
+url: "https://github.com/0nyr/kayros"
+repository-code: "https://github.com/0nyr/kayros"
+abstract: >-
+  KAYROS is an exact and anytime solver for duration-minimization
+  time-dependent vehicle routing problems, including TDVRPTW and TDVRP.
+  It combines a C++23 and pybind11 optimization core with an exact
+  non-decreasing continuous piecewise-linear arrival-time engine,
+  checker-refereed route pricing, greedy construction, and a
+  time-dependent ant colony optimization heuristic for the canonical
+  MAMUT-routing benchmark families.
+keywords:
+  - time-dependent vehicle routing problem
+  - TDVRPTW
+  - TDVRP
+  - vehicle routing problem
+  - anytime optimization
+  - ant colony optimization
+  - route duration
+  - piecewise-linear functions
+  - NDCPWLF
+  - solution validation
+  - operations research
+  - combinatorial optimization
+  - routing
+  - research software
+license: MIT
+version: "0.0.1.dev0"
