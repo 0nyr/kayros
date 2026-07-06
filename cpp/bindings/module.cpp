@@ -181,7 +181,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("tau_max", &kayros::AcoParams::tau_max)
         .def_readwrite("delta_pheromone_threshold",
                        &kayros::AcoParams::delta_pheromone_threshold)
-        .def_readwrite("use_local_search", &kayros::AcoParams::use_local_search);
+        .def_readwrite("use_local_search", &kayros::AcoParams::use_local_search)
+        .def_readwrite("ls_all_ants", &kayros::AcoParams::ls_all_ants);
 
     py::class_<kayros::Incumbent>(m, "Incumbent")
         .def_readonly("value", &kayros::Incumbent::value)

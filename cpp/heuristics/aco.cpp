@@ -212,18 +212,26 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
                               : kInfeasible;
         }
 
-        // (a') TD-LS on the iteration-best ant (MMAS + local search): the
-        // improved solution both competes for the incumbent and deposits.
+        // (a') TD-LS (MMAS + local search): the improved solutions both
+        // compete for the incumbent and deposit. Scope: the iteration-best
+        // feasible ant (default) or every feasible ant.
         if (params.use_local_search) {
-            std::uint32_t best_it = params.nb_ants;
-            for (std::uint32_t ant = 0; ant < params.nb_ants; ++ant) {
-                if (values[ant] == kInfeasible) continue;
-                if (best_it == params.nb_ants || values[ant] < values[best_it]) {
-                    best_it = ant;
+            if (params.ls_all_ants) {
+                for (std::uint32_t ant = 0; ant < params.nb_ants; ++ant) {
+                    if (values[ant] == kInfeasible) continue;
+                    values[ant] = local_search(inst, ants[ant]);
                 }
-            }
-            if (best_it < params.nb_ants) {
-                values[best_it] = local_search(inst, ants[best_it]);
+            } else {
+                std::uint32_t best_it = params.nb_ants;
+                for (std::uint32_t ant = 0; ant < params.nb_ants; ++ant) {
+                    if (values[ant] == kInfeasible) continue;
+                    if (best_it == params.nb_ants || values[ant] < values[best_it]) {
+                        best_it = ant;
+                    }
+                }
+                if (best_it < params.nb_ants) {
+                    values[best_it] = local_search(inst, ants[best_it]);
+                }
             }
         }
 

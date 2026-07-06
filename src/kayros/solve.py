@@ -40,6 +40,9 @@ class Params:
     # swap, 2-opt*) on the greedy seed and on each iteration's best ant, with
     # LCA-BST ranked move evaluation and checker-fold repriced commits.
     local_search: bool = True
+    # LS scope (M3.5.4 round 2): apply TD-LS to every feasible ant instead of
+    # the iteration-best only. More LS work per iteration, denser deposits.
+    ls_all_ants: bool = False
 
     def _to_core(self) -> _core.AcoParams:
         params = _core.AcoParams()
@@ -54,6 +57,7 @@ class Params:
         params.tau_max = self.tau_max
         params.delta_pheromone_threshold = self.delta_pheromone_threshold
         params.use_local_search = self.local_search
+        params.ls_all_ants = self.ls_all_ants
         return params
 
 

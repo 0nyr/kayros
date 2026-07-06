@@ -25,6 +25,7 @@ struct AcoParams {
     // M3.7 TD-LS: descend on the greedy seed and on each iteration's best ant
     // (LCA-BST ranked moves, checker-fold repriced commits).
     bool use_local_search = true;
+    bool ls_all_ants = false;  // apply TD-LS to every feasible ant instead of the iteration-best only
 };
 
 struct Incumbent {
