@@ -4,6 +4,9 @@
 
 **KAYROS** is an exact & anytime solver for **duration-minimization time-dependent vehicle routing** problems — TDVRPTW (with time windows) and TDVRP — benchmarked on the canonical [MAMUT-routing](https://github.com/ANR-MAMUT/MAMUT-routing) TD instance families.
 
+The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime **I**nspired
+**R**outing **O**ptimization **S**olver.
+
 > Status: **alpha**. v0.2.0 ships an anytime time-dependent Ant Colony Optimization heuristic with a time-dependent local-search layer (LCA-BST move evaluation, Blauth et al. 2024) on an exact non-decreasing continuous piecewise-linear (NDCPWLF) arrival-time engine, benchmarked on all four MAMUT TD families — it produced the large majority of the store's current best-known solutions. See the roadmap below.
 
 ## Design principles
