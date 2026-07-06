@@ -1,5 +1,7 @@
 # KAYROS
 
+[![SWH](https://archive.softwareheritage.org/badge/origin/https://github.com/0nyr/kayros/)](https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/0nyr/kayros)
+
 **KAYROS** is an exact & anytime solver for **duration-minimization time-dependent vehicle routing** problems — TDVRPTW (with time windows) and TDVRP — benchmarked on the canonical [MAMUT-routing](https://github.com/ANR-MAMUT/MAMUT-routing) TD instance families.
 
 > Status: **alpha**. v0.2.0 ships an anytime time-dependent Ant Colony Optimization heuristic with a time-dependent local-search layer (LCA-BST move evaluation, Blauth et al. 2024) on an exact non-decreasing continuous piecewise-linear (NDCPWLF) arrival-time engine, benchmarked on all four MAMUT TD families — it produced the large majority of the store's current best-known solutions. See the roadmap below.
@@ -58,6 +60,10 @@ solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumben
 - [x] M3.6 — anytime API (`on_incumbent`, time budgets) + **v0.1.0 on PyPI**
 - [x] M3.7 — time-dependent local search layer (LCA-BST move evaluation, Blauth et al. 2024; **v0.2.0**): tree-ranked relocate/swap/2-opt\* moves, every accepted move repriced by the checker-identical fold; on by default (`Params.local_search`)
 - Later: ACO re-tuning under local search; optional exact BPC (`kayros[lera]`)
+
+## Archival and reproducibility
+
+`kayros` is archived by [Software Heritage](https://www.softwareheritage.org/); the badge above tracks the archive status of the GitHub origin ([archived origin](https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/0nyr/kayros), [archival visits](https://archive.softwareheritage.org/browse/origin/visits/?origin_url=https://github.com/0nyr/kayros)). For academic referencing, prefer Software Heritage identifiers (SWHIDs) of the exact archived revision or release tag over the moving repository origin — when reporting computational results, cite both the kayros release used and the MAMUT-routing benchmark artifacts it was run on.
 
 ## Provenance
 
