@@ -35,7 +35,7 @@ if(KAYROS_NATIVE)
 endif()
 
 if(KAYROS_WITH_LERA)
-    message(FATAL_ERROR "KAYROS_WITH_LERA is a placeholder: the Lera BPC component is not integrated yet.")
+    add_subdirectory(cpp/lera)
 endif()
 
 install(TARGETS _core DESTINATION kayros)
