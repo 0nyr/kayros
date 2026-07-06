@@ -70,10 +70,15 @@ private:
 	void LastArcMerge(LBQueue& qf, const MonodirectionalLabeling::DominanceStructure& Lb);
 	
 	void Merge(Label* l, Label* m);
-	
+
 	// Adds a solution to the pool S if it is the best yet found with those visited vertices.
 	void AddSolution(const goc::GraphPath& p, double min_duration);
-	
+
+	// (kayros M5.2) Deadline of the current Run(), derived from time_limit at
+	// entry; consulted inside IterativeMerge/LastArcMerge so merge loops are
+	// interruptible (they had no time checks and could overshoot unboundedly).
+	goc::Deadline run_deadline_;
+
 	nyr::VRPInstance vrp_;
 
 	// NG-route stuff

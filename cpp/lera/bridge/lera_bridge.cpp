@@ -51,12 +51,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
 
     nlohmann::json incumbents = nlohmann::json::array();
     bcp.on_incumbent = [&](Duration elapsed, const VRPSolution& sol, const std::string& origin) {
-        incumbents.push_back({
+        nlohmann::json entry = {
             {"time", elapsed.Amount(DurationUnit::Seconds)},
             {"value", sol.value},
             {"origin", origin},
             {"routes", sol.routes},
-        });
+        };
+        if (params.on_incumbent) params.on_incumbent(entry.dump());
+        incumbents.push_back(std::move(entry));
     };
 
     // Labeling pricing with the 3-level heuristic ladder of Lera's original
@@ -71,11 +73,12 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     const vector<string> level_names = {"Heuristic Cost", "Heuristic Elementarity", "Exact"};
     size_t heuristic_level = 0;
     bcp.pricing_solver = [&](const PricingProblem& pricing_problem, int /*node_number*/,
-                             Duration tlimit, CGExecutionLog* cg_execution_log) {
-        Stopwatch iteration_rolex(true);
+                             Duration /*tlimit*/, CGExecutionLog* cg_execution_log) {
         vector<Route> R;
         while (heuristic_level < levels.size()) {
-            lbl.time_limit = tlimit - iteration_rolex.Peek();
+            // (M5.2) Residual budget from the BCP's single absolute deadline,
+            // not from a per-call stopwatch chain.
+            lbl.time_limit = bcp.deadline.Remaining();
             auto lbl_log = lbl.Run(pricing_problem, &R, levels[heuristic_level]);
 
             // Add iteration log.
@@ -90,8 +93,17 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             if (!R.empty()) break;
             ++heuristic_level;
         }
-        // Add negative reduced cost routes.
-        for (auto& r : R) spf.AddRoute(r);
+        // Add negative reduced cost routes. (M5.2) The adds are deadline-
+        // checked per route: a full pool is thousands of ~1 ms formulation
+        // inserts, the dominant non-interruptible tail otherwise. Once the
+        // deadline fired the CG status is stamped so a truncated pricing pass
+        // can never masquerade as "no new columns = node optimal".
+        for (auto& r : R) {
+            if (bcp.deadline.Reached()) break;
+            spf.AddRoute(r);
+        }
+        if (bcp.deadline.Reached())
+            cg_execution_log->status = CGStatus::TimeLimitReached;
         if (heuristic_level >= levels.size()) {
             heuristic_level = 0;
             lbl.closing_state = false;

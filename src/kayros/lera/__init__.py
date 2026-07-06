@@ -1,10 +1,11 @@
-"""Optional CPLEX-based exact BPC component (Lera-Romero, Networks 2019).
+"""Optional exact BPC component (Lera-Romero, Networks 2019).
 
-Not shipped in the default build: it requires a local CPLEX installation and a
-source build with ``-DKAYROS_WITH_LERA=ON`` (plan 2, Stream 5). The bridge is
-in-memory: a loaded MAMUT TD instance (+ ATF sidecars) is converted to the
-normalized payload the vendored solver's preprocessing expects; no legacy
-instance files are involved.
+Not shipped in the default build yet: it requires a source build with
+``-DKAYROS_WITH_LERA=ON`` (plan 2, Stream 5). The LP backend is HiGHS by
+default (no external dependency); CPLEX is an opt-in via
+``-DLERA_LP_BACKEND=cplex``. The bridge is in-memory: a loaded MAMUT TD
+instance (+ ATF sidecars) is converted to the normalized payload the vendored
+solver's preprocessing expects; no legacy instance files are involved.
 
 Vertex conventions: MAMUT uses ``0..n`` with the depot at 0; Lera's BPC uses a
 start depot ``o = 0``, customers ``1..n`` and a distinct end depot ``d = n+1``
@@ -14,7 +15,7 @@ start depot ``o = 0``, customers ``1..n`` and a distinct end depot ``d = n+1``
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 
 from mamut_routing_lib.td import LoadedTDInstance
 
@@ -84,6 +85,7 @@ def solve_duration(
     cut_limit: int = 100,
     node_limit: int | None = None,
     solution_limit: int = 3000,
+    on_incumbent: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run the Lera BPC (duration objective) on a loaded MAMUT TD instance.
 
@@ -91,14 +93,20 @@ def solve_duration(
     ``incumbents`` (anytime UB stream), and ``value``/``routes`` when a
     solution was found. Routes are in Lera vertex numbering (see
     ``routes_to_mamut``).
+
+    ``on_incumbent`` makes the solve anytime (M5.2): it fires synchronously on
+    every new BCP incumbent with the same record that lands in the result's
+    ``incumbents`` array (``{"time", "value", "origin", "routes"}``, routes in
+    Lera numbering). Keep the hook cheap — the solve blocks on it; an exception
+    raised inside it aborts the solve and propagates.
     """
     try:
         from kayros import _lera
     except ImportError as exc:  # pragma: no cover - build-dependent
         raise ImportError(
             "kayros._lera is not available in this build. The exact BPC "
-            "component requires CPLEX and a source build with "
-            "-DKAYROS_WITH_LERA=ON (see cpp/lera/NOTICE.md)."
+            "component requires a source build with -DKAYROS_WITH_LERA=ON "
+            "(HiGHS backend by default; see cpp/lera/NOTICE.md)."
         ) from exc
 
     payload = to_lera_payload(loaded)
@@ -109,6 +117,11 @@ def solve_duration(
     }
     if node_limit is not None:
         kwargs["node_limit"] = node_limit
+    if on_incumbent is not None:
+        def _hook(incumbent_json: str) -> None:
+            on_incumbent(json.loads(incumbent_json))
+
+        kwargs["on_incumbent"] = _hook
     result = _lera.solve_duration_json(json.dumps(payload), **kwargs)
     return json.loads(result)
 

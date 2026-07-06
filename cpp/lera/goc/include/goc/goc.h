@@ -63,6 +63,7 @@
 #include "goc/string/string_utils.h"
 
 #include "goc/time/date.h"
+#include "goc/time/deadline.h"
 #include "goc/time/duration.h"
 #include "goc/time/point_in_time.h"
 #include "goc/time/stopwatch.h"

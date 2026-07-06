@@ -123,6 +123,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	
 	BLBExecutionLog log(true);
 	Stopwatch rolex(false), merge_rolex(false);
+	run_deadline_ = Deadline::In(time_limit); // (kayros M5.2)
 	
 	// Init queues with initial labels.
 	LBQueue q[2];
@@ -166,7 +167,11 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			if (!closing_state && log.forward_log->processed_count >= merge_start)
 			{
 				merge_rolex.Reset().Resume();
-				for (Label* l: P) IterativeMerge(l, M[od]);
+				for (Label* l: P)
+				{
+					if (run_deadline_.Reached()) break; // (kayros M5.2)
+					IterativeMerge(l, M[od]);
+				}
 				*log.merge_time += merge_rolex.Pause();
 			}
 			
@@ -198,6 +203,9 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		merge_rolex.Reset().Resume();
 		LastArcMerge(q[0], lbl_[1].U);
 		*log.merge_time += merge_rolex.Pause();
+		// (kayros M5.2) A deadline-truncated merge must not report Finished:
+		// "Finished" is the caller's proof that pricing was exhaustive.
+		if (run_deadline_.Reached()) log.status = BLBStatus::TimeLimitReached;
 	}
 	
 	if (S.size() >= solution_limit) log.status = BLBStatus::SolutionLimitReached;
@@ -207,6 +215,10 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	// Add solutions from the pool to the return vector R.
 	for (auto& V_r: S)
 	{
+		// (kayros M5.2) Repricing the pool (one DP per route) is post-deadline
+		// work on a doomed run once the TL fired — cut the tail. The routes
+		// lost here would never be used: the caller terminates on the TL.
+		if (run_deadline_.Reached()) break;
 		Route& r = V_r.second;
 		// Compute r actual duration (nyr::RouteDuration -> goc::Route).
 		auto best = vrp_.BestDurationRoute(r.path);
@@ -221,6 +233,7 @@ void BidirectionalLabeling::IterativeMerge(Label* l, const MonodirectionalLabeli
 	TimeUnit T = vrp_.T;
 	for (auto& demand_entry : L[l->v])
 	{
+		if (run_deadline_.Reached()) break; // (kayros M5.2)
 		if (S.size() >= solution_limit) break; // Do not exceed solution limit.
 		if (epsilon_bigger(demand_entry.first+l->q-vrp_.q[l->v], vrp_.Q)) break;
 		for (auto& m: demand_entry.second)
@@ -245,6 +258,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 	
 	while (!qf.empty())
 	{
+		if (run_deadline_.Reached()) break; // (kayros M5.2)
 		LazyLabel ll = qf.top();
 		qf.pop();
 		Label* l = ll.parent;

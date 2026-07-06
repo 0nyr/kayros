@@ -4,6 +4,7 @@
 #pragma once
 
 #include <climits>
+#include <functional>
 #include <string>
 
 namespace kayros::lera {
@@ -13,6 +14,11 @@ struct SolveParams {
     int cut_limit = 100;
     int node_limit = INT_MAX;
     int solution_limit = 3000;  // labeling negative-reduced-cost pool size
+    // Anytime hook (M5.2): called synchronously on every new BCP incumbent
+    // with the incumbent record as a JSON string ({time, value, origin,
+    // routes}); the same records are also collected in the result's
+    // "incumbents" array. Keep it cheap — the solve blocks on it.
+    std::function<void(const std::string& incumbent_json)> on_incumbent;
 };
 
 // payload: normalized Lera instance JSON (built by the kayros.lera Python

@@ -62,14 +62,15 @@ CGExecutionLog solve_colgen(
 	int row_count = -1;
 	output.WriteHeader();
 	double objective_value = 0.0;
+	LPExecutionLog lp_log;
 	while (variable_count < formulation->VariableCount() || row_count < formulation->ConstraintCount())
 	{
 		// Check if time limit was exceeded.
 		if (rolex.Peek() >= time_limit) {execution_log.status = CGStatus::TimeLimitReached; break; }
-		
+
 		// Solve LP relaxation to get dual variables.
 		lp_solver->time_limit = time_limit - rolex.Peek();
-		auto lp_log = lp_solver->Solve(formulation, {LPOption::Duals, LPOption::Incumbent});
+		lp_log = lp_solver->Solve(formulation, {LPOption::Duals, LPOption::Incumbent});
 		*execution_log.lp_time += *lp_log.time;
 		
 		if (*lp_log.status != LPStatus::Optimum) { execution_log.status = parse_lp_status(*lp_log.status); break; }
@@ -88,11 +89,14 @@ CGExecutionLog solve_colgen(
 	output.WriteRow({STR(rolex.Peek()), STR(execution_log.iteration_count), STR(objective_value), STR(formulation->VariableCount())});
 	if (screen_output) *screen_output << endl;
 	
-	// If the column generation was solved to optimality, get the actual solution.
+	// If the column generation was solved to optimality, take the solution from
+	// the last in-loop LP solve: the loop exits when pricing added nothing, so
+	// that solve was on the final formulation and is the CG optimum. (kayros
+	// M5.2: this replaces an unconditional re-solve with time_limit reset to
+	// Duration::Max(), which both wasted a solve and escaped the caller's
+	// budget — the reset also leaked into later BCP strong-branching LPs.)
 	if (*execution_log.status == CGStatus::Optimum)
 	{
-		lp_solver->time_limit = Duration::Max();
-		auto lp_log = lp_solver->Solve(formulation, {LPOption::Incumbent});
 		execution_log.incumbent_value = lp_log.incumbent_value;
 		execution_log.incumbent = lp_log.incumbent;
 	}

@@ -27,6 +27,10 @@ class BCP
 {
 public:
 	goc::Duration time_limit;
+	// (M5.2) Absolute deadline derived from time_limit at Run(). All internal
+	// components and the external pricing_solver take their residual budgets
+	// from here (single source, no per-level stopwatch re-derivation).
+	goc::Deadline deadline;
 	int node_limit;
 	int cut_limit;
 	BCPPricingFunction pricing_solver;
