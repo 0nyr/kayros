@@ -1,6 +1,7 @@
 """Typing stubs for the compiled kayros core."""
 
 import enum
+from typing import Callable
 
 __version__: str
 
@@ -73,4 +74,5 @@ def solve_aco(
     params: AcoParams,
     seed: int,
     time_limit_seconds: float,
+    on_incumbent: Callable[[Incumbent, list[list[int]]], None] | None = None,
 ) -> SolveResult: ...

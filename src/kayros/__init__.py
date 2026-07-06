@@ -14,6 +14,7 @@ except PackageNotFoundError:  # editable/source tree without metadata
 from kayros import _core  # noqa: F401  (compiled extension smoke-import)
 from kayros.solve import (  # noqa: F401
     Incumbent,
+    IncumbentHook,
     InfeasibleError,
     KayrosError,
     Params,
@@ -27,6 +28,7 @@ __all__ = [
     "Params",
     "Solution",
     "Incumbent",
+    "IncumbentHook",
     "KayrosError",
     "InfeasibleError",
 ]

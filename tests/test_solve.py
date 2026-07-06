@@ -56,6 +56,43 @@ def test_solve_deterministic(instance_path) -> None:
 
 
 @pytest.mark.parametrize(
+    "instance_path", DABIA_25_TDVRPTW[:1], ids=lambda p: p.name.removesuffix(".vrp.json")
+)
+def test_solve_on_incumbent_hook(instance_path) -> None:
+    """M3.6 anytime hook: fires live on every incumbent, in step with
+    Solution.incumbents, and each event carries a complete routes snapshot."""
+    events: list[tuple[kayros.Incumbent, list[list[int]]]] = []
+    solution = kayros.solve(
+        instance_path, SMALL_BUDGET, seed=1,
+        on_incumbent=lambda inc, routes: events.append((inc, routes)),
+    )
+    assert len(events) == len(solution.incumbents)
+    assert [e[0].value for e in events] == [i.value for i in solution.incumbents]
+    assert events[0][0].origin == "greedy"
+    values = [e[0].value for e in events]
+    assert values == sorted(values, reverse=True), "incumbents must improve"
+    n = max(c for route in solution.routes for c in route)
+    for _, routes in events:
+        served = sorted(c for route in routes for c in route)
+        assert served == list(range(1, n + 1))
+    assert events[-1][1] == solution.routes
+
+
+@pytest.mark.parametrize(
+    "instance_path", DABIA_25_TDVRPTW[:1], ids=lambda p: p.name.removesuffix(".vrp.json")
+)
+def test_solve_on_incumbent_exception_propagates(instance_path) -> None:
+    class Boom(RuntimeError):
+        pass
+
+    def hook(inc, routes):
+        raise Boom("stop")
+
+    with pytest.raises(Boom):
+        kayros.solve(instance_path, SMALL_BUDGET, seed=1, on_incumbent=hook)
+
+
+@pytest.mark.parametrize(
     "instance_path", DABIA_25_TDVRPTW, ids=lambda p: p.name.removesuffix(".vrp.json")
 )
 def test_solve_quality_band_vs_bks(instance_path) -> None:

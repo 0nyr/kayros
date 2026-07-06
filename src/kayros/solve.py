@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from mamut_routing_lib.models import BenchmarkSolution
 from mamut_routing_lib.td import LoadedTDInstance, check_td_solution
@@ -59,6 +60,11 @@ class Incumbent:
     origin: str  # "greedy" or "aco"
 
 
+# Anytime hook: called synchronously from inside the solve loop on every new
+# incumbent, with the incumbent record and its routes (customer ids, no depot).
+IncumbentHook = Callable[[Incumbent, list[list[int]]], None]
+
+
 @dataclass
 class Solution:
     """A checker-validated solution: ``duration`` is always the value computed
@@ -104,6 +110,7 @@ def solve(
     *,
     time_limit: float | None = None,
     seed: int = 0,
+    on_incumbent: IncumbentHook | None = None,
 ) -> Solution:
     """Solve a MAMUT TD instance (TDVRPTW or TDVRP, Duration minimization).
 
@@ -111,14 +118,31 @@ def solve(
     ``LoadedTDInstance``. The returned ``Solution.duration`` is priced by the
     reference checker; an internal/checker disagreement raises (it would be a
     kayros bug, never a rounding issue to tolerate).
+
+    ``on_incumbent`` makes the solve anytime: it fires synchronously on every
+    new incumbent (the greedy seed included) with the ``Incumbent`` record and
+    the routes, so callers can checkpoint solutions while the colony keeps
+    running. Keep the hook cheap — the solve loop blocks on it; an exception
+    raised inside it aborts the solve and propagates.
     """
     loaded = instance if isinstance(instance, LoadedTDInstance) else load_instance(instance)
     core = to_core(loaded)
+
+    hook = None
+    if on_incumbent is not None:
+        def hook(inc, routes):  # noqa: E306 — thin _core -> API adapter
+            on_incumbent(
+                Incumbent(inc.value, inc.seconds, inc.iteration,
+                          "greedy" if inc.origin == 0 else "aco"),
+                [list(route) for route in routes],
+            )
+
     result = _core.solve_aco(
         core,
         (params or Params())._to_core(),
         seed,
         0.0 if time_limit is None else float(time_limit),
+        hook,
     )
     if result.status == _core.SolveStatus.Infeasible or not result.routes:
         raise InfeasibleError(

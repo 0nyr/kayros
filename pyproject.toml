@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "kayros"
-version = "0.0.1.dev0"
+version = "0.1.0"
 description = "KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP)"
 readme = "README.md"
 authors = [
@@ -13,7 +13,7 @@ authors = [
 license = { text = "MIT" }
 requires-python = ">=3.11"
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
@@ -24,15 +24,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
-# NOTE: the canonical benchmark/checker dependency (mamut-routing-lib) is a
-# direct git reference (td branch) until the lib is released on PyPI, so the
-# one-command install `pip install git+https://github.com/0nyr/kayros` pulls
-# everything. Caveat: PyPI rejects metadata with direct URLs — uploading to
-# PyPI requires either the lib released on PyPI first, or a stub build with
-# this dependency stripped. TODO: repoint to `mamut-routing-lib>=X` once the
-# td branch merges and the lib is published.
+# The canonical benchmark/checker dependency: the TD layer (loaders, NDCPWLF
+# reference checker, BKS helpers) landed on PyPI with mamut-routing-lib 0.2.0.
 dependencies = [
-    "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@td",
+    "mamut-routing-lib>=0.2.0",
 ]
 
 [project.optional-dependencies]

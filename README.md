@@ -2,7 +2,7 @@
 
 **KAYROS** is an exact & anytime solver for **duration-minimization time-dependent vehicle routing** problems — TDVRPTW (with time windows) and TDVRP — benchmarked on the canonical [MAMUT-routing](https://github.com/ANR-MAMUT/MAMUT-routing) TD instance families.
 
-> Status: **pre-alpha** (stage 1 under construction). The first usable release (v0.1.0) ships a time-dependent Ant Colony Optimization heuristic on an exact non-decreasing continuous piecewise-linear (NDCPWLF) arrival-time engine. See the roadmap below.
+> Status: **alpha**. v0.1.0 ships an anytime time-dependent Ant Colony Optimization heuristic on an exact non-decreasing continuous piecewise-linear (NDCPWLF) arrival-time engine, benchmarked on all four MAMUT TD families (it seeded the store's initial best-known solutions at scale). The time-dependent local-search layer is next. See the roadmap below.
 
 ## Design principles
 
@@ -12,20 +12,40 @@
 
 ## Install
 
-One command, directly from GitHub, inside your Python environment:
-
 ```sh
-pip install git+https://github.com/0nyr/kayros
+pip install kayros
 ```
 
-This pulls everything, including the benchmark loaders and the reference checker (`mamut-routing-lib`, pinned to the MAMUT-routing `td` branch until it is released on PyPI). For development:
+This pulls everything, including the benchmark loaders and the reference checker ([`mamut-routing-lib`](https://pypi.org/project/mamut-routing-lib/)). For development:
 
 ```sh
 git clone https://github.com/0nyr/kayros && cd kayros
 pip install -e . --group dev    # pip >= 25.1 (or: uv pip install -e . --group dev)
 ```
 
-Requirements: Python ≥ 3.11, a C++23 compiler and CMake ≥ 3.26 (fetched automatically by the build backend when missing).
+Requirements: Python ≥ 3.11; building from source (sdist or checkout) additionally needs a C++23 compiler and CMake ≥ 3.26 (fetched automatically by the build backend when missing).
+
+## Usage
+
+```python
+import kayros
+
+# Any MAMUT-routing TD instance (.vrp.json with its .atf.json sidecar next to it)
+instance_path = "benchmarks/TDVRPTW/Dabia2013/n=25/C101.vrp.json"
+solution = kayros.solve(instance_path, time_limit=10.0, seed=42)
+print(solution.duration, solution.num_routes, solution.status)
+
+# Anytime: react to every new incumbent while the solve keeps running
+def on_incumbent(incumbent, routes):
+    print(f"[{incumbent.seconds:7.2f}s] {incumbent.value:.6f} ({incumbent.origin})")
+
+solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumbent)
+
+# Feed the MAMUT BKS pipeline: solution.to_benchmark_solution() returns the
+# artifact accepted by mamut_routing_lib.td.bks.save_td_solution_as_bks_if_improved.
+```
+
+`solution.duration` is always the value computed by the reference checker (`mamut_routing_lib.td.check_td_solution`) — never an internal approximation.
 
 ## Roadmap (stage 1)
 
@@ -34,9 +54,10 @@ Requirements: Python ≥ 3.11, a C++23 compiler and CMake ≥ 3.26 (fetched auto
 - [x] M3.2 — exact equivalence gate against the reference checker (Dabia2013): 513 tests, 336 instances, zero divergences
 - [x] M3.3 — `kayros.solve()`: greedy construction + TD-ACO
 - [x] M3.4 — all four MAMUT TD families × {TDVRPTW, TDVRP}
-- [ ] M3.5 — large-scale runs, best-known-solution seeding, ACO tuning (in progress)
-- [ ] M3.6 — anytime API (`on_incumbent`, time budgets) + **v0.1.0 on PyPI**
-- Later: time-dependent local search layer; optional exact BPC (`kayros[lera]`)
+- [x] M3.5 — large-scale runs on Grid'5000: seeded the initial best-known solutions for all 1352 MAMUT TD instances
+- [x] M3.6 — anytime API (`on_incumbent`, time budgets) + **v0.1.0 on PyPI**
+- [ ] M3.7 — time-dependent local search layer (LCA-BST move evaluation, Blauth et al. 2024)
+- Later: optional exact BPC (`kayros[lera]`)
 
 ## Provenance
 

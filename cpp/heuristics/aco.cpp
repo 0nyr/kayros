@@ -158,7 +158,8 @@ bool build_ant(const Instance& inst, const std::vector<double>& pheromone,
 }  // namespace
 
 SolveResult solve_aco(const Instance& inst, const AcoParams& params,
-                      std::uint64_t seed, double time_limit_seconds) {
+                      std::uint64_t seed, double time_limit_seconds,
+                      const IncumbentCallback& on_incumbent) {
     using Clock = std::chrono::steady_clock;
     const auto start = Clock::now();
     const auto elapsed = [&start]() {
@@ -179,6 +180,9 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
                 result.routes = std::move(greedy_routes);
                 result.value = value;
                 result.incumbents.push_back({value, elapsed(), 0, 0});
+                if (on_incumbent) {
+                    on_incumbent(result.incumbents.back(), result.routes);
+                }
             }
         }
     }
@@ -238,6 +242,9 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
             result.routes = ants[best_ant];
             result.value = best_value;
             result.incumbents.push_back({best_value, elapsed(), iteration + 1, 1});
+            if (on_incumbent) {
+                on_incumbent(result.incumbents.back(), result.routes);
+            }
         }
 
         // (d) convergence test on total pheromone mass

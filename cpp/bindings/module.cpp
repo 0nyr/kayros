@@ -1,3 +1,4 @@
+#include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -205,7 +206,10 @@ PYBIND11_MODULE(_core, m) {
         return py::make_tuple(ok, std::move(routes));
     });
     m.def("solution_duration", &kayros::solution_duration);
+    // The callback caster re-acquires the GIL for each invocation, so the
+    // solve loop itself can keep running with the GIL released.
     m.def("solve_aco", &kayros::solve_aco, py::arg("instance"),
           py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
+          py::arg("on_incumbent") = kayros::IncumbentCallback{},
           py::call_guard<py::gil_scoped_release>());
 }

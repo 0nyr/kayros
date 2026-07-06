@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "core/instance.h"
@@ -58,10 +59,17 @@ bool greedy_makespan(const Instance& inst,
 double solution_duration(const Instance& inst,
                          const std::vector<std::vector<std::int32_t>>& routes);
 
+// Anytime hook: called synchronously on every new incumbent (greedy seed
+// included) with the incumbent record and the full routes. The value is the
+// canonical-order checker-exact Duration (solution_duration).
+using IncumbentCallback = std::function<void(
+    const Incumbent&, const std::vector<std::vector<std::int32_t>>&)>;
+
 // TD-ACO driver (faithful rewrite of the TDVRPTW-solver heuristic: greedy
 // seed, Ant-System deposits with MMAS bounds, pheromone-mass convergence).
 // time_limit_seconds <= 0 disables the wall-clock limit.
 SolveResult solve_aco(const Instance& inst, const AcoParams& params,
-                      std::uint64_t seed, double time_limit_seconds);
+                      std::uint64_t seed, double time_limit_seconds,
+                      const IncumbentCallback& on_incumbent = {});
 
 }  // namespace kayros
