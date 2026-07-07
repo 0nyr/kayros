@@ -226,6 +226,13 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         int added = 0;
         for (const auto& r : R) {
             if (bcp.deadline.Reached()) break;
+            // Lera's solution pool holds an empty-path INFTY placeholder for
+            // merge candidates whose duration never resolved (Route({}, 0,
+            // INFTY) in AddSolution); pool repricing can emit it. It is not a
+            // column (no customers, INFTY value, never improving), so it is
+            // skipped rather than certified — the loud-fail below is for real
+            // routes the checker rejects.
+            if (r.path.size() < 3) continue;
             if (!column_keys.insert(path_key(r.path)).second) continue;
             auto ev = checker_eval(checker_inst, r.path);
             if (!ev.feasible)
