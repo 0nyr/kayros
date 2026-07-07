@@ -37,6 +37,16 @@ ThetaWarp make_theta_warp(double earliest, double latest, double service_time,
 Pwlf make_return_clamp(double due, double t_end);
 Pwlf make_return_warp(double due, double t_end);
 
+// Remove interior points of exactly-flat runs (equal ys) and exactly-vertical
+// runs (equal xs) in place — the session-7 "safe" dedup class, value-neutral:
+// interpolation on a flat/vertical segment reproduces every removed point
+// bitwise, a flat-run interior can never be a strict minimum of ys[k]-xs[k]
+// (same y, smaller x than the kept run end), and zero-prefix detection keeps
+// the run endpoints. This is what collapses the clamp-totality breakpoint
+// growth (74-93% of rho~'s points are flat-run interiors on wide-TW
+// instances). NEVER applied to the checker-twin reference path.
+void dedup_safe_runs(Pwlf& f);
+
 // h = f + g on dom(f) ∩ dom(g); empty when the intersection is empty.
 // Two-pointer event merge over the union of breakpoints; foreign grid points
 // are filled by the same interpolation arithmetic as evaluate(). Vertical

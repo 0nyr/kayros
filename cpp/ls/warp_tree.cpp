@@ -29,6 +29,10 @@ WarpSegment warp_concat(const WarpSegment& later, const WarpSegment& earlier) {
     if (out.rho.xs.empty()) return {};  // hard wall inside the concatenation
     const Pwlf carried = compose(view(later.omega), view(earlier.rho));
     out.omega = add(view(earlier.omega), view(carried));
+    // Segments are ranking-only: safe dedup always on (value-neutral, and the
+    // clamped tails otherwise dominate the breakpoint budget).
+    dedup_safe_runs(out.rho);
+    dedup_safe_runs(out.omega);
     return out;
 }
 
@@ -48,6 +52,8 @@ WarpSegment warp_bridge_leaf(const Instance& inst, std::int32_t from,
         out.rho = compose(view(theta), alpha);
         out.omega = zero_like(out.rho);
     }
+    dedup_safe_runs(out.rho);
+    dedup_safe_runs(out.omega);
     return out;
 }
 
@@ -64,6 +70,8 @@ WarpSegment warp_return_leaf(const Instance& inst, std::int32_t from, double t_e
                        std::vector<double>(alpha.ys, alpha.ys + alpha.n)};
         out.omega = zero_like(out.rho);
     }
+    dedup_safe_runs(out.rho);
+    dedup_safe_runs(out.omega);
     return out;
 }
 
@@ -98,6 +106,8 @@ std::vector<WarpSegment> warp_route_leaves(const Instance& inst,
                 }
             }
         }
+        dedup_safe_runs(head.rho);
+        dedup_safe_runs(head.omega);
         leaves.push_back(std::move(head));
     }
 

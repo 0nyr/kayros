@@ -43,4 +43,26 @@ SolveResult solve_warp_ils(
     double time_limit_seconds,
     std::vector<std::vector<std::int32_t>> initial_routes = {});
 
+// Warp-in-kick ILS (the P8.3 "budgeted infeasibility" variant): the M7.2
+// feasible-only loop VERBATIM (granular VND, LAHC on plain Durations,
+// restart-to-best, exhaustive-on-best), except the perturbation explores the
+// infeasible region: ruin K clients, reinsert at the best PENALISED position
+// under p_explore (time warp allowed, capacity hard), then repair the kick
+// back to exactly-zero warp by a penalised descent under p_repair (>>
+// p_explore). A kick that cannot be repaired falls back to the feasible-only
+// M7.1 perturbation, so every LAHC candidate is feasible — the trajectory
+// only *passes through* infeasibility inside the kick, paying the warp
+// machinery cost exactly there and nowhere else.
+struct WarpKickIlsParams {
+    IlsParams base;              // the feasible loop's own knobs
+    double p_explore = 1.0;      // penalty during the penalised reinsertion
+    double p_repair = 1e5;       // penalty during the repair descent
+};
+
+// Incumbent origin code 4 = ils-wk.
+SolveResult solve_ils_wk(
+    const Instance& inst, const WarpKickIlsParams& params, std::uint64_t seed,
+    double time_limit_seconds,
+    std::vector<std::vector<std::int32_t>> initial_routes = {});
+
 }  // namespace kayros

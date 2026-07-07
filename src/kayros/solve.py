@@ -73,6 +73,12 @@ class Params:
     ils_max_iterations: int = 0
     # "aco+ils": fraction of the time limit given to the ACO phase.
     aco_budget_fraction: float = 0.5
+    # "ils-wk" (Stream 8, td-time-warp branch only): warp-in-kick ILS — the
+    # feasible ILS loop with the perturbation exploring the infeasible region
+    # (penalised reinsertion under p_explore, repair to exactly-zero warp
+    # under p_repair, feasible-only fallback kick when repair fails).
+    p_explore: float = 1.0
+    p_repair: float = 1e5
 
     def _to_core(self) -> _core.AcoParams:
         params = _core.AcoParams()
@@ -105,6 +111,13 @@ class Params:
         params.exhaustive_on_best = self.exhaustive_on_best
         return params
 
+    def _to_wk_core(self) -> "_core.WarpKickIlsParams":
+        params = _core.WarpKickIlsParams()
+        params.base = self._to_ils_core()
+        params.p_explore = self.p_explore
+        params.p_repair = self.p_repair
+        return params
+
 
 @dataclass
 class Incumbent:
@@ -114,7 +127,7 @@ class Incumbent:
     origin: str  # "greedy" | "aco" | "ils"
 
 
-_ORIGIN_NAMES = {0: "greedy", 1: "aco", 2: "ils"}
+_ORIGIN_NAMES = {0: "greedy", 1: "aco", 2: "ils", 3: "warp-ils", 4: "ils-wk"}
 
 
 # Anytime hook: called synchronously from inside the solve loop on every new
@@ -187,12 +200,13 @@ def solve(
     params = params or Params()
     tl = 0.0 if time_limit is None else float(time_limit)
 
-    if params.strategy not in ("aco", "ils", "aco+ils"):
+    if params.strategy not in ("aco", "ils", "aco+ils", "ils-wk"):
         raise ValueError(f"unknown strategy {params.strategy!r}")
-    if params.strategy == "ils" and tl <= 0.0 and params.ils_max_iterations <= 0:
+    if (params.strategy in ("ils", "ils-wk") and tl <= 0.0
+            and params.ils_max_iterations <= 0):
         raise ValueError(
-            "strategy='ils' needs a time_limit or ils_max_iterations > 0 "
-            "(the ILS loop has no convergence stop)"
+            f"strategy={params.strategy!r} needs a time_limit or "
+            "ils_max_iterations > 0 (the ILS loop has no convergence stop)"
         )
     if params.strategy == "aco+ils" and tl <= 0.0:
         raise ValueError("strategy='aco+ils' needs a time_limit to split")
@@ -219,6 +233,11 @@ def solve(
     elif params.strategy == "ils":
         result = _core.solve_ils(core, params._to_ils_core(), seed, tl,
                                  make_hook())
+        extra_incumbents = []
+    elif params.strategy == "ils-wk":
+        # No live incumbent hook (branch prototype): incumbents are surfaced
+        # post-hoc from the result record.
+        result = _core.solve_ils_wk(core, params._to_wk_core(), seed, tl)
         extra_incumbents = []
     else:  # "aco+ils": ACO phase, then ILS warm-started from the ACO best.
         import time as _time

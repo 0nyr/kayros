@@ -44,8 +44,9 @@ bool build_warp_route_state(const Instance& inst,
                             std::vector<std::int32_t> vertices, double penalty,
                             double t_end, WarpRouteState& state) {
     const std::int64_t m = static_cast<std::int64_t>(vertices.size());
-    // Accounting values ALWAYS from the sequential augmented fold.
-    WarpFunctions wf = warp_route_functions(inst, vertices.data(), m, t_end);
+    // Accounting values ALWAYS from the sequential augmented fold (safe-dedup
+    // path: value-bitwise-identical to the reference fold, gate-tested).
+    WarpFunctions wf = warp_route_functions(inst, vertices.data(), m, t_end, true);
     if (wf.rho.xs.empty()) return false;
     state.vertices = std::move(vertices);
     state.tree.build(warp_route_leaves(inst, state.vertices.data(), m, t_end));

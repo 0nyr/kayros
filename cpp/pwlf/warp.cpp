@@ -59,6 +59,27 @@ Pwlf make_return_warp(double due, double t_end) {
     return f;
 }
 
+void dedup_safe_runs(Pwlf& f) {
+    const std::size_t n = f.xs.size();
+    if (n < 3) return;
+    std::size_t out = 1;
+    for (std::size_t i = 1; i + 1 < n; ++i) {
+        const bool flat_interior =
+            f.ys[out - 1] == f.ys[i] && f.ys[i] == f.ys[i + 1];
+        const bool vert_interior =
+            f.xs[out - 1] == f.xs[i] && f.xs[i] == f.xs[i + 1];
+        if (flat_interior || vert_interior) continue;
+        f.xs[out] = f.xs[i];
+        f.ys[out] = f.ys[i];
+        ++out;
+    }
+    f.xs[out] = f.xs[n - 1];
+    f.ys[out] = f.ys[n - 1];
+    ++out;
+    f.xs.resize(out);
+    f.ys.resize(out);
+}
+
 Pwlf add(PwlfView f, PwlfView g) {
     if (f.n == 0 || g.n == 0) return {};
     const double lo = std::max(f.xs[0], g.xs[0]);
@@ -163,12 +184,26 @@ bool min_zero_warp_duration(PwlfView rho, PwlfView warp, MinShift* out) {
     double tau;
     if (rho.n == 0 || !zero_prefix_end(warp, &tau)) return false;
     bool found = false;
+    bool tau_is_breakpoint = false;
     double best = 0.0, best_x = 0.0;
     for (std::int64_t k = 0; k < rho.n && rho.xs[k] <= tau; ++k) {
         const double value = rho.ys[k] - rho.xs[k];
+        if (rho.xs[k] == tau) tau_is_breakpoint = true;
         if (!found || value < best) {
             best = value;
             best_x = rho.xs[k];
+            found = true;
+        }
+    }
+    // The boundary tau itself is always a candidate: under the safe dedup a
+    // flat run of rho can straddle tau (its interior breakpoint at tau was
+    // removed), and the restricted minimum lives exactly there. Evaluation is
+    // exact in that case (flat interpolation adds t * 0.0).
+    if (!tau_is_breakpoint && tau >= rho.xs[0] && tau <= rho.xs[rho.n - 1]) {
+        const double value = evaluate(rho, tau) - tau;
+        if (!found || value < best) {
+            best = value;
+            best_x = tau;
             found = true;
         }
     }

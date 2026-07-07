@@ -30,7 +30,7 @@ double warp_horizon(const Instance& inst) {
 }
 
 WarpFunctions warp_route_functions(const Instance& inst, const std::int32_t* route,
-                                   std::int64_t len, double t_end) {
+                                   std::int64_t len, double t_end, bool dedup) {
     double dep_lo = inst.horizon_start;
     double dep_hi = inst.horizon_end;
     if (inst.has_time_windows) {
@@ -60,6 +60,10 @@ WarpFunctions warp_route_functions(const Instance& inst, const std::int32_t* rou
             acc = compose(view(theta), view(arrival));
         }
         if (acc.xs.empty()) return {};
+        if (dedup) {
+            dedup_safe_runs(acc);
+            dedup_safe_runs(warp);
+        }
         prev = v;
     }
 
@@ -80,13 +84,18 @@ WarpFunctions warp_route_functions(const Instance& inst, const std::int32_t* rou
     // Horizon truncations after a warp term was added may have shrunk rho's
     // domain: align the warp channel onto it (adding zero is exact).
     warp = add(view(warp), view(zero_on(acc.xs.front(), acc.xs.back())));
+    if (dedup) {
+        dedup_safe_runs(acc);
+        dedup_safe_runs(warp);
+    }
     return {std::move(acc), std::move(warp)};
 }
 
 WarpRouteEval evaluate_route_warp(const Instance& inst, const std::int32_t* route,
-                                  std::int64_t len, double penalty, double t_end) {
+                                  std::int64_t len, double penalty, double t_end,
+                                  bool dedup) {
     WarpRouteEval out;
-    const WarpFunctions wf = warp_route_functions(inst, route, len, t_end);
+    const WarpFunctions wf = warp_route_functions(inst, route, len, t_end, dedup);
     if (wf.rho.xs.empty()) return out;
     out.total = true;
     out.min_warp = wf.warp.ys.front();

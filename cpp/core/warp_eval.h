@@ -27,8 +27,13 @@ struct WarpFunctions {
 };
 
 // route points to customer ids in 1..n, depot excluded (route_eval convention).
+// dedup=false is the checker-twin reference path (grid-prefix gate); dedup=true
+// applies the safe flat/vertical-run dedup after every composition step —
+// value-bitwise-identical accounting (gate-tested), a fraction of the
+// breakpoints. Search and accounting use dedup=true.
 WarpFunctions warp_route_functions(const Instance& inst, const std::int32_t* route,
-                                   std::int64_t len, double t_end);
+                                   std::int64_t len, double t_end,
+                                   bool dedup = false);
 
 struct WarpRouteEval {
     bool total = false;        // rho non-empty; false = hard horizon wall
@@ -43,6 +48,7 @@ struct WarpRouteEval {
 };
 
 WarpRouteEval evaluate_route_warp(const Instance& inst, const std::int32_t* route,
-                                  std::int64_t len, double penalty, double t_end);
+                                  std::int64_t len, double penalty, double t_end,
+                                  bool dedup = false);
 
 }  // namespace kayros

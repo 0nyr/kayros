@@ -8,6 +8,7 @@
 
 #include "core/queries.h"
 #include "heuristics/warp_ils.h"
+#include "ls/perturb.h"
 
 namespace kayros {
 
@@ -293,24 +294,20 @@ bool descend(const Instance& inst, const NeighbourLists& nb, WarpSearch& ws,
     return any_commit;
 }
 
-// Penalised ruin-and-recreate: remove K clients (seeds + granular
-// neighbours), reinsert each at its best penalised position (warp allowed,
-// capacity hard). Falls back to a singleton route within the fleet bound;
-// undoes the whole kick when a client cannot be placed at all.
-bool perturb_warp(const Instance& inst, const NeighbourLists& nb, WarpSearch& ws,
-                  std::mt19937_64& rng, std::int32_t min_removals,
-                  std::int32_t max_removals, double penalty, double t_end) {
+// Draw the removal set: K ~ U[min, max] clients, seeds + granular
+// neighbours, seeded random order (Fisher-Yates, modulo draws).
+std::vector<std::int32_t> draw_removal_set(const Instance& inst,
+                                           const NeighbourLists& nb,
+                                           std::mt19937_64& rng,
+                                           std::int32_t min_removals,
+                                           std::int32_t max_removals) {
     const std::int32_t n = inst.num_customers;
-    if (n < 2 || ws.states.empty()) return false;
-    const std::vector<std::vector<std::int32_t>> backup = extract_routes(ws);
-
     std::int32_t span = max_removals - min_removals + 1;
     if (span < 1) span = 1;
     std::int32_t target = min_removals + static_cast<std::int32_t>(
                                              rng() % static_cast<std::uint64_t>(span));
     if (target > n - 1) target = n - 1;
 
-    // Seeded random client order (Fisher-Yates, modulo draws).
     std::vector<std::int32_t> order(static_cast<std::size_t>(n));
     for (std::int32_t c = 1; c <= n; ++c) order[static_cast<std::size_t>(c - 1)] = c;
     for (std::size_t k = order.size(); k > 1; --k) {
@@ -334,6 +331,28 @@ bool perturb_warp(const Instance& inst, const NeighbourLists& nb, WarpSearch& ws
             }
         }
     }
+    return removed_list;
+}
+
+// Ruin + penalised recreate of a given removal set on a live WarpSearch
+// (which may be a sub-solution: fleet_slack = how many new singleton routes
+// may still be opened globally). Undoes everything on failure.
+bool ruin_recreate_warp(const Instance& inst, const NeighbourLists& nb,
+                        WarpSearch& ws, std::mt19937_64& rng,
+                        const std::vector<std::int32_t>& removal,
+                        double penalty, double t_end, std::int64_t fleet_slack) {
+    const std::int32_t n = inst.num_customers;
+    if (n < 2 || ws.states.empty()) return false;
+    const std::vector<std::vector<std::int32_t>> backup = extract_routes(ws);
+
+    std::vector<bool> removed(static_cast<std::size_t>(n) + 1, false);
+    std::vector<std::int32_t> removed_list;
+    for (const std::int32_t c : removal) {
+        if (ws.route_of[static_cast<std::size_t>(c)] < 0) continue;  // outside
+        removed[static_cast<std::size_t>(c)] = true;
+        removed_list.push_back(c);
+    }
+    if (removed_list.empty()) return false;
 
     // Ruin: rebuild every affected route without its removed clients.
     for (std::int32_t r = static_cast<std::int32_t>(ws.states.size()) - 1; r >= 0;
@@ -366,44 +385,57 @@ bool perturb_warp(const Instance& inst, const NeighbourLists& nb, WarpSearch& ws
         const std::size_t j = static_cast<std::size_t>(rng() % k);
         std::swap(removed_list[k - 1], removed_list[j]);
     }
+    std::int64_t opened = 0;
     for (const std::int32_t c : removed_list) {
         double best_cost = std::numeric_limits<double>::infinity();
         std::int32_t best_r = -1;
         std::int64_t best_p = -1;
-        // Rank positions by fold rebuild directly — kick scale is small
-        // (K <= 25 clients), and the fold IS the accountant.
+        // Tree-ranked insertion (repricing rule: the winning position is
+        // rebuilt through the fold at commit). Candidate positions: adjacent
+        // to granular neighbours of c, plus both route ends.
+        WarpRouteState single;
+        if (!build_warp_route_state(inst, {c}, penalty, t_end, single)) {
+            init_warp_search(inst, backup, penalty, t_end, ws);
+            return false;
+        }
+        std::vector<char> tried;
         for (std::int32_t r = 0; r < static_cast<std::int32_t>(ws.states.size());
              ++r) {
             const WarpRouteState& s = ws.states[static_cast<std::size_t>(r)];
             if (s.load + inst.demands[c] > inst.vehicle_capacity) continue;
             const double base = warp_state_cost(s, penalty);
             const std::int64_t m = static_cast<std::int64_t>(s.vertices.size());
-            for (std::int64_t p = 0; p <= m; ++p) {
-                WarpRouteState cand;
-                if (!build_warp_route_state(inst,
-                                            with_inserted(s.vertices, p, c),
-                                            penalty, t_end, cand)) {
-                    continue;
-                }
-                const double cost = warp_state_cost(cand, penalty) - base;
+            tried.assign(static_cast<std::size_t>(m) + 1, 0);
+            auto try_position = [&](std::int64_t p) {
+                if (p < 0 || p > m || tried[static_cast<std::size_t>(p)]) return;
+                tried[static_cast<std::size_t>(p)] = 1;
+                const WarpRouteEval ins = evaluate_splice_warp(
+                    inst, s, p, p - 1, single, 0, 0, penalty, t_end);
+                if (!ins.total) return;
+                const double cost = ins.penalised - base;
                 if (cost < best_cost) {
                     best_cost = cost;
                     best_r = r;
                     best_p = p;
                 }
+            };
+            try_position(0);
+            try_position(m);
+            for (const std::int32_t* it = nb.neighbours_begin(c);
+                 it != nb.neighbours_end(c); ++it) {
+                if (ws.route_of[static_cast<std::size_t>(*it)] != r) continue;
+                const std::int64_t pv = ws.pos_of[static_cast<std::size_t>(*it)];
+                try_position(pv);
+                try_position(pv + 1);
             }
         }
-        const bool fleet_open =
-            inst.num_vehicles < 0 ||
-            static_cast<std::int32_t>(ws.states.size()) < inst.num_vehicles;
+        const bool fleet_open = fleet_slack < 0 || opened < fleet_slack;
         if (best_r < 0 && fleet_open) {
-            WarpRouteState single;
-            if (build_warp_route_state(inst, {c}, penalty, t_end, single)) {
-                ws.states.push_back(std::move(single));
-                ws.route_epoch.push_back(++ws.epoch);
-                index_route(ws, static_cast<std::int32_t>(ws.states.size()) - 1);
-                continue;
-            }
+            ws.states.push_back(std::move(single));
+            ws.route_epoch.push_back(++ws.epoch);
+            index_route(ws, static_cast<std::int32_t>(ws.states.size()) - 1);
+            ++opened;
+            continue;
         }
         if (best_r < 0) {
             init_warp_search(inst, backup, penalty, t_end, ws);
@@ -421,6 +453,20 @@ bool perturb_warp(const Instance& inst, const NeighbourLists& nb, WarpSearch& ws
         ws.route_epoch[static_cast<std::size_t>(best_r)] = ++ws.epoch;
     }
     return true;
+}
+
+// Full-solution penalised perturbation (solve_warp_ils's kick).
+bool perturb_warp(const Instance& inst, const NeighbourLists& nb, WarpSearch& ws,
+                  std::mt19937_64& rng, std::int32_t min_removals,
+                  std::int32_t max_removals, double penalty, double t_end) {
+    const std::vector<std::int32_t> removal =
+        draw_removal_set(inst, nb, rng, min_removals, max_removals);
+    const std::int64_t fleet_slack =
+        inst.num_vehicles < 0
+            ? -1
+            : inst.num_vehicles - static_cast<std::int64_t>(ws.states.size());
+    return ruin_recreate_warp(inst, nb, ws, rng, removal, penalty, t_end,
+                              fleet_slack);
 }
 
 }  // namespace
@@ -568,6 +614,286 @@ SolveResult solve_warp_ils(const Instance& inst, const WarpIlsParams& params,
         } else {
             if (!init_warp_search(inst, snapshot, penalty, t_end, ws)) break;
             curr = snap_cost;
+        }
+        if (curr < late || slot_empty) history[slot] = curr;
+        ++history_idx;
+    }
+
+    result.iterations_run = iteration;
+    result.status = result.routes.empty() ? SolveStatus::Infeasible : status;
+    return result;
+}
+
+namespace {
+
+// solve_ils's rejection-restore snapshot, duplicated here (file-local there).
+struct WkSnapshot {
+    std::vector<std::vector<std::int32_t>> vertices;
+    std::vector<std::int64_t> touched;
+    std::vector<std::vector<std::int64_t>> last_tested;
+    std::int64_t epoch = 0;
+};
+
+void wk_take_snapshot(const SearchState& ss, WkSnapshot& snap) {
+    snap.vertices.clear();
+    snap.vertices.reserve(ss.states.size());
+    for (const RouteState& s : ss.states) snap.vertices.push_back(s.vertices);
+    snap.touched = ss.touched;
+    snap.last_tested = ss.last_tested;
+    snap.epoch = ss.epoch;
+}
+
+void wk_restore_snapshot(const Instance& inst, SearchState& ss,
+                         const WkSnapshot& snap) {
+    ss.states.resize(snap.vertices.size());
+    for (std::size_t k = 0; k < snap.vertices.size(); ++k) {
+        if (ss.states[k].vertices != snap.vertices[k]) {
+            const bool ok = build_route_state(inst, snap.vertices[k], ss.states[k]);
+            (void)ok;
+        }
+    }
+    ss.touched = snap.touched;
+    ss.last_tested = snap.last_tested;
+    ss.epoch = snap.epoch;
+}
+
+std::vector<std::vector<std::int32_t>> wk_extract(const SearchState& ss) {
+    std::vector<std::vector<std::int32_t>> routes;
+    routes.reserve(ss.states.size());
+    for (const RouteState& s : ss.states) routes.push_back(s.vertices);
+    return routes;
+}
+
+// Adopt the kicked routes into a live SearchState, preserving the RouteStates
+// (trees, deletion caches) of unchanged routes and the staleness arrays —
+// only the rebuilt routes' clients are marked touched (M7.1-style targeted
+// marking, so the following granular descent rescans around the kick only).
+bool wk_adopt_routes(const Instance& inst, SearchState& ss,
+                     const std::vector<std::vector<std::int32_t>>& kicked) {
+    std::vector<RouteState> old = std::move(ss.states);
+    std::vector<char> used(old.size(), 0);
+    ss.states.clear();
+    ss.states.reserve(kicked.size());
+    ++ss.epoch;
+    for (const std::vector<std::int32_t>& r : kicked) {
+        std::int64_t match = -1;
+        for (std::size_t k = 0; k < old.size(); ++k) {
+            if (!used[k] && old[k].vertices == r) {
+                match = static_cast<std::int64_t>(k);
+                break;
+            }
+        }
+        if (match >= 0) {
+            used[static_cast<std::size_t>(match)] = 1;
+            ss.states.push_back(std::move(old[static_cast<std::size_t>(match)]));
+        } else {
+            RouteState st;
+            if (!build_route_state(inst, r, st)) return false;
+            for (const std::int32_t v : r) {
+                ss.touched[static_cast<std::size_t>(v)] = ss.epoch;
+            }
+            ss.states.push_back(std::move(st));
+        }
+    }
+    return true;
+}
+
+// The warp kick: draw the removal set, restrict the warp machinery to the
+// affected SUB-solution (routes holding removed clients or their granular
+// neighbours — the insertion targets), penalised ruin-recreate under
+// p_explore, then a repair descent under p_repair until exactly-zero warp.
+// Untouched routes never pay the warp-state cost, so the kick's price is
+// K-scale, not n-scale. Returns the repaired feasible routes or nothing.
+bool warp_kick(const Instance& inst, const NeighbourLists& nb,
+               const std::vector<std::vector<std::int32_t>>& routes,
+               std::mt19937_64& rng, const WarpKickIlsParams& params,
+               double t_end,
+               const std::chrono::steady_clock::time_point* deadline,
+               std::vector<std::vector<std::int32_t>>* out) {
+    const std::vector<std::int32_t> removal =
+        draw_removal_set(inst, nb, rng, params.base.min_perturbations,
+                         params.base.max_perturbations);
+    if (removal.empty()) return false;
+
+    std::vector<std::int32_t> route_of(
+        static_cast<std::size_t>(inst.num_vertices()), -1);
+    for (std::size_t r = 0; r < routes.size(); ++r) {
+        for (const std::int32_t v : routes[r]) {
+            route_of[static_cast<std::size_t>(v)] = static_cast<std::int32_t>(r);
+        }
+    }
+    std::vector<char> in_subset(routes.size(), 0);
+    for (const std::int32_t c : removal) {
+        const std::int32_t rc = route_of[static_cast<std::size_t>(c)];
+        if (rc >= 0) in_subset[static_cast<std::size_t>(rc)] = 1;
+        for (const std::int32_t* it = nb.neighbours_begin(c);
+             it != nb.neighbours_end(c); ++it) {
+            const std::int32_t rv = route_of[static_cast<std::size_t>(*it)];
+            if (rv >= 0) in_subset[static_cast<std::size_t>(rv)] = 1;
+        }
+    }
+    std::vector<std::vector<std::int32_t>> sub_routes, other_routes;
+    for (std::size_t r = 0; r < routes.size(); ++r) {
+        (in_subset[r] ? sub_routes : other_routes).push_back(routes[r]);
+    }
+    if (sub_routes.empty()) return false;
+
+    WarpSearch ws;
+    if (!init_warp_search(inst, sub_routes, params.p_explore, t_end, ws)) {
+        return false;
+    }
+    const std::int64_t fleet_slack =
+        inst.num_vehicles < 0
+            ? -1
+            : inst.num_vehicles - static_cast<std::int64_t>(routes.size());
+    if (!ruin_recreate_warp(inst, nb, ws, rng, removal, params.p_explore, t_end,
+                            fleet_slack)) {
+        return false;
+    }
+    if (!search_feasible(ws)) {
+        // Repair under a dominating penalty, restricted to the warp-positive
+        // routes and their granular surroundings.
+        std::fill(ws.client_stamp.begin(), ws.client_stamp.end(), ws.epoch);
+        ++ws.epoch;
+        for (std::size_t r = 0; r < ws.states.size(); ++r) {
+            if (ws.states[r].min_warp != 0.0) ws.route_epoch[r] = ws.epoch;
+        }
+        descend(inst, nb, ws, params.p_repair, t_end, deadline);
+        if (!search_feasible(ws)) return false;
+    }
+    *out = std::move(other_routes);
+    for (const WarpRouteState& s : ws.states) out->push_back(s.vertices);
+    return true;
+}
+
+}  // namespace
+
+SolveResult solve_ils_wk(const Instance& inst, const WarpKickIlsParams& params,
+                         std::uint64_t seed, double time_limit_seconds,
+                         std::vector<std::vector<std::int32_t>> initial_routes) {
+    using Clock = std::chrono::steady_clock;
+    const auto start = Clock::now();
+    const auto elapsed = [&start]() {
+        return std::chrono::duration<double>(Clock::now() - start).count();
+    };
+    Clock::time_point deadline_point{};
+    const Clock::time_point* deadline = nullptr;
+    if (time_limit_seconds > 0.0) {
+        deadline_point =
+            start + std::chrono::duration_cast<Clock::duration>(
+                        std::chrono::duration<double>(time_limit_seconds));
+        deadline = &deadline_point;
+    }
+    const auto past = [&]() {
+        return deadline != nullptr && Clock::now() >= *deadline;
+    };
+
+    SolveResult result;
+    const double t_end = warp_horizon(inst);
+
+    std::vector<std::vector<std::int32_t>> seed_routes = std::move(initial_routes);
+    if (seed_routes.empty() &&
+        (!greedy_makespan(inst, seed_routes) ||
+         solution_duration(inst, seed_routes) == kInfeasible)) {
+        result.status = SolveStatus::Infeasible;
+        return result;
+    }
+    const NeighbourLists nb = build_neighbour_lists(
+        inst, params.base.num_neighbours, params.base.weight_wait);
+    const NeighbourLists exhaustive;
+
+    SearchState ss;
+    if (!init_search_state(inst, seed_routes, ss)) {
+        result.status = SolveStatus::Infeasible;
+        return result;
+    }
+    double curr = ls_descend(inst, nb, ss, nullptr, deadline);
+
+    double best = curr;
+    result.routes = wk_extract(ss);
+    result.value = best;
+    result.incumbents.push_back({best, elapsed(), 0, 4});
+
+    if (params.base.exhaustive_on_best && !past()) {
+        mark_all_touched(ss);
+        curr = ls_descend(inst, exhaustive, ss, nullptr, deadline);
+        if (curr < best) {
+            best = curr;
+            result.routes = wk_extract(ss);
+            result.value = best;
+            result.incumbents.push_back({best, elapsed(), 0, 4});
+        }
+    }
+
+    std::mt19937_64 rng(seed);
+    PerturbParams fallback_params;
+    fallback_params.min_removals = params.base.min_perturbations;
+    fallback_params.max_removals = params.base.max_perturbations;
+
+    const std::size_t history_len =
+        params.base.history_length > 0
+            ? static_cast<std::size_t>(params.base.history_length)
+            : 1;
+    std::vector<double> history(history_len,
+                                std::numeric_limits<double>::quiet_NaN());
+    std::uint64_t history_idx = 0;
+    const double init_cost = curr;
+
+    WkSnapshot snapshot;
+    SolveStatus status = SolveStatus::Finished;
+    std::uint64_t iteration = 0;
+    std::int64_t no_improvement = 0;
+
+    for (; iteration < params.base.max_iterations; ++iteration) {
+        if (past()) {
+            status = SolveStatus::TimeLimit;
+            break;
+        }
+        if (no_improvement == params.base.restart_no_improvement) {
+            if (!init_search_state(inst, result.routes, ss)) break;
+            curr = best;
+            std::fill(history.begin(), history.end(),
+                      std::numeric_limits<double>::quiet_NaN());
+            history_idx = 0;
+            no_improvement = 0;
+        }
+
+        wk_take_snapshot(ss, snapshot);
+
+        // Warp kick first; feasible-only M7.1 kick as the fallback.
+        std::vector<std::vector<std::int32_t>> kicked;
+        if (warp_kick(inst, nb, wk_extract(ss), rng, params, t_end, deadline,
+                      &kicked)) {
+            if (!wk_adopt_routes(inst, ss, kicked)) {
+                wk_restore_snapshot(inst, ss, snapshot);
+                perturb(inst, nb, ss, rng, fallback_params);
+            }
+        } else {
+            perturb(inst, nb, ss, rng, fallback_params);
+        }
+        double cand = ls_descend(inst, nb, ss, nullptr, deadline);
+
+        ++no_improvement;
+        if (cand < best) {
+            no_improvement = 0;
+            if (params.base.exhaustive_on_best && !past()) {
+                mark_all_touched(ss);
+                cand = ls_descend(inst, exhaustive, ss, nullptr, deadline);
+            }
+            best = cand;
+            result.routes = wk_extract(ss);
+            result.value = best;
+            result.incumbents.push_back({best, elapsed(), iteration + 1, 4});
+        }
+
+        const std::size_t slot = static_cast<std::size_t>(
+            history_idx % static_cast<std::uint64_t>(history_len));
+        const bool slot_empty = std::isnan(history[slot]);
+        const double late = slot_empty ? init_cost : history[slot];
+        if (cand < late || cand < curr) {
+            curr = cand;
+        } else {
+            wk_restore_snapshot(inst, ss, snapshot);
         }
         if (curr < late || slot_empty) history[slot] = curr;
         ++history_idx;

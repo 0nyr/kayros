@@ -81,6 +81,30 @@ def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str
 
     ev = core.evaluate_route_warp(route, GATE_PENALTY, t_end)
 
+    # Safe-dedup neutrality: the dedup'd fold (the search/accounting path)
+    # must agree BITWISE on every accounting value, and the dedup'd functions
+    # must reproduce every removed breakpoint by interpolation exactly.
+    evd = core.evaluate_route_warp(route, GATE_PENALTY, t_end, True)
+    assert evd["total"] == ev["total"] and evd["feasible"] == ev["feasible"], (ctx, route)
+    if ev["total"]:
+        assert evd["min_warp"] == ev["min_warp"], (ctx, route)
+        if ev["feasible"]:
+            assert evd["duration"] == ev["duration"], (ctx, route)
+        (d_rho_xs, d_rho_ys), (d_w_xs, d_w_ys) = core.route_warp_functions(
+            route, t_end, True
+        )
+        assert len(d_rho_xs) <= len(rho_xs) and len(d_w_xs) <= len(w_xs)
+        for xs_full, ys_full, dxs, dys in (
+            (rho_xs, rho_ys, d_rho_xs, d_rho_ys),
+            (w_xs, w_ys, d_w_xs, d_w_ys),
+        ):
+            prev_x = None
+            for x, y in zip(xs_full, ys_full):
+                if x == prev_x:
+                    continue  # vertical step: evaluate returns the lower value
+                prev_x = x
+                assert _core.pwlf_evaluate(dxs, dys, x) == y, (ctx, route, x)
+
     # G2: checker feasibility == (total AND exactly-zero achievable warp).
     assert ev["feasible"] == (ev["total"] and ev["min_warp"] == 0.0), (ctx, route)
     assert ev["feasible"] == reference.feasible, (ctx, route)

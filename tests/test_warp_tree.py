@@ -74,10 +74,15 @@ def test_tree_full_query_matches_fold(gate_case) -> None:
         assert tree_feasible == ref["feasible"], (path.name, route)
         if tight:
             assert w_ys[0] == pytest.approx(ref["min_warp"], rel=REL_TOL, abs=1e-9)
-            # Zero-warp duration recomputed from the tree channels.
-            tau = max(x for x, y in zip(w_xs, w_ys) if y == 0.0) if tree_feasible else None
+            # Zero-warp duration recomputed from the tree channels, mirroring
+            # min_zero_warp_duration: breakpoints <= tau PLUS the boundary tau
+            # itself (under safe dedup a flat run can straddle tau).
             if tree_feasible:
-                dur = min(y - x for x, y in zip(rho_xs, rho_ys) if x <= tau)
+                tau = max(x for x, y in zip(w_xs, w_ys) if y == 0.0)
+                candidates = [y - x for x, y in zip(rho_xs, rho_ys) if x <= tau]
+                if tau not in rho_xs and rho_xs[0] <= tau <= rho_xs[-1]:
+                    candidates.append(_core.pwlf_evaluate(rho_xs, rho_ys, tau) - tau)
+                dur = min(candidates)
                 assert dur == pytest.approx(ref["duration"], rel=REL_TOL)
         checked += 1
     assert checked > 20

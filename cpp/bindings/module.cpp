@@ -203,22 +203,24 @@ PYBIND11_MODULE(_core, m) {
              [](const kayros::Instance& inst) { return kayros::warp_horizon(inst); })
         .def("route_warp_functions",
              [](const kayros::Instance& inst,
-                const std::vector<std::int32_t>& route, double t_end) {
+                const std::vector<std::int32_t>& route, double t_end,
+                bool dedup) {
                  kayros::WarpFunctions wf = kayros::warp_route_functions(
                      inst, route.data(),
-                     static_cast<std::int64_t>(route.size()), t_end);
+                     static_cast<std::int64_t>(route.size()), t_end, dedup);
                  return py::make_tuple(
                      py::make_tuple(std::move(wf.rho.xs), std::move(wf.rho.ys)),
                      py::make_tuple(std::move(wf.warp.xs), std::move(wf.warp.ys)));
              },
-             py::arg("route"), py::arg("t_end"))
+             py::arg("route"), py::arg("t_end"), py::arg("dedup") = false)
         .def("evaluate_route_warp",
              [](const kayros::Instance& inst,
                 const std::vector<std::int32_t>& route, double penalty,
-                double t_end) {
+                double t_end, bool dedup) {
                  const kayros::WarpRouteEval r = kayros::evaluate_route_warp(
                      inst, route.data(),
-                     static_cast<std::int64_t>(route.size()), penalty, t_end);
+                     static_cast<std::int64_t>(route.size()), penalty, t_end,
+                     dedup);
                  py::dict d;
                  d["total"] = r.total;
                  d["feasible"] = r.feasible;
@@ -229,7 +231,8 @@ PYBIND11_MODULE(_core, m) {
                  d["penalised_departure"] = r.penalised_departure;
                  return d;
              },
-             py::arg("route"), py::arg("penalty"), py::arg("t_end"));
+             py::arg("route"), py::arg("penalty"), py::arg("t_end"),
+             py::arg("dedup") = false);
 
     // --- warp-augmented LS structures (Stream 8, P8.2; gate + bench surface) ---
     py::class_<kayros::WarpRouteState>(m, "WarpRouteState")
@@ -464,6 +467,15 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("penalty_min", &kayros::WarpIlsParams::penalty_min)
         .def_readwrite("penalty_max", &kayros::WarpIlsParams::penalty_max);
     m.def("solve_warp_ils", &kayros::solve_warp_ils, py::arg("instance"),
+          py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
+          py::arg("initial_routes") = std::vector<std::vector<std::int32_t>>{},
+          py::call_guard<py::gil_scoped_release>());
+    py::class_<kayros::WarpKickIlsParams>(m, "WarpKickIlsParams")
+        .def(py::init<>())
+        .def_readwrite("base", &kayros::WarpKickIlsParams::base)
+        .def_readwrite("p_explore", &kayros::WarpKickIlsParams::p_explore)
+        .def_readwrite("p_repair", &kayros::WarpKickIlsParams::p_repair);
+    m.def("solve_ils_wk", &kayros::solve_ils_wk, py::arg("instance"),
           py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
           py::arg("initial_routes") = std::vector<std::vector<std::int32_t>>{},
           py::call_guard<py::gil_scoped_release>());
