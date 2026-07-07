@@ -101,6 +101,9 @@ bool build_route_state(const Instance& inst, std::vector<std::int32_t> vertices,
     state.departure = eval.departure;
     state.load = 0;
     for (const std::int32_t v : state.vertices) state.load += inst.demands[v];
+    state.last_modified = 0;
+    state.del_dur.clear();
+    state.del_valid = false;
     return true;
 }
 

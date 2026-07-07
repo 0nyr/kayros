@@ -26,6 +26,12 @@ struct AcoParams {
     // (LCA-BST ranked moves, checker-fold repriced commits).
     bool use_local_search = true;
     bool ls_all_ants = false;  // apply TD-LS to every feasible ant instead of the iteration-best only
+    // M7.0 granular candidate lists (TD-Vidal proximity; see
+    // tdvrptw-workspace reports/design/td-ils-design.md). Default-on for every
+    // strategy since 0.4.0 (deliberate behavior change vs 0.3.0's exhaustive
+    // scans); 0 restores the exhaustive enumeration.
+    std::int32_t num_neighbours = 50;
+    double weight_wait = 0.2;  // inevitable-wait weight in the proximity
 };
 
 struct Incumbent {

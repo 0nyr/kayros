@@ -182,7 +182,9 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("delta_pheromone_threshold",
                        &kayros::AcoParams::delta_pheromone_threshold)
         .def_readwrite("use_local_search", &kayros::AcoParams::use_local_search)
-        .def_readwrite("ls_all_ants", &kayros::AcoParams::ls_all_ants);
+        .def_readwrite("ls_all_ants", &kayros::AcoParams::ls_all_ants)
+        .def_readwrite("num_neighbours", &kayros::AcoParams::num_neighbours)
+        .def_readwrite("weight_wait", &kayros::AcoParams::weight_wait);
 
     py::class_<kayros::Incumbent>(m, "Incumbent")
         .def_readonly("value", &kayros::Incumbent::value)
@@ -220,13 +222,35 @@ PYBIND11_MODULE(_core, m) {
     m.def(
         "ls_local_search",
         [](const kayros::Instance& inst,
-           std::vector<std::vector<std::int32_t>> routes) {
+           std::vector<std::vector<std::int32_t>> routes,
+           std::int32_t num_neighbours, double weight_wait) {
             kayros::LsStats stats;
-            const double value = kayros::local_search(inst, routes, &stats);
+            const kayros::NeighbourLists nb =
+                kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
+            const double value = kayros::local_search(inst, nb, routes, &stats);
             return py::make_tuple(std::move(routes), value, stats.applied,
                                   stats.reverted);
         },
-        py::arg("instance"), py::arg("routes"));
+        py::arg("instance"), py::arg("routes"), py::arg("num_neighbours") = 0,
+        py::arg("weight_wait") = 0.2);
+    m.def(
+        "ls_neighbour_lists",
+        [](const kayros::Instance& inst, std::int32_t num_neighbours,
+           double weight_wait) {
+            const kayros::NeighbourLists nb =
+                kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
+            std::vector<std::vector<std::int32_t>> lists(
+                static_cast<std::size_t>(inst.num_customers) + 1);
+            if (nb.restricted()) {
+                for (std::int32_t i = 1; i <= inst.num_customers; ++i) {
+                    lists[static_cast<std::size_t>(i)].assign(
+                        nb.neighbours_begin(i), nb.neighbours_end(i));
+                }
+            }
+            return lists;
+        },
+        py::arg("instance"), py::arg("num_neighbours"),
+        py::arg("weight_wait") = 0.2);
     m.def(
         "ls_evaluate_splice",
         [](const kayros::Instance& inst, const std::vector<std::int32_t>& route1,

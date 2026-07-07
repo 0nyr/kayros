@@ -170,6 +170,12 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
     SolveResult result;
     const std::int32_t nv = inst.num_vertices();
 
+    // M7.0 granular candidate lists, built once per solve (exhaustive
+    // sentinel when num_neighbours <= 0).
+    const NeighbourLists nb = params.use_local_search
+        ? build_neighbour_lists(inst, params.num_neighbours, params.weight_wait)
+        : NeighbourLists{};
+
     // Greedy seed: the incumbent the colony must beat.
     double best_value = kInfeasible;
     {
@@ -177,7 +183,7 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
         if (greedy_makespan(inst, greedy_routes)) {
             double value = solution_duration(inst, greedy_routes);
             if (params.use_local_search && value != kInfeasible) {
-                value = local_search(inst, greedy_routes);
+                value = local_search(inst, nb, greedy_routes);
             }
             if (value != kInfeasible) {
                 best_value = value;
@@ -219,7 +225,7 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
             if (params.ls_all_ants) {
                 for (std::uint32_t ant = 0; ant < params.nb_ants; ++ant) {
                     if (values[ant] == kInfeasible) continue;
-                    values[ant] = local_search(inst, ants[ant]);
+                    values[ant] = local_search(inst, nb, ants[ant]);
                 }
             } else {
                 std::uint32_t best_it = params.nb_ants;
@@ -230,7 +236,7 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
                     }
                 }
                 if (best_it < params.nb_ants) {
-                    values[best_it] = local_search(inst, ants[best_it]);
+                    values[best_it] = local_search(inst, nb, ants[best_it]);
                 }
             }
         }

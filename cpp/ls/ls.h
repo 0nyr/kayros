@@ -5,6 +5,7 @@
 
 #include "core/instance.h"
 #include "ls/lca_tree.h"
+#include "ls/neighbours.h"
 
 namespace kayros {
 
@@ -36,6 +37,10 @@ struct RouteState {
     double duration = 0.0;               // ALWAYS the checker-fold repriced value
     double departure = 0.0;              // earliest optimal depot departure
     std::int64_t load = 0;               // demand sum (capacity bookkeeping)
+    // M7.0 bookkeeping (reset by build_route_state):
+    std::int64_t last_modified = 0;      // SearchState epoch of the last commit
+    std::vector<double> del_dur;         // cached deletion rankings per position
+    bool del_valid = false;              // del_dur filled for current vertices
 };
 
 // Build (or rebuild after surgery) the full state: leaves + tree + checker
@@ -63,12 +68,48 @@ struct LsStats {
     std::int64_t reverted = 0;  // tree-ranked candidates the fold rejected
 };
 
+// M7.0 promising-set / staleness state, persistent across descents (the ILS
+// loop keeps one SearchState alive; perturbation marks the ruined clients
+// touched so the following descent rescans only around the kick).
+//
+// Epoch discipline: every committed move bumps `epoch`, stamps both touched
+// routes' last_modified and every client of both post-move routes in
+// `touched`. A pass that completes without committing stamps the clients it
+// enumerated in `last_tested[op]`. A client is (re)enumerated by operator op
+// iff its own context or some granular neighbour's context changed since its
+// stamp; with exhaustive lists (k == 0) the neighbour term degrades to "any
+// commit since the stamp", which makes the whole scheme skip work only after
+// the descent has already proven a fixed point — enumeration order and hence
+// the search trajectory are identical to the pre-M7.0 VND.
+struct SearchState {
+    std::vector<RouteState> states;
+    std::vector<std::int64_t> touched;                    // per vertex id, size n+1
+    std::vector<std::vector<std::int64_t>> last_tested;   // [4][n+1], per operator
+    std::int64_t epoch = 1;
+};
+
+// Build a fresh SearchState (everything touched, nothing tested). Returns
+// false when some route is time-infeasible.
+bool init_search_state(const Instance& inst,
+                       const std::vector<std::vector<std::int32_t>>& routes,
+                       SearchState& ss);
+
+// First-improvement VND descent on a live SearchState (relocate, intra
+// relocate, swap, 2-opt*; granular enumeration under `nb`, staleness-gated).
+// Returns the canonical checker Duration of the final solution.
+double ls_descend(const Instance& inst, const NeighbourLists& nb,
+                  SearchState& ss, LsStats* stats = nullptr);
+
 // First-improvement descent over inter-route relocate, intra-route relocate,
 // inter-route swap and 2-opt*, iterated until a full cycle yields nothing.
 // `routes` is modified in place (empty routes dropped, order otherwise kept);
 // the return value is the canonical checker Duration of the final solution
 // (solution_duration), kInfeasible when the input itself is infeasible.
+// The two-argument overload is the exhaustive pre-M7.0 behavior.
 double local_search(const Instance& inst,
+                    std::vector<std::vector<std::int32_t>>& routes,
+                    LsStats* stats = nullptr);
+double local_search(const Instance& inst, const NeighbourLists& nb,
                     std::vector<std::vector<std::int32_t>>& routes,
                     LsStats* stats = nullptr);
 

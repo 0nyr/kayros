@@ -48,6 +48,9 @@ class AcoParams:
     tau_max: float
     delta_pheromone_threshold: float
     use_local_search: bool
+    ls_all_ants: bool
+    num_neighbours: int
+    weight_wait: float
 
 class Incumbent:
     value: float
@@ -70,8 +73,14 @@ class SolveResult:
 
 def greedy_makespan(instance: Instance) -> tuple[bool, list[list[int]]]: ...
 def ls_local_search(
-    instance: Instance, routes: list[list[int]]
+    instance: Instance,
+    routes: list[list[int]],
+    num_neighbours: int = 0,
+    weight_wait: float = 0.2,
 ) -> tuple[list[list[int]], float, int, int]: ...
+def ls_neighbour_lists(
+    instance: Instance, num_neighbours: int, weight_wait: float = 0.2
+) -> list[list[int]]: ...
 def ls_evaluate_splice(
     instance: Instance,
     route1: list[int],

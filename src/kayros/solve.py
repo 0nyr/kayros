@@ -43,6 +43,13 @@ class Params:
     # LS scope (M3.5.4 round 2): apply TD-LS to every feasible ant instead of
     # the iteration-best only. More LS work per iteration, denser deposits.
     ls_all_ants: bool = False
+    # Granular candidate lists (M7.0): per client, the num_neighbours nearest
+    # others under a TD adaptation of the Vidal (2013) proximity (min ATF
+    # travel duration + weight_wait * inevitable wait), restricting the LS
+    # move enumeration. Default-on since 0.4.0 — a deliberate behavior change
+    # vs 0.3.0's exhaustive scans; set num_neighbours=0 to restore them.
+    num_neighbours: int = 50
+    weight_wait: float = 0.2
 
     def _to_core(self) -> _core.AcoParams:
         params = _core.AcoParams()
@@ -58,6 +65,8 @@ class Params:
         params.delta_pheromone_threshold = self.delta_pheromone_threshold
         params.use_local_search = self.local_search
         params.ls_all_ants = self.ls_all_ants
+        params.num_neighbours = self.num_neighbours
+        params.weight_wait = self.weight_wait
         return params
 
 
