@@ -141,10 +141,15 @@ double removal_cost(const Instance& inst, const WarpRouteState& r,
 
 // One first-improvement descent pass set over inter-route relocate + swap,
 // granular justification, route-level staleness. Returns true if any move
-// committed.
+// committed. stop_when_feasible: exit as soon as every route has exactly-zero
+// warp — the REPAIR mode. A full descent to a penalised local optimum from a
+// kicked state usually walks straight back to the pre-kick solution (it is
+// the nearest local optimum), silently undoing the kick's diversification —
+// observed as hard stagnation on Lera n>=200 in the first calibration.
 bool descend(const Instance& inst, const NeighbourLists& nb, WarpSearch& ws,
              double penalty, double t_end,
-             const std::chrono::steady_clock::time_point* deadline) {
+             const std::chrono::steady_clock::time_point* deadline,
+             bool stop_when_feasible = false) {
     const std::int32_t n = inst.num_customers;
     bool any_commit = false;
     bool improved = true;
@@ -286,6 +291,7 @@ bool descend(const Instance& inst, const NeighbourLists& nb, WarpSearch& ws,
             if (committed) {
                 improved = true;
                 any_commit = true;
+                if (stop_when_feasible && search_feasible(ws)) return any_commit;
             } else {
                 ws.client_stamp[static_cast<std::size_t>(c)] = ws.epoch;
             }
@@ -758,7 +764,8 @@ bool warp_kick(const Instance& inst, const NeighbourLists& nb,
         for (std::size_t r = 0; r < ws.states.size(); ++r) {
             if (ws.states[r].min_warp != 0.0) ws.route_epoch[r] = ws.epoch;
         }
-        descend(inst, nb, ws, params.p_repair, t_end, deadline);
+        descend(inst, nb, ws, params.p_repair, t_end, deadline,
+                /*stop_when_feasible=*/true);
         if (!search_feasible(ws)) return false;
     }
     *out = std::move(other_routes);
