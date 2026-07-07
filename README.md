@@ -1,19 +1,12 @@
 # KAYROS
 
-[![SWH](https://archive.softwareheritage.org/badge/origin/https://github.com/0nyr/kayros/)](https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/0nyr/kayros)
+[![PyPI](https://img.shields.io/pypi/v/kayros)](https://pypi.org/project/kayros/) [![SWH](https://archive.softwareheritage.org/badge/origin/https://github.com/0nyr/kayros/)](https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/0nyr/kayros)
 
 **KAYROS** is an exact & anytime solver for **duration-minimization time-dependent vehicle routing** problems — TDVRPTW (with time windows) and TDVRP — benchmarked on the canonical [MAMUT-routing](https://github.com/ANR-MAMUT/MAMUT-routing) TD instance families.
 
-The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime **I**nspired
-**R**outing **O**ptimization **S**olver.
+The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime-**Y**ielding **R**outing **O**ptimization **S**olver.
 
-> Status: **alpha**. v0.3.0 ships an anytime time-dependent Ant Colony Optimization heuristic with a time-dependent local-search layer (LCA-BST move evaluation, Blauth et al. 2024) on an exact non-decreasing continuous piecewise-linear (NDCPWLF) arrival-time engine, benchmarked on all four MAMUT TD families — it produced the large majority of the store's current best-known solutions — **plus the exact branch-price-and-cut component** (`kayros.lera`, Lera-Romero et al. 2020, HiGHS backend) in the default install: proven optima with checker-exact certificates and BKS-warm-started certification. See the roadmap below.
-
-## Design principles
-
-- **One command install, no proprietary dependency.** The default build is pure open source (C++23 + pybind11), including the exact branch-price-and-cut component of Lera-Romero et al. on the open-source [HiGHS](https://highs.dev/) LP backend (built statically into the wheel). The faster CPLEX backend remains strictly a source-build opt-in (`-DLERA_LP_BACKEND=cplex`) and never ships in wheels.
-- **Exact arithmetic, checker-refereed.** Route durations are computed on NDCPWLF arrival-time functions with exact doubles — no epsilon comparisons. Every solution kayros reports is priced by the reference checker of [`mamut-routing-lib`](https://github.com/ANR-MAMUT/MAMUT-routing); the checker's value is the value.
-- **POD core.** The C++ core is plain structs, flat arrays and free functions — optimization-kernel style, no framework.
+> Status: **alpha**, under active development as part of a PhD. v0.3.0 ships both solving modes: the anytime heuristic stack (TD-ACO + time-dependent local search), which produced the large majority of the MAMUT store's best-known solutions, and the exact branch-price-and-cut component (`kayros.lera`), which certified 334 of them optimal.
 
 ## Install
 
@@ -28,9 +21,11 @@ git clone https://github.com/0nyr/kayros && cd kayros
 pip install -e . --group dev    # pip >= 25.1 (or: uv pip install -e . --group dev)
 ```
 
-Requirements: Python ≥ 3.11; building from source (sdist or checkout) additionally needs a C++23 compiler and CMake ≥ 3.26 (fetched automatically by the build backend when missing).
+Requirements: Python ≥ 3.11. Building from source (sdist or checkout) additionally needs a C++23 compiler, CMake ≥ 3.26 (fetched automatically by the build backend when missing) and Boost.Graph headers+library; the HiGHS LP solver is fetched and built statically by CMake when no install is found.
 
 ## Usage
+
+Anytime heuristic solve — construction + ant colony + local search, streaming every new incumbent:
 
 ```python
 import kayros
@@ -45,25 +40,41 @@ def on_incumbent(incumbent, routes):
     print(f"[{incumbent.seconds:7.2f}s] {incumbent.value:.6f} ({incumbent.origin})")
 
 solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumbent)
-
-# Feed the MAMUT BKS pipeline: solution.to_benchmark_solution() returns the
-# artifact accepted by mamut_routing_lib.td.bks.save_td_solution_as_bks_if_improved.
 ```
 
-`solution.duration` is always the value computed by the reference checker (`mamut_routing_lib.td.check_td_solution`) — never an internal approximation.
+Exact solve — branch-price-and-cut with checker-exact certificates, optionally warm-started from a known solution (the fast path when certifying near-optimal solutions, e.g. stored best-known ones):
 
-## Roadmap (stage 1)
+```python
+from mamut_routing_lib.td import load_td_instance
+from kayros.lera import solve_duration
 
-- [x] M3.0 — package scaffold, CI, PyPI wiring
-- [x] M3.1 — NDCPWLF composition engine + POD instance/route core
-- [x] M3.2 — exact equivalence gate against the reference checker (Dabia2013): 513 tests, 336 instances, zero divergences
-- [x] M3.3 — `kayros.solve()`: greedy construction + TD-ACO
-- [x] M3.4 — all four MAMUT TD families × {TDVRPTW, TDVRP}
-- [x] M3.5 — large-scale runs on Grid'5000: seeded the initial best-known solutions for all 1352 MAMUT TD instances
-- [x] M3.6 — anytime API (`on_incumbent`, time budgets) + **v0.1.0 on PyPI**
-- [x] M3.7 — time-dependent local search layer (LCA-BST move evaluation, Blauth et al. 2024; **v0.2.0**): tree-ranked relocate/swap/2-opt\* moves, every accepted move repriced by the checker-identical fold; on by default (`Params.local_search`)
-- [x] M5 (stream 5) — exact Lera-Romero BPC vendored on a HiGHS backend, warm starts, TDVRP support, honest TL gaps, checker-exact certificates; certification campaign over all families n≤50 (334 proven optima, 42 BKS improvements; **v0.3.0**)
-- Later: ACO re-tuning under local search (phase 2 pending); larger-instance certification
+loaded = load_td_instance(instance_path)
+result = solve_duration(loaded, time_limit_s=600.0,
+                        initial_routes=[list(r) for r in solution.routes])
+print(result["exact_log"]["status"], result["value"])
+# status == "Optimum" with routes == [] means: the warm-start solution itself
+# is proven optimal. On a time limit, result["exact_log"]["best_bound"] is a
+# valid global lower bound when the root relaxation finished (absent otherwise).
+```
+
+`solution.duration` and `result["value"]` are always values computed by the reference checker (`mamut_routing_lib.td.check_td_solution`) — never an internal approximation.
+
+## Design
+
+KAYROS is two solving modes on one exact time-dependent engine:
+
+- **The engine** (`cpp/pwlf`, `cpp/core`) represents arrival times as non-decreasing continuous piecewise-linear functions (NDCPWLF) and evaluates routes by exact function composition — a bit-identical C++ port of the reference checker's arithmetic (gated by an equivalence suite over the full benchmark set).
+- **The anytime stack** (`kayros.solve`): greedy construction, a MAX-MIN TD ant colony, and a time-dependent local-search layer using LCA-BST move evaluation (Blauth et al. 2024) — tree-ranked relocate/swap/2-opt\* where every *accepted* move is repriced by the checker-identical fold before it counts.
+- **The exact component** (`kayros.lera`): the branch-price-and-cut solver of Lera-Romero, Rönnqvist & Ljungqvist (2020), vendored under `cpp/lera/` (see its `NOTICE.md`) on the open-source [HiGHS](https://highs.dev/) LP backend, extended with deadline-compliant anytime behavior, warm starts through columns, TDVRP support, and honest time-limit gap reporting. Every column entering the master problem is repriced in the checker's arithmetic, so reported values — and optimality certificates — are checker-exact: *optimal under checker-exact route costs and standard LP/pricing tolerances, completeness modulo the search engine's epsilon dominance*.
+
+## Core principles
+
+- **The checker is the referee.** Every solution and every certificate is priced by the reference checker of `mamut-routing-lib`; the checker's value is the value.
+- **Exact arithmetic.** Plain IEEE-754 doubles, no epsilon comparisons in the engine, no FMA contraction (`-ffp-contract=off`); results are bit-reproducible across machines.
+- **Anytime first.** Time budgets are hard deadlines honored by every component (heuristics and exact search alike), and incumbents stream out as they are found — a solver that only answers at the end is not a solver you can interrupt.
+- **One-command install, no proprietary dependency.** The default build — including the exact component — is pure open source; HiGHS is built statically into the wheels. The faster CPLEX backend for the BPC remains strictly a source-build opt-in (`-DLERA_LP_BACKEND=cplex`) and never ships in wheels.
+- **One run is one thread.** No intra-run parallelism; parallelism belongs to the experiment layer above.
+- **POD core.** The fresh C++ is plain structs, flat arrays and free functions — optimization-kernel style, no framework (the vendored BPC keeps its upstream style, contained under `cpp/lera/`).
 
 ## Archival and reproducibility
 
@@ -71,4 +82,4 @@ solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumben
 
 ## Provenance
 
-KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as part of a PhD in operations research (IMT Atlantique / INSA Lyon), under the supervision of Romain Billot, Christine Solnon and Lina Fahed. The NDCPWLF composition engine follows Visser & Spliet (2020)'s move-evaluation theorems; the TD-ACO is a rewrite of the author's heuristic layer originally built on the TDVRPTW solver of Lera-Romero, Rönnqvist & Ljungqvist (2020, MIT-licensed). MIT license.
+KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as part of a PhD in operations research (IMT Atlantique / INSA Lyon), under the supervision of Romain Billot, Christine Solnon and Lina Fahed. The NDCPWLF composition engine follows Visser & Spliet (2020)'s move-evaluation theorems; the local-search move evaluation follows Blauth et al. (2024); the exact component vendors the branch-price-and-cut solver of Lera-Romero, Rönnqvist & Ljungqvist (2020, MIT-licensed — provenance and local modifications documented in `cpp/lera/NOTICE.md`); the TD-ACO is a rewrite of the author's heuristic layer originally built on that same solver. MIT license.
