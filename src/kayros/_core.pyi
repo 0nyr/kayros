@@ -52,6 +52,16 @@ class AcoParams:
     num_neighbours: int
     weight_wait: float
 
+class IlsParams:
+    max_iterations: int
+    num_neighbours: int
+    weight_wait: float
+    min_perturbations: int
+    max_perturbations: int
+    history_length: int
+    restart_no_improvement: int
+    exhaustive_on_best: bool
+
 class Incumbent:
     value: float
     seconds: float
@@ -106,6 +116,13 @@ def solution_duration(instance: Instance, routes: list[list[int]]) -> float: ...
 def solve_aco(
     instance: Instance,
     params: AcoParams,
+    seed: int,
+    time_limit_seconds: float,
+    on_incumbent: Callable[[Incumbent, list[list[int]]], None] | None = None,
+) -> SolveResult: ...
+def solve_ils(
+    instance: Instance,
+    params: IlsParams,
     seed: int,
     time_limit_seconds: float,
     on_incumbent: Callable[[Incumbent, list[list[int]]], None] | None = None,

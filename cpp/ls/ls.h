@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
@@ -99,9 +100,18 @@ bool init_search_state(const Instance& inst,
 
 // First-improvement VND descent on a live SearchState (relocate, intra
 // relocate, swap, 2-opt*; granular enumeration under `nb`, staleness-gated).
-// Returns the canonical checker Duration of the final solution.
+// Returns the canonical checker Duration of the final solution. An optional
+// deadline is checked between operator passes (M7.2 anytime compliance): on
+// expiry the descent stops at the next pass boundary — always a consistent,
+// fold-repriced state — so the overshoot is bounded by one operator pass.
 double ls_descend(const Instance& inst, const NeighbourLists& nb,
-                  SearchState& ss, LsStats* stats = nullptr);
+                  SearchState& ss, LsStats* stats = nullptr,
+                  const std::chrono::steady_clock::time_point* deadline = nullptr);
+
+// Invalidate every staleness stamp (one epoch, all clients touched): required
+// when the enumeration mode widens (granular -> exhaustive polish), since
+// granular-era stamps certify a weaker coverage than exhaustive enumeration.
+void mark_all_touched(SearchState& ss);
 
 // First-improvement descent over inter-route relocate, intra-route relocate,
 // inter-route swap and 2-opt*, iterated until a full cycle yields nothing.

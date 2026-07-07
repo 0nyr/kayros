@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <vector>
 
 #include "core/instance.h"
@@ -34,11 +35,33 @@ struct AcoParams {
     double weight_wait = 0.2;  // inevitable-wait weight in the proximity
 };
 
+// M7.2 TD-ILS parameters (Stream 7, tdvrptw-workspace
+// reports/design/td-ils-design.md; loop shape and defaults per PyVRP v0.14's
+// IteratedLocalSearch + LAHC, adapted to feasible-only checker-exact search).
+struct IlsParams {
+    std::uint64_t max_iterations = std::numeric_limits<std::uint64_t>::max();
+    // Granular LS (M7.0): shared with the perturbation's neighbourhoods.
+    std::int32_t num_neighbours = 50;
+    double weight_wait = 0.2;
+    // Perturbation magnitude (M7.1).
+    std::int32_t min_perturbations = 1;
+    std::int32_t max_perturbations = 25;
+    // Late-acceptance hill climbing (Burke & Bykov 2017, both section-4.2
+    // enhancements as in PyVRP).
+    std::int32_t history_length = 300;
+    // Restart-to-best after this many iterations without a global-best
+    // improvement. PyVRP's 150k assumes microsecond iterations; kayros ILS
+    // iterations are ms-class, so the default is scaled down (M7.4 tunable).
+    std::int64_t restart_no_improvement = 20000;
+    // Exhaustive-VND polish on every new global best (PyVRP-consistent).
+    bool exhaustive_on_best = true;
+};
+
 struct Incumbent {
     double value = 0.0;            // Duration (canonical-order, checker-exact)
     double seconds = 0.0;          // wall time since solve start
     std::uint64_t iteration = 0;   // 0 = greedy seed
-    std::int32_t origin = 0;       // 0 = greedy, 1 = aco
+    std::int32_t origin = 0;       // 0 = greedy, 1 = aco, 2 = ils
 };
 
 enum class SolveStatus : std::int32_t {
@@ -79,6 +102,16 @@ using IncumbentCallback = std::function<void(
 // seed, Ant-System deposits with MMAS bounds, pheromone-mass convergence).
 // time_limit_seconds <= 0 disables the wall-clock limit.
 SolveResult solve_aco(const Instance& inst, const AcoParams& params,
+                      std::uint64_t seed, double time_limit_seconds,
+                      const IncumbentCallback& on_incumbent = {});
+
+// TD-ILS driver (M7.2): greedy seed -> granular descent (+ exhaustive polish)
+// -> {perturb, granular descent, LAHC accept, restart-to-best} until the
+// budget ends. Feasible-only; every value is the canonical checker Duration;
+// the incumbent stream is monotone (LAHC worse-accepts stay internal). The
+// time limit is checked per iteration and threaded into the descent's pass
+// boundaries, so the overshoot is bounded by one operator pass.
+SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit_seconds,
                       const IncumbentCallback& on_incumbent = {});
 

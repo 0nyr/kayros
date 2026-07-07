@@ -396,6 +396,11 @@ bool two_opt_star_pass(const Instance& inst, const NeighbourLists& nb,
 
 }  // namespace
 
+void mark_all_touched(SearchState& ss) {
+    const std::int64_t epoch = ++ss.epoch;
+    for (std::size_t c = 1; c < ss.touched.size(); ++c) ss.touched[c] = epoch;
+}
+
 Pwlf departure_identity(const Instance& inst) {
     double dep_lo = inst.horizon_start;
     double dep_hi = inst.horizon_end;
@@ -422,15 +427,20 @@ bool init_search_state(const Instance& inst,
 }
 
 double ls_descend(const Instance& inst, const NeighbourLists& nb,
-                  SearchState& ss, LsStats* stats) {
+                  SearchState& ss, LsStats* stats,
+                  const std::chrono::steady_clock::time_point* deadline) {
+    const auto past = [deadline]() {
+        return deadline != nullptr &&
+               std::chrono::steady_clock::now() >= *deadline;
+    };
     // First-improvement VND: any committed move restarts the operator cycle.
     // Terminates: every commit strictly decreases the (checker-fold) total.
     bool improved = true;
-    while (improved) {
+    while (improved && !past()) {
         improved = relocate_pass(inst, nb, ss, stats) ||
-                   intra_pass(inst, nb, ss, stats) ||
-                   swap_pass(inst, nb, ss, stats) ||
-                   two_opt_star_pass(inst, nb, ss, stats);
+                   (!past() && intra_pass(inst, nb, ss, stats)) ||
+                   (!past() && swap_pass(inst, nb, ss, stats)) ||
+                   (!past() && two_opt_star_pass(inst, nb, ss, stats));
     }
     std::vector<std::vector<std::int32_t>> routes;
     routes.reserve(ss.states.size());

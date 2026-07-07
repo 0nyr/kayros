@@ -189,6 +189,21 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("num_neighbours", &kayros::AcoParams::num_neighbours)
         .def_readwrite("weight_wait", &kayros::AcoParams::weight_wait);
 
+    py::class_<kayros::IlsParams>(m, "IlsParams")
+        .def(py::init<>())
+        .def_readwrite("max_iterations", &kayros::IlsParams::max_iterations)
+        .def_readwrite("num_neighbours", &kayros::IlsParams::num_neighbours)
+        .def_readwrite("weight_wait", &kayros::IlsParams::weight_wait)
+        .def_readwrite("min_perturbations",
+                       &kayros::IlsParams::min_perturbations)
+        .def_readwrite("max_perturbations",
+                       &kayros::IlsParams::max_perturbations)
+        .def_readwrite("history_length", &kayros::IlsParams::history_length)
+        .def_readwrite("restart_no_improvement",
+                       &kayros::IlsParams::restart_no_improvement)
+        .def_readwrite("exhaustive_on_best",
+                       &kayros::IlsParams::exhaustive_on_best);
+
     py::class_<kayros::Incumbent>(m, "Incumbent")
         .def_readonly("value", &kayros::Incumbent::value)
         .def_readonly("seconds", &kayros::Incumbent::seconds)
@@ -217,6 +232,10 @@ PYBIND11_MODULE(_core, m) {
     // The callback caster re-acquires the GIL for each invocation, so the
     // solve loop itself can keep running with the GIL released.
     m.def("solve_aco", &kayros::solve_aco, py::arg("instance"),
+          py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
+          py::arg("on_incumbent") = kayros::IncumbentCallback{},
+          py::call_guard<py::gil_scoped_release>());
+    m.def("solve_ils", &kayros::solve_ils, py::arg("instance"),
           py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
           py::arg("on_incumbent") = kayros::IncumbentCallback{},
           py::call_guard<py::gil_scoped_release>());
