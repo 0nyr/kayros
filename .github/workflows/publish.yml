@@ -30,6 +30,12 @@ jobs:
           CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux*"
           CIBW_ARCHS_LINUX: "x86_64"
+          # M5.8: the lera BPC ships in wheels. HiGHS is fetched and built
+          # statically by CMake; Boost.Graph comes from the image and is
+          # vendored into the wheel by auditwheel repair.
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_BEFORE_ALL_LINUX: dnf -y install boost-devel
+          CIBW_TEST_COMMAND: python -c "import kayros._core, kayros._lera; from kayros import lera"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels

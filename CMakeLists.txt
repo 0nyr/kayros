@@ -7,9 +7,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Local-benchmarking builds only: never enabled for shipped wheels/sdists.
 option(KAYROS_NATIVE "Build with -march=native (local benchmarking only)" OFF)
-# CPLEX-based Lera-Romero BPC component: requires a local CPLEX install.
-# The default build must stay free of any proprietary dependency.
-option(KAYROS_WITH_LERA "Build the CPLEX-based exact BPC component" OFF)
+# Lera-Romero exact BPC component (M5.8: part of the default install). The
+# default LP backend is HiGHS (open source, fetched and built statically when
+# no install is found); CPLEX remains a source-build opt-in via
+# -DLERA_LP_BACKEND=cplex. The default build stays free of any proprietary
+# dependency.
+option(KAYROS_WITH_LERA "Build the exact BPC component (HiGHS by default)" ON)
 
 find_package(pybind11 CONFIG REQUIRED)
 

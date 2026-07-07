@@ -7,13 +7,16 @@ on:
 
 jobs:
   no-cplex-gate:
-    # The default kayros build must never reference CPLEX headers.
+    # The default kayros build must never reference CPLEX headers. The
+    # vendored Lera CPLEX backend (cpp/lera/goc/*/linear_programming/cplex/)
+    # is the sanctioned exception: CMake compiles it only under the opt-in
+    # -DLERA_LP_BACKEND=cplex, never in the default (HiGHS) build.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Grep gate — no ilcplex/ilconcert in default sources
+      - name: Grep gate — no ilcplex/ilconcert outside the opt-in cplex backend
         run: |
-          ! grep -rn --include='*.h' --include='*.hpp' --include='*.cpp' -e 'ilcplex' -e 'ilconcert' cpp/ src/
+          ! grep -rn --include='*.h' --include='*.hpp' --include='*.cpp' --exclude-dir=cplex -e 'ilcplex' -e 'ilconcert' cpp/ src/
 
   test:
     runs-on: ubuntu-latest
@@ -28,8 +31,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Upgrade pip (dependency-groups support needs >= 25.1)
         run: python -m pip install --upgrade pip
+      - name: Install Boost.Graph (lera BPC dependency; HiGHS is fetched by CMake)
+        run: sudo apt-get update && sudo apt-get install -y libboost-graph-dev
       - name: Install (editable + dev group)
         run: pip install -e . --group dev
+      - name: Lera BPC import gate (default install ships the exact component)
+        run: python -c "import kayros._lera; from kayros import lera; print('lera OK')"
       - name: Fetch Dabia2013 n=25 benchmarks (sparse)
         run: |
           git clone --depth 1 --filter=blob:none --sparse \

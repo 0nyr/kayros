@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "kayros"
-version = "0.2.0"
+version = "0.3.0"
 description = "KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP)"
 readme = "README.md"
 authors = [
@@ -31,8 +31,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# lera: the CPLEX-based Lera-Romero BPC component (source build only, requires
-# a CPLEX install and -DKAYROS_WITH_LERA=ON). Placeholder until M3.7.
+# lera: kept as a no-op alias for older install instructions — the exact BPC
+# component (HiGHS backend) ships in the default build since 0.3.0 (M5.8).
+# The CPLEX backend stays a source-build opt-in (-DLERA_LP_BACKEND=cplex).
 lera = []
 
 [dependency-groups]
