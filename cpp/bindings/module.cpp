@@ -8,9 +8,12 @@
 #include <utility>
 #include <vector>
 
+#include <random>
+
 #include "core/instance.h"
 #include "heuristics/heuristics.h"
 #include "ls/ls.h"
+#include "ls/perturb.h"
 #include "pwlf/pwlf.h"
 
 namespace py = pybind11;
@@ -251,6 +254,37 @@ PYBIND11_MODULE(_core, m) {
         },
         py::arg("instance"), py::arg("num_neighbours"),
         py::arg("weight_wait") = 0.2);
+    m.def(
+        "ls_perturb",
+        [](const kayros::Instance& inst,
+           std::vector<std::vector<std::int32_t>> routes, std::uint64_t seed,
+           std::int32_t min_removals, std::int32_t max_removals,
+           std::int32_t num_neighbours, double weight_wait) {
+            const kayros::NeighbourLists nb =
+                kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
+            kayros::SearchState ss;
+            if (!kayros::init_search_state(inst, routes, ss)) {
+                throw std::invalid_argument("input solution is infeasible");
+            }
+            std::mt19937_64 rng(seed);
+            kayros::PerturbParams params;
+            params.min_removals = min_removals;
+            params.max_removals = max_removals;
+            const kayros::PerturbOutcome outcome =
+                kayros::perturb(inst, nb, ss, rng, params);
+            routes.clear();
+            routes.reserve(ss.states.size());
+            for (kayros::RouteState& s : ss.states) {
+                routes.push_back(std::move(s.vertices));
+            }
+            const double value = kayros::solution_duration(inst, routes);
+            return py::make_tuple(std::move(routes), value, outcome.applied,
+                                  outcome.removed, outcome.redraws,
+                                  outcome.new_routes);
+        },
+        py::arg("instance"), py::arg("routes"), py::arg("seed"),
+        py::arg("min_removals") = 1, py::arg("max_removals") = 25,
+        py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2);
     m.def(
         "ls_evaluate_splice",
         [](const kayros::Instance& inst, const std::vector<std::int32_t>& route1,

@@ -7,18 +7,6 @@ namespace kayros {
 
 namespace {
 
-// Depot departure window as an identity accumulator, or empty when void.
-Pwlf departure_identity(const Instance& inst) {
-    double dep_lo = inst.horizon_start;
-    double dep_hi = inst.horizon_end;
-    if (inst.has_time_windows) {
-        dep_lo = std::max(dep_lo, inst.tw_earliest[0]);
-        dep_hi = std::min(dep_hi, inst.tw_latest[0]);
-    }
-    if (dep_lo > dep_hi) return {};
-    return identity(dep_lo, dep_hi);
-}
-
 RouteEval finish(const Pwlf& acc) {
     if (acc.xs.empty()) return {false, 0.0, 0.0};
     const MinShift s = min_shifted_image(view(acc));

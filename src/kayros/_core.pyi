@@ -81,6 +81,15 @@ def ls_local_search(
 def ls_neighbour_lists(
     instance: Instance, num_neighbours: int, weight_wait: float = 0.2
 ) -> list[list[int]]: ...
+def ls_perturb(
+    instance: Instance,
+    routes: list[list[int]],
+    seed: int,
+    min_removals: int = 1,
+    max_removals: int = 25,
+    num_neighbours: int = 50,
+    weight_wait: float = 0.2,
+) -> tuple[list[list[int]], float, bool, int, int, int]: ...
 def ls_evaluate_splice(
     instance: Instance,
     route1: list[int],

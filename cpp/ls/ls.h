@@ -15,6 +15,10 @@ namespace kayros {
 // - every ACCEPTED move is repriced by the sequential checker-identical fold
 //   (evaluate_route) before being committed — trees rank, the fold accounts.
 
+// Identity function over the feasible depot departure window (empty when the
+// depot TW is inverted). The left end of every route fold.
+Pwlf departure_identity(const Instance& inst);
+
 // Route leaves per the P4.0 convention, for r = (o, r0..r_{m-1}, o):
 //   L_0 = theta_{r0} ∘ alpha_{o,r0} ∘ identity(depot departure window)
 //   L_i = theta_{r[i]} ∘ alpha_{r[i-1],r[i]}          (1 <= i <= m-1)
@@ -38,7 +42,6 @@ struct RouteState {
     double departure = 0.0;              // earliest optimal depot departure
     std::int64_t load = 0;               // demand sum (capacity bookkeeping)
     // M7.0 bookkeeping (reset by build_route_state):
-    std::int64_t last_modified = 0;      // SearchState epoch of the last commit
     std::vector<double> del_dur;         // cached deletion rankings per position
     bool del_valid = false;              // del_dur filled for current vertices
 };

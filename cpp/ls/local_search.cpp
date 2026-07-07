@@ -17,17 +17,6 @@ constexpr double kScreenEps = 1e-9;
 // Operator indices into SearchState::last_tested.
 enum Op : std::size_t { kRelocate = 0, kIntra = 1, kSwap = 2, kTwoOptStar = 3 };
 
-Pwlf departure_identity(const Instance& inst) {
-    double dep_lo = inst.horizon_start;
-    double dep_hi = inst.horizon_end;
-    if (inst.has_time_windows) {
-        dep_lo = std::max(dep_lo, inst.tw_earliest[0]);
-        dep_hi = std::min(dep_hi, inst.tw_latest[0]);
-    }
-    if (dep_lo > dep_hi) return {};
-    return identity(dep_lo, dep_hi);
-}
-
 // Commit path (memo Decision 3): rebuild the changed routes from scratch —
 // leaves, tree and the sequential checker-fold repricing — and accept only if
 // the repriced sum of the touched routes strictly improves on their old sum.
@@ -66,8 +55,6 @@ bool commit_two(const Instance& inst, SearchState& ss, std::size_t a,
     const std::int64_t epoch = ++ss.epoch;
     for (const std::int32_t v : cand_a.vertices) ss.touched[v] = epoch;
     for (const std::int32_t v : cand_b.vertices) ss.touched[v] = epoch;
-    cand_a.last_modified = epoch;
-    cand_b.last_modified = epoch;
     // Commit: replace in place, drop emptied routes (higher index first).
     std::size_t drop_first = states.size(), drop_second = states.size();
     if (cand_a.vertices.empty()) drop_first = a; else states[a] = std::move(cand_a);
@@ -408,6 +395,17 @@ bool two_opt_star_pass(const Instance& inst, const NeighbourLists& nb,
 }
 
 }  // namespace
+
+Pwlf departure_identity(const Instance& inst) {
+    double dep_lo = inst.horizon_start;
+    double dep_hi = inst.horizon_end;
+    if (inst.has_time_windows) {
+        dep_lo = std::max(dep_lo, inst.tw_earliest[0]);
+        dep_hi = std::min(dep_hi, inst.tw_latest[0]);
+    }
+    if (dep_lo > dep_hi) return {};
+    return identity(dep_lo, dep_hi);
+}
 
 bool init_search_state(const Instance& inst,
                        const std::vector<std::vector<std::int32_t>>& routes,
