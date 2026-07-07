@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build manylinux wheels
-        uses: pypa/cibuildwheel@v2
+        uses: pypa/cibuildwheel@v4.1.0
         env:
           CIBW_BUILD: "cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux*"
