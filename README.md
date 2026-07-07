@@ -7,11 +7,11 @@
 The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime **I**nspired
 **R**outing **O**ptimization **S**olver.
 
-> Status: **alpha**. v0.2.0 ships an anytime time-dependent Ant Colony Optimization heuristic with a time-dependent local-search layer (LCA-BST move evaluation, Blauth et al. 2024) on an exact non-decreasing continuous piecewise-linear (NDCPWLF) arrival-time engine, benchmarked on all four MAMUT TD families — it produced the large majority of the store's current best-known solutions. See the roadmap below.
+> Status: **alpha**. v0.3.0 ships an anytime time-dependent Ant Colony Optimization heuristic with a time-dependent local-search layer (LCA-BST move evaluation, Blauth et al. 2024) on an exact non-decreasing continuous piecewise-linear (NDCPWLF) arrival-time engine, benchmarked on all four MAMUT TD families — it produced the large majority of the store's current best-known solutions — **plus the exact branch-price-and-cut component** (`kayros.lera`, Lera-Romero et al. 2020, HiGHS backend) in the default install: proven optima with checker-exact certificates and BKS-warm-started certification. See the roadmap below.
 
 ## Design principles
 
-- **One command install, no proprietary dependency.** The default build is pure open source (C++23 + pybind11). The optional exact branch-price-and-cut component of Lera-Romero et al. (requires CPLEX) is strictly opt-in (`-DKAYROS_WITH_LERA=ON`, source build only) and never ships in wheels.
+- **One command install, no proprietary dependency.** The default build is pure open source (C++23 + pybind11), including the exact branch-price-and-cut component of Lera-Romero et al. on the open-source [HiGHS](https://highs.dev/) LP backend (built statically into the wheel). The faster CPLEX backend remains strictly a source-build opt-in (`-DLERA_LP_BACKEND=cplex`) and never ships in wheels.
 - **Exact arithmetic, checker-refereed.** Route durations are computed on NDCPWLF arrival-time functions with exact doubles — no epsilon comparisons. Every solution kayros reports is priced by the reference checker of [`mamut-routing-lib`](https://github.com/ANR-MAMUT/MAMUT-routing); the checker's value is the value.
 - **POD core.** The C++ core is plain structs, flat arrays and free functions — optimization-kernel style, no framework.
 
@@ -62,7 +62,8 @@ solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumben
 - [x] M3.5 — large-scale runs on Grid'5000: seeded the initial best-known solutions for all 1352 MAMUT TD instances
 - [x] M3.6 — anytime API (`on_incumbent`, time budgets) + **v0.1.0 on PyPI**
 - [x] M3.7 — time-dependent local search layer (LCA-BST move evaluation, Blauth et al. 2024; **v0.2.0**): tree-ranked relocate/swap/2-opt\* moves, every accepted move repriced by the checker-identical fold; on by default (`Params.local_search`)
-- Later: ACO re-tuning under local search; optional exact BPC (`kayros[lera]`)
+- [x] M5 (stream 5) — exact Lera-Romero BPC vendored on a HiGHS backend, warm starts, TDVRP support, honest TL gaps, checker-exact certificates; certification campaign over all families n≤50 (334 proven optima, 42 BKS improvements; **v0.3.0**)
+- Later: ACO re-tuning under local search (phase 2 pending); larger-instance certification
 
 ## Archival and reproducibility
 

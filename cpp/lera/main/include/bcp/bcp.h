@@ -27,6 +27,10 @@ class BCP
 {
 public:
 	goc::Duration time_limit;
+	// (M5.2) Absolute deadline derived from time_limit at Run(). All internal
+	// components and the external pricing_solver take their residual budgets
+	// from here (single source, no per-level stopwatch re-derivation).
+	goc::Deadline deadline;
 	int node_limit;
 	int cut_limit;
 	BCPPricingFunction pricing_solver;
@@ -37,6 +41,16 @@ public:
 	//	spf: set-partitioning formulation to use (it must include an initial solution).
 	BCP(const goc::Digraph& D, SPF* spf);
 	
+	// (kayros M5.3) Sets an initial upper bound known by the caller (e.g. the
+	// value of warm-start columns added to the SPF), used for pruning from the
+	// start. Must be the value under *this* solver's arithmetic (never an
+	// externally-repriced value — a tighter-by-dust bound could prune the true
+	// optimum). Call before Run(). No incumbent callback fires for it, and no
+	// solution routes are attached: if the BCP proves optimality without
+	// improving on it, Run() reports the value with an empty route set and the
+	// caller keeps its own solution.
+	void SetInitialIncumbent(double value);
+
 	// Executes a Branch-Cut-Price algorithm on the SPF.
 	// If a solution is found, *solution is filled with the best one.
 	goc::BCPExecutionLog Run(goc::VRPSolution* solution);

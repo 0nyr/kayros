@@ -18,6 +18,61 @@ namespace solver
 {
 namespace
 {
+// kayros (M5.7): bridge upward value jumps of a monotone PWL function with
+// steep segments so that Inverse() yields gap-free departure functions.
+// Interior plateaus of the forward arrival function (Rifki-style stepwise
+// travel times encode tau down-steps as slope -1 arrival segments) become
+// value jumps in dep and hence in the reverse arrival below; inverting a
+// jump produces an interior domain gap and DepartureTime()/Value() then
+// fails. The bridged function never exceeds the original (the steep segment
+// stays below the following piece), so reverse arrivals are under-estimated
+// on a measure-delta sliver per jump: pricing/bounds stay valid lower bounds
+// and no wrong optimum can be certified (costs are checker-exact via the
+// stage-A repricing in the kayros bridge).
+PWLFunction continuize_value_jumps(const PWLFunction& f)
+{
+	const double delta = 1e-3; // >> goc EPS (1e-6), dust vs any horizon
+	if (f.PieceCount() <= 1) return f;
+	// Piecewise breakpoints; value jumps appear as duplicate-x pairs.
+	vector<Point2D> bp;
+	for (int k = 0; k < f.PieceCount(); ++k)
+	{
+		const LinearFunction& p = f.Piece(k);
+		Point2D l(p.domain.left, p.Value(p.domain.left));
+		Point2D r(p.domain.right, p.Value(p.domain.right));
+		if (bp.empty() || bp.back().x != l.x || bp.back().y != l.y) bp.push_back(l);
+		if (r.x != l.x || r.y != l.y) bp.push_back(r);
+	}
+	PWLFunction g;
+	size_t k = 0;
+	while (k < bp.size())
+	{
+		size_t j = k;
+		while (j + 1 < bp.size() && bp[j + 1].x == bp[k].x) ++j;
+		Point2D lo(bp[k].x, bp[k].y), hi(bp[j].x, bp[j].y);
+		Point2D cur = lo;
+		if (hi.y > lo.y && j + 1 < bp.size())
+		{
+			// Steep bridge from the lower value onto the following segment.
+			const Point2D& nxt = bp[j + 1];
+			double d = min(delta, (nxt.x - hi.x) / 2.0);
+			double t = d / (nxt.x - hi.x);
+			Point2D mid(hi.x + d, hi.y + t * (nxt.y - hi.y));
+			g.AddPiece(LinearFunction(cur, mid));
+			cur = mid;
+		}
+		if (j + 1 < bp.size())
+		{
+			const Point2D& nxt = bp[j + 1];
+			// Continue to the next breakpoint's lower value.
+			size_t j2 = j + 1;
+			g.AddPiece(LinearFunction(cur, Point2D(nxt.x, bp[j2].y)));
+		}
+		k = j + 1;
+	}
+	return g;
+}
+
 // Reverses a VRP instance.
 // o' := d
 // d' := o
@@ -37,6 +92,7 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 			// Compute reverse travel functions.
 			r.arr[v][u] = vrp.T - vrp.dep[u][v].Compose(vrp.T - PWLFunction::IdentityFunction({0.0, vrp.T}));
 			r.arr[v][u] = Min(PWLFunction::ConstantFunction(min(img(r.arr[v][u])), {min(r.tw[v]), min(dom(r.arr[v][u]))}), r.arr[v][u]);
+			r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
 			r.tau[v][u] = r.arr[v][u] - PWLFunction::IdentityFunction({0.0, vrp.T});
 			r.dep[v][u] = r.arr[v][u].Inverse();
 			r.pretau[v][u] = PWLFunction::IdentityFunction(dom(r.dep[v][u])) - r.dep[v][u];
@@ -123,6 +179,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	
 	BLBExecutionLog log(true);
 	Stopwatch rolex(false), merge_rolex(false);
+	run_deadline_ = Deadline::In(time_limit); // (kayros M5.2)
 	
 	// Init queues with initial labels.
 	LBQueue q[2];
@@ -166,7 +223,11 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			if (!closing_state && log.forward_log->processed_count >= merge_start)
 			{
 				merge_rolex.Reset().Resume();
-				for (Label* l: P) IterativeMerge(l, M[od]);
+				for (Label* l: P)
+				{
+					if (run_deadline_.Reached()) break; // (kayros M5.2)
+					IterativeMerge(l, M[od]);
+				}
 				*log.merge_time += merge_rolex.Pause();
 			}
 			
@@ -198,6 +259,9 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		merge_rolex.Reset().Resume();
 		LastArcMerge(q[0], lbl_[1].U);
 		*log.merge_time += merge_rolex.Pause();
+		// (kayros M5.2) A deadline-truncated merge must not report Finished:
+		// "Finished" is the caller's proof that pricing was exhaustive.
+		if (run_deadline_.Reached()) log.status = BLBStatus::TimeLimitReached;
 	}
 	
 	if (S.size() >= solution_limit) log.status = BLBStatus::SolutionLimitReached;
@@ -207,6 +271,10 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	// Add solutions from the pool to the return vector R.
 	for (auto& V_r: S)
 	{
+		// (kayros M5.2) Repricing the pool (one DP per route) is post-deadline
+		// work on a doomed run once the TL fired — cut the tail. The routes
+		// lost here would never be used: the caller terminates on the TL.
+		if (run_deadline_.Reached()) break;
 		Route& r = V_r.second;
 		// Compute r actual duration (nyr::RouteDuration -> goc::Route).
 		auto best = vrp_.BestDurationRoute(r.path);
@@ -221,6 +289,7 @@ void BidirectionalLabeling::IterativeMerge(Label* l, const MonodirectionalLabeli
 	TimeUnit T = vrp_.T;
 	for (auto& demand_entry : L[l->v])
 	{
+		if (run_deadline_.Reached()) break; // (kayros M5.2)
 		if (S.size() >= solution_limit) break; // Do not exceed solution limit.
 		if (epsilon_bigger(demand_entry.first+l->q-vrp_.q[l->v], vrp_.Q)) break;
 		for (auto& m: demand_entry.second)
@@ -245,6 +314,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 	
 	while (!qf.empty())
 	{
+		if (run_deadline_.Reached()) break; // (kayros M5.2)
 		LazyLabel ll = qf.top();
 		qf.pop();
 		Label* l = ll.parent;
@@ -272,10 +342,18 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	if (intersection(l->S, m->S) != create_bitset<MAX_N>({l->v})) return;
 	
 	Route r;
+	// kayros (M5.7): rw and dom(duration) can disagree by mollifier dust
+	// (continuize_value_jumps nudges reverse-arrival domain boundaries by
+	// <= 1e-3, beyond goc EPS); clamp boundary evaluations into the domain.
+	// Search arithmetic only — columns are repriced checker-exactly (stage A).
+	auto duration_at = [](const Label* x, double t) {
+		t = std::max(min(dom(x->duration)), std::min(t, max(dom(x->duration))));
+		return x->duration.Value(t);
+	};
 	// Merge l and m duration functions lm_d(t) = l_d(t) + m_d(T-t).
 	if (epsilon_bigger_equal(T-max(m->rw), max(l->rw)))
 	{
-		r.duration = l->duration(max(l->rw)) + m->duration(max(m->rw)) + (T-max(m->rw)) - max(l->rw);
+		r.duration = duration_at(l, max(l->rw)) + duration_at(m, max(m->rw)) + (T-max(m->rw)) - max(l->rw);
 	}
 	else
 	{
