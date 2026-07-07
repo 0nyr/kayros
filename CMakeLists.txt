@@ -19,7 +19,9 @@ find_package(pybind11 CONFIG REQUIRED)
 pybind11_add_module(_core
     cpp/bindings/module.cpp
     cpp/pwlf/pwlf.cpp
+    cpp/pwlf/warp.cpp
     cpp/core/route_eval.cpp
+    cpp/core/warp_eval.cpp
     cpp/heuristics/greedy_makespan.cpp
     cpp/heuristics/aco.cpp
     cpp/heuristics/ils.cpp
@@ -28,6 +30,8 @@ pybind11_add_module(_core
     cpp/ls/neighbours.cpp
     cpp/ls/perturb.cpp
     cpp/ls/splice.cpp
+    cpp/ls/warp_tree.cpp
+    cpp/ls/warp_splice.cpp
     cpp/ls/local_search.cpp
 )
 target_include_directories(_core PRIVATE cpp)
