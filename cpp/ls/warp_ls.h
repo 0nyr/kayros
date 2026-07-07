@@ -87,15 +87,23 @@ class WarpLcaTree {
 };
 
 // Per-route state for the penalised search (RouteState twin; accounting
-// values always from the sequential augmented fold).
+// values always from the sequential augmented fold). The fold's (rho, warp)
+// functions are stored so the penalised cost can be re-scanned exactly when
+// the penalty weight changes (dynamic penalty management) without a rebuild.
 struct WarpRouteState {
     std::vector<std::int32_t> vertices;
     WarpLcaTree tree;
-    double duration = 0.0;  // zero-warp duration when feasible, else the
-                            // fold's penalised value at the stored penalty
-    double min_warp = 0.0;  // fold-accounted minimal warp (0.0 == feasible)
+    Pwlf fold_rho;           // sequential-fold delta~ (the accountant's copy)
+    Pwlf fold_warp;          // sequential-fold W
+    double duration = 0.0;   // zero-warp duration when feasible, else the
+                             // fold's penalised value at the build penalty
+    double min_warp = 0.0;   // fold-accounted minimal warp (0.0 == feasible)
     std::int64_t load = 0;
 };
+
+// Fold-accounted penalised cost at an arbitrary penalty (exact re-scan of the
+// stored fold functions — same evaluator the accounting uses).
+double warp_state_cost(const WarpRouteState& state, double penalty);
 
 // Build (or rebuild after surgery). Returns false only on a hard wall
 // (horizon-empty rho) — warp-infeasible routes are valid states here.

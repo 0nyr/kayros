@@ -14,6 +14,7 @@
 #include "core/instance.h"
 #include "core/warp_eval.h"
 #include "heuristics/heuristics.h"
+#include "heuristics/warp_ils.h"
 #include "ls/ls.h"
 #include "ls/perturb.h"
 #include "ls/warp_ls.h"
@@ -437,6 +438,33 @@ PYBIND11_MODULE(_core, m) {
     m.def("solve_ils", &kayros::solve_ils, py::arg("instance"),
           py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
           py::arg("on_incumbent") = kayros::IncumbentCallback{},
+          py::arg("initial_routes") = std::vector<std::vector<std::int32_t>>{},
+          py::call_guard<py::gil_scoped_release>());
+
+    // --- Stream 8 P8.3-minimal penalised ILS (td-time-warp branch only) ---
+    py::class_<kayros::WarpIlsParams>(m, "WarpIlsParams")
+        .def(py::init<>())
+        .def_readwrite("max_iterations", &kayros::WarpIlsParams::max_iterations)
+        .def_readwrite("num_neighbours", &kayros::WarpIlsParams::num_neighbours)
+        .def_readwrite("weight_wait", &kayros::WarpIlsParams::weight_wait)
+        .def_readwrite("min_perturbations",
+                       &kayros::WarpIlsParams::min_perturbations)
+        .def_readwrite("max_perturbations",
+                       &kayros::WarpIlsParams::max_perturbations)
+        .def_readwrite("history_length", &kayros::WarpIlsParams::history_length)
+        .def_readwrite("restart_no_improvement",
+                       &kayros::WarpIlsParams::restart_no_improvement)
+        .def_readwrite("penalty_init", &kayros::WarpIlsParams::penalty_init)
+        .def_readwrite("penalty_increase",
+                       &kayros::WarpIlsParams::penalty_increase)
+        .def_readwrite("penalty_decrease",
+                       &kayros::WarpIlsParams::penalty_decrease)
+        .def_readwrite("target_feasible", &kayros::WarpIlsParams::target_feasible)
+        .def_readwrite("penalty_window", &kayros::WarpIlsParams::penalty_window)
+        .def_readwrite("penalty_min", &kayros::WarpIlsParams::penalty_min)
+        .def_readwrite("penalty_max", &kayros::WarpIlsParams::penalty_max);
+    m.def("solve_warp_ils", &kayros::solve_warp_ils, py::arg("instance"),
+          py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
           py::arg("initial_routes") = std::vector<std::vector<std::int32_t>>{},
           py::call_guard<py::gil_scoped_release>());
 

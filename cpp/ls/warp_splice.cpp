@@ -45,16 +45,27 @@ bool build_warp_route_state(const Instance& inst,
                             double t_end, WarpRouteState& state) {
     const std::int64_t m = static_cast<std::int64_t>(vertices.size());
     // Accounting values ALWAYS from the sequential augmented fold.
-    const WarpRouteEval eval =
-        evaluate_route_warp(inst, vertices.data(), m, penalty, t_end);
-    if (!eval.total) return false;
+    WarpFunctions wf = warp_route_functions(inst, vertices.data(), m, t_end);
+    if (wf.rho.xs.empty()) return false;
     state.vertices = std::move(vertices);
     state.tree.build(warp_route_leaves(inst, state.vertices.data(), m, t_end));
-    state.duration = eval.feasible ? eval.duration : eval.penalised;
-    state.min_warp = eval.min_warp;
+    state.fold_rho = std::move(wf.rho);
+    state.fold_warp = std::move(wf.warp);
+    state.min_warp = state.fold_warp.ys.front();
+    MinShift zero;
+    if (min_zero_warp_duration(view(state.fold_rho), view(state.fold_warp), &zero)) {
+        state.duration = zero.value;
+    } else {
+        state.duration =
+            min_penalised(view(state.fold_rho), view(state.fold_warp), penalty).value;
+    }
     state.load = 0;
     for (const std::int32_t v : state.vertices) state.load += inst.demands[v];
     return true;
+}
+
+double warp_state_cost(const WarpRouteState& state, double penalty) {
+    return min_penalised(view(state.fold_rho), view(state.fold_warp), penalty).value;
 }
 
 WarpRouteEval evaluate_splice_warp(const Instance& inst, const WarpRouteState& r1,

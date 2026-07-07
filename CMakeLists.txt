@@ -25,6 +25,7 @@ pybind11_add_module(_core
     cpp/heuristics/greedy_makespan.cpp
     cpp/heuristics/aco.cpp
     cpp/heuristics/ils.cpp
+    cpp/heuristics/warp_ils.cpp
     cpp/ls/lca_tree.cpp
     cpp/ls/leaves.cpp
     cpp/ls/neighbours.cpp
