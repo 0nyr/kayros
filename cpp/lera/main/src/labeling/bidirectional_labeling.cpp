@@ -342,10 +342,18 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	if (intersection(l->S, m->S) != create_bitset<MAX_N>({l->v})) return;
 	
 	Route r;
+	// kayros (M5.7): rw and dom(duration) can disagree by mollifier dust
+	// (continuize_value_jumps nudges reverse-arrival domain boundaries by
+	// <= 1e-3, beyond goc EPS); clamp boundary evaluations into the domain.
+	// Search arithmetic only — columns are repriced checker-exactly (stage A).
+	auto duration_at = [](const Label* x, double t) {
+		t = std::max(min(dom(x->duration)), std::min(t, max(dom(x->duration))));
+		return x->duration.Value(t);
+	};
 	// Merge l and m duration functions lm_d(t) = l_d(t) + m_d(T-t).
 	if (epsilon_bigger_equal(T-max(m->rw), max(l->rw)))
 	{
-		r.duration = l->duration(max(l->rw)) + m->duration(max(m->rw)) + (T-max(m->rw)) - max(l->rw);
+		r.duration = duration_at(l, max(l->rw)) + duration_at(m, max(m->rw)) + (T-max(m->rw)) - max(l->rw);
 	}
 	else
 	{

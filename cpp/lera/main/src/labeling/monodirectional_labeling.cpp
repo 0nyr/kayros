@@ -18,18 +18,63 @@ namespace solver
 {
 namespace
 {
+// kayros (M5.7): a label's rw and dom(duration) can disagree by mollifier
+// dust (continuize_value_jumps nudges reverse-arrival domain boundaries by
+// <= 1e-3, beyond goc EPS), and Value() throws outside the domain. Clamp
+// boundary evaluations into the domain — this is Lera's epsilon search
+// arithmetic (bounds/filters), never certification arithmetic (stage A
+// reprices every column checker-exactly).
+double duration_at(const Label* l, double t)
+{
+	t = std::max(min(dom(l->duration)), std::min(t, max(dom(l->duration))));
+	return l->duration.Value(t);
+}
+
+// kayros (M5.7): when an entire label duration function lives inside a
+// mollifier sliver (TW-tight labels on stepwise ATFs), goc's epsilon piece
+// iteration can emit pieces with slightly out-of-order boundaries, leaving
+// an inverted incremental domain_ (left > right by ~1e-3) that later
+// evaluations reject. Rebuild with monotone non-overlapping boundaries;
+// dust-inverted fragments are dropped. Search arithmetic only.
+PWLFunction normalize_pwl(const PWLFunction& f)
+{
+	// Fast path: boundaries already monotone (the norm) — return untouched so
+	// well-formed instances keep bit-identical label arithmetic.
+	bool ok = true;
+	double hi = -INFTY;
+	for (int k = 0; k < f.PieceCount(); ++k)
+	{
+		const Interval& d = f.Piece(k).domain;
+		if (d.left < hi || d.right < d.left) { ok = false; break; }
+		hi = d.right;
+	}
+	if (ok) return f;
+	PWLFunction g;
+	hi = -INFTY;
+	for (int k = 0; k < f.PieceCount(); ++k)
+	{
+		const LinearFunction& p = f.Piece(k);
+		double l = std::max(p.domain.left, hi);
+		double r = p.domain.right;
+		if (r < l) continue;
+		g.AddPiece(LinearFunction({l, p.Value(l)}, {r, p.Value(r)}));
+		hi = r;
+	}
+	return g;
+}
+
 // Definition of Alpha from Section 5.2.
 double alpha(Label* l, bool partial)
 {
 	if (partial) return l->min_cost;
-	else return -(l->rw.right-l->duration(l->rw.right))-l->p-l->cut_cost;
+	else return -(l->rw.right-duration_at(l, l->rw.right))-l->p-l->cut_cost;
 }
 
 // Definition of Beta from Section 5.2.
 double beta(Label* l, bool partial)
 {
 	if (partial) return max(img(l->duration))-l->p-l->cut_cost;
-	else return -(l->rw.right-l->duration(l->rw.right))-l->p-l->cut_cost;
+	else return -(l->rw.right-duration_at(l, l->rw.right))-l->p-l->cut_cost;
 }
 }
 
@@ -213,6 +258,7 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 		? PWLFunction::ConstantFunction(l->duration(max(l->rw)) + min(vrp_.tw[v]) - max(l->rw), {min(vrp_.tw[v]), min(vrp_.tw[v])})
 		: (l->duration + vrp_.tau[u][v]).Compose(vrp_.dep[u][v]);
 	if (limited_extension && !cross) lv->duration.RestrictDomain({0.0, t_m});
+	lv->duration = normalize_pwl(lv->duration); // kayros (M5.7): heal mollifier-dust piece misorder.
 	if (lv->duration.Empty()) { delete lv; return nullptr; } // If no duration pieces exist, then the label is dominated.
 	lv->rw = dom(lv->duration);
 	
@@ -274,7 +320,7 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 			return true;
 		}
 	}
-	l->duration = (PWLFunction) Delta;
+	l->duration = normalize_pwl((PWLFunction) Delta); // kayros (M5.7)
 	l->rw = l->duration.Domain();
 	l->min_cost = min(img(l->duration)) - l->p - l->cut_cost;
 	return false;
@@ -300,7 +346,7 @@ int MonodirectionalLabeling::CorrectionStep(Label* m)
 				if (partial)
 				{
 					Delta.DominatePieces(m->duration, theta);
-					l->duration = (PWLFunction) Delta;
+					l->duration = normalize_pwl((PWLFunction) Delta); // kayros (M5.7)
 					l->rw = l->duration.Domain();
 					l->min_cost = min(img(l->duration)) - l->p - l->cut_cost;
 				}
