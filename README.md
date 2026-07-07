@@ -40,7 +40,13 @@ def on_incumbent(incumbent, routes):
     print(f"[{incumbent.seconds:7.2f}s] {incumbent.value:.6f} ({incumbent.origin})")
 
 solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumbent)
+
+# Strategy (0.4.0): "aco" (default), "ils" (single-trajectory iterated local
+# search — the intended workhorse at large n), or "aco+ils" (budget split).
+solution = kayros.solve(instance_path, kayros.Params(strategy="ils"), time_limit=60.0)
 ```
+
+> **Behavior change in 0.4.0**: the local search of *every* strategy now enumerates moves over granular candidate lists (`num_neighbours=50`, a time-dependent Vidal-style proximity) instead of exhaustive scans — up to ~13x faster descents at n=1000 for a sub-percent quality gap. Set `Params(num_neighbours=0)` to restore the 0.3.0 exhaustive enumeration.
 
 Exact solve — branch-price-and-cut with checker-exact certificates, optionally warm-started from a known solution (the fast path when certifying near-optimal solutions, e.g. stored best-known ones):
 
@@ -64,7 +70,7 @@ print(result["exact_log"]["status"], result["value"])
 KAYROS is two solving modes on one exact time-dependent engine:
 
 - **The engine** (`cpp/pwlf`, `cpp/core`) represents arrival times as non-decreasing continuous piecewise-linear functions (NDCPWLF) and evaluates routes by exact function composition — a bit-identical C++ port of the reference checker's arithmetic (gated by an equivalence suite over the full benchmark set).
-- **The anytime stack** (`kayros.solve`): greedy construction, a MAX-MIN TD ant colony, and a time-dependent local-search layer using LCA-BST move evaluation (Blauth et al. 2024) — tree-ranked relocate/swap/2-opt\* where every *accepted* move is repriced by the checker-identical fold before it counts.
+- **The anytime stack** (`kayros.solve`): greedy construction and two search strategies — a MAX-MIN TD ant colony and a single-trajectory TD iterated local search (granular ruin-and-recreate kicks, late-acceptance hill climbing, restart-to-best) — over one time-dependent local-search layer using LCA-BST move evaluation (Blauth et al. 2024) with granular candidate lists: tree-ranked relocate/swap/2-opt\* where every *accepted* move is repriced by the checker-identical fold before it counts.
 - **The exact component** (`kayros.lera`): the branch-price-and-cut solver of Lera-Romero, Rönnqvist & Ljungqvist (2020), vendored under `cpp/lera/` (see its `NOTICE.md`) on the open-source [HiGHS](https://highs.dev/) LP backend, extended with deadline-compliant anytime behavior, warm starts through columns, TDVRP support, and honest time-limit gap reporting. Every column entering the master problem is repriced in the checker's arithmetic, so reported values — and optimality certificates — are checker-exact: *optimal under checker-exact route costs and standard LP/pricing tolerances, completeness modulo the search engine's epsilon dominance*.
 
 ## Core principles

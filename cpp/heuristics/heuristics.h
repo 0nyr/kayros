@@ -111,8 +111,11 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
 // the incumbent stream is monotone (LAHC worse-accepts stay internal). The
 // time limit is checked per iteration and threaded into the descent's pass
 // boundaries, so the overshoot is bounded by one operator pass.
+// A non-empty initial_routes warm-starts the loop from that solution instead
+// of the greedy seed (M7.3 "aco+ils" split; must be feasible).
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit_seconds,
-                      const IncumbentCallback& on_incumbent = {});
+                      const IncumbentCallback& on_incumbent = {},
+                      std::vector<std::vector<std::int32_t>> initial_routes = {});
 
 }  // namespace kayros

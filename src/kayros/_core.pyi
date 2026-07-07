@@ -126,4 +126,5 @@ def solve_ils(
     seed: int,
     time_limit_seconds: float,
     on_incumbent: Callable[[Incumbent, list[list[int]]], None] | None = None,
+    initial_routes: list[list[int]] | None = None,
 ) -> SolveResult: ...

@@ -238,6 +238,7 @@ PYBIND11_MODULE(_core, m) {
     m.def("solve_ils", &kayros::solve_ils, py::arg("instance"),
           py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
           py::arg("on_incumbent") = kayros::IncumbentCallback{},
+          py::arg("initial_routes") = std::vector<std::vector<std::int32_t>>{},
           py::call_guard<py::gil_scoped_release>());
 
     // --- TD-LS layer (M3.7): exposed for the gate tests and experiments ---

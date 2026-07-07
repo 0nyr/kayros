@@ -23,9 +23,21 @@ class InfeasibleError(KayrosError):
 
 @dataclass
 class Params:
-    """TD-ACO parameters (defaults: the original tuned bp_heur values; a
-    re-tuning sweep on MAMUT-format instances is scheduled at M3.5)."""
+    """Solver parameters. ``strategy`` picks the search: ``"aco"`` (TD-ACO,
+    the historical default — M7.4's head-to-head campaign will re-pick the
+    default from data), ``"ils"`` (single-trajectory TD-ILS: granular VND +
+    ruin-and-recreate + late-acceptance, Stream 7), or ``"aco+ils"`` (an
+    experimental budget split: ACO for ``aco_budget_fraction`` of the time
+    limit, then ILS warm-started from the ACO best).
 
+    ACO parameter defaults are the original tuned bp_heur values; ILS
+    defaults follow PyVRP v0.14 (restart threshold scaled to kayros's
+    ms-class iterations). ``num_neighbours``/``weight_wait`` (granular
+    candidate lists, M7.0) apply to the local search of EVERY strategy —
+    default-on since 0.4.0; set ``num_neighbours=0`` for the pre-0.4.0
+    exhaustive scans."""
+
+    strategy: str = "aco"
     max_iterations: int = 3000
     max_no_improvement: int = 20
     nb_ants: int = 8
@@ -50,6 +62,17 @@ class Params:
     # vs 0.3.0's exhaustive scans; set num_neighbours=0 to restore them.
     num_neighbours: int = 50
     weight_wait: float = 0.2
+    # TD-ILS (M7.1/M7.2): perturbation magnitude, LAHC history, restart-to-
+    # best threshold, exhaustive polish on new global bests. ils_max_iterations
+    # 0 means unbounded (the time limit is then the stopping criterion).
+    min_perturbations: int = 1
+    max_perturbations: int = 25
+    lahc_history: int = 300
+    restart_no_improvement: int = 20_000
+    exhaustive_on_best: bool = True
+    ils_max_iterations: int = 0
+    # "aco+ils": fraction of the time limit given to the ACO phase.
+    aco_budget_fraction: float = 0.5
 
     def _to_core(self) -> _core.AcoParams:
         params = _core.AcoParams()
@@ -69,13 +92,29 @@ class Params:
         params.weight_wait = self.weight_wait
         return params
 
+    def _to_ils_core(self) -> _core.IlsParams:
+        params = _core.IlsParams()
+        if self.ils_max_iterations > 0:
+            params.max_iterations = self.ils_max_iterations
+        params.num_neighbours = self.num_neighbours
+        params.weight_wait = self.weight_wait
+        params.min_perturbations = self.min_perturbations
+        params.max_perturbations = self.max_perturbations
+        params.history_length = self.lahc_history
+        params.restart_no_improvement = self.restart_no_improvement
+        params.exhaustive_on_best = self.exhaustive_on_best
+        return params
+
 
 @dataclass
 class Incumbent:
     value: float
     seconds: float
     iteration: int
-    origin: str  # "greedy" or "aco"
+    origin: str  # "greedy" | "aco" | "ils"
+
+
+_ORIGIN_NAMES = {0: "greedy", 1: "aco", 2: "ils"}
 
 
 # Anytime hook: called synchronously from inside the solve loop on every new
@@ -145,23 +184,63 @@ def solve(
     """
     loaded = instance if isinstance(instance, LoadedTDInstance) else load_instance(instance)
     core = to_core(loaded)
+    params = params or Params()
+    tl = 0.0 if time_limit is None else float(time_limit)
 
-    hook = None
-    if on_incumbent is not None:
-        def hook(inc, routes):  # noqa: E306 — thin _core -> API adapter
+    if params.strategy not in ("aco", "ils", "aco+ils"):
+        raise ValueError(f"unknown strategy {params.strategy!r}")
+    if params.strategy == "ils" and tl <= 0.0 and params.ils_max_iterations <= 0:
+        raise ValueError(
+            "strategy='ils' needs a time_limit or ils_max_iterations > 0 "
+            "(the ILS loop has no convergence stop)"
+        )
+    if params.strategy == "aco+ils" and tl <= 0.0:
+        raise ValueError("strategy='aco+ils' needs a time_limit to split")
+
+    def make_hook(offset_seconds: float = 0.0, below: float = float("inf")):
+        if on_incumbent is None:
+            return None
+
+        def hook(inc, routes):  # thin _core -> API adapter
+            if inc.value >= below:  # warm-start seed re-fires the phase-1 best
+                return
             on_incumbent(
-                Incumbent(inc.value, inc.seconds, inc.iteration,
-                          "greedy" if inc.origin == 0 else "aco"),
+                Incumbent(inc.value, inc.seconds + offset_seconds,
+                          inc.iteration, _ORIGIN_NAMES[inc.origin]),
                 [list(route) for route in routes],
             )
 
-    result = _core.solve_aco(
-        core,
-        (params or Params())._to_core(),
-        seed,
-        0.0 if time_limit is None else float(time_limit),
-        hook,
-    )
+        return hook
+
+    incumbent_offset = 0.0
+    if params.strategy == "aco":
+        result = _core.solve_aco(core, params._to_core(), seed, tl, make_hook())
+        extra_incumbents: list[Incumbent] = []
+    elif params.strategy == "ils":
+        result = _core.solve_ils(core, params._to_ils_core(), seed, tl,
+                                 make_hook())
+        extra_incumbents = []
+    else:  # "aco+ils": ACO phase, then ILS warm-started from the ACO best.
+        import time as _time
+
+        aco_tl = tl * params.aco_budget_fraction
+        t0 = _time.perf_counter()
+        phase1 = _core.solve_aco(core, params._to_core(), seed, aco_tl,
+                                 make_hook())
+        incumbent_offset = _time.perf_counter() - t0
+        if phase1.status == _core.SolveStatus.Infeasible or not phase1.routes:
+            raise InfeasibleError(
+                f"kayros could not construct a feasible solution for "
+                f"{loaded.instance.instance_name}"
+            )
+        extra_incumbents = [
+            Incumbent(i.value, i.seconds, i.iteration, _ORIGIN_NAMES[i.origin])
+            for i in phase1.incumbents
+        ]
+        result = _core.solve_ils(
+            core, params._to_ils_core(), seed, max(tl - incumbent_offset, 0.01),
+            make_hook(incumbent_offset, below=phase1.value), phase1.routes,
+        )
     if result.status == _core.SolveStatus.Infeasible or not result.routes:
         raise InfeasibleError(
             f"kayros could not construct a feasible solution for "
@@ -190,8 +269,13 @@ def solve(
         route_departures=[e.departure_time for e in check.route_evaluations],
         status=_STATUS_NAMES[result.status],
         iterations=result.iterations_run,
-        incumbents=[
-            Incumbent(i.value, i.seconds, i.iteration, "greedy" if i.origin == 0 else "aco")
+        incumbents=extra_incumbents + [
+            Incumbent(i.value, i.seconds + incumbent_offset, i.iteration,
+                      _ORIGIN_NAMES[i.origin])
             for i in result.incumbents
+            # In the split, the ILS warm-start seed re-fires the phase-1 best:
+            # keep the merged stream strictly improving.
+            if i.value < min((e.value for e in extra_incumbents),
+                             default=float("inf"))
         ],
     )

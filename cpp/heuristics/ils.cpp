@@ -59,7 +59,8 @@ std::vector<std::vector<std::int32_t>> extract_routes(const SearchState& ss) {
 
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit_seconds,
-                      const IncumbentCallback& on_incumbent) {
+                      const IncumbentCallback& on_incumbent,
+                      std::vector<std::vector<std::int32_t>> initial_routes) {
     using Clock = std::chrono::steady_clock;
     const auto start = Clock::now();
     const auto elapsed = [&start]() {
@@ -79,10 +80,12 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     SolveResult result;
 
-    // Greedy seed + granular descent.
-    std::vector<std::vector<std::int32_t>> seed_routes;
-    if (!greedy_makespan(inst, seed_routes) ||
-        solution_duration(inst, seed_routes) == kInfeasible) {
+    // Seed (warm-start routes when provided, greedy otherwise) + descent.
+    std::vector<std::vector<std::int32_t>> seed_routes =
+        std::move(initial_routes);
+    if (seed_routes.empty() &&
+        (!greedy_makespan(inst, seed_routes) ||
+         solution_duration(inst, seed_routes) == kInfeasible)) {
         result.status = SolveStatus::Infeasible;
         return result;
     }
