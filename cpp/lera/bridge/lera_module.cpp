@@ -14,6 +14,14 @@ PYBIND11_MODULE(_lera, m) {
     m.doc() = "Lera-Romero BPC for the TDVRPTW (KAYROS_WITH_LERA builds only; "
               "HiGHS LP backend by default, CPLEX optional at build time)";
 
+    // Compile-time LP backend, surfaced for provenance (e.g. optimality
+    // stamps naming the exact prover configuration).
+#ifdef GOC_LP_BACKEND_HIGHS
+    m.attr("LP_BACKEND") = "HiGHS";
+#else
+    m.attr("LP_BACKEND") = "CPLEX";
+#endif
+
     m.def(
         "solve_duration_json",
         [](const std::string& payload, double time_limit_s, int cut_limit, int node_limit,

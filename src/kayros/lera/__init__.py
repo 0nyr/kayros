@@ -1,8 +1,7 @@
-"""Optional exact BPC component (Lera-Romero, Networks 2019).
+"""Exact BPC component (Lera-Romero, Networks 2019), shipped in the default build.
 
-Not shipped in the default build yet: it requires a source build with
-``-DKAYROS_WITH_LERA=ON`` (plan 2, Stream 5). The LP backend is HiGHS by
-default (no external dependency); CPLEX is an opt-in via
+The LP backend is HiGHS by default (no external dependency, built statically
+into the wheels); CPLEX is a source-build opt-in via
 ``-DLERA_LP_BACKEND=cplex``. The bridge is in-memory: a loaded MAMUT TD
 instance (+ ATF sidecars) is converted to the normalized payload the vendored
 solver's preprocessing expects; no legacy instance files are involved.
@@ -11,14 +10,14 @@ Vertex conventions: MAMUT uses ``0..n`` with the depot at 0; Lera's BPC uses a
 start depot ``o = 0``, customers ``1..n`` and a distinct end depot ``d = n+1``
 (a copy of the depot). ``routes_to_mamut`` maps solver paths back.
 
-Certificate arithmetic (M5.6 stage A): all master objective coefficients are
-checker-exact (every column repriced by the kayros port of the reference
-checker on the raw MAMUT ATFs) and the reported ``value`` of a solution is
-bit-identical to ``compute_solution_cost`` on its routes. An optimality
-certificate reads: optimal under checker-exact route costs and standard
-LP/pricing tolerances, with pricing completeness modulo Lera's epsilon
-arithmetic (the labeling-internal engine swap was deliberately skipped —
-Onyr, 2026-07-06: dust-probability residue, zero divergences observed).
+Certificate arithmetic: all master objective coefficients are checker-exact
+(every column repriced by the kayros port of the reference checker on the raw
+MAMUT ATFs) and the reported ``value`` of a solution is bit-identical to
+``compute_solution_cost`` on its routes. An optimality certificate therefore
+reads as :data:`CERTIFICATE`: optimal under checker-exact route costs and
+standard LP/pricing tolerances, with pricing completeness modulo Lera's
+epsilon arithmetic (the labeling-internal comparisons keep the vendored
+epsilon semantics; zero divergences observed in practice).
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ def _continuize_breakpoints(xs: list[float], ys: list[float]) -> tuple[list[floa
     the FIRST y on an exact hit) — and sits at or below the checker curve on
     the measure-delta sliver after each jump. Lera therefore never overestimates
     arrivals: pricing/bounds stay valid and no wrong optimum can be certified;
-    costs are checker-exact anyway via M5.6 stage-A repricing of every column.
+    costs are checker-exact anyway via the bridge's repricing of every column.
     A jump at the domain end is dropped (its upper value is unreachable in
     checker semantics: no departure evaluates to it).
     """
@@ -92,7 +91,7 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
     n = instance.num_customers
     nv = n + 2  # 0 = start depot, 1..n = customers, n+1 = end depot (copy of 0)
 
-    # TDVRP instances carry no time windows (M5.4): trivial-TW encoding maps
+    # TDVRP instances carry no time windows: trivial-TW encoding maps
     # every vertex to the full horizon; Lera's own preprocessing then tightens
     # (earliest arrivals / latest feasible departures) to recover pruning.
     # Checker TDVRP semantics: only DEPARTURES must lie in the ATF domains
@@ -100,7 +99,7 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
     # ends upon arrival"), so the end-depot window and Lera's planning horizon
     # must extend to the maximum ATF image, not stop at h1 — capping at h1
     # shrinks the feasible set and produced provably-wrong "optima" on the
-    # short-horizon R1xx TDVRP twins (M5.4 gate anomaly).
+    # short-horizon R1xx TDVRP twins.
     tws = getattr(instance, "time_windows", None)
     horizon = [float(atfs.horizon[0]), float(atfs.horizon[1])]
     if tws is None:
@@ -127,8 +126,8 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
         arcs[i2][j2] = 1
         travel_times[i2][j2] = pieces
 
-    # Raw MAMUT data for the bridge's checker-exact route pricing (M5.6 stage
-    # A). Lera's preprocessing mutates travel_times/time_windows in place and
+    # Raw MAMUT data for the bridge's checker-exact route pricing.
+    # Lera's preprocessing mutates travel_times/time_windows in place and
     # the tau pieces store y-x (whose re-addition is not bit-exact), so the
     # certification arithmetic gets the untouched ATF breakpoints verbatim.
     mamut_raw = {
@@ -185,13 +184,13 @@ def solve_duration(
     solution was found. Routes are in Lera vertex numbering (see
     ``routes_to_mamut``).
 
-    ``on_incumbent`` makes the solve anytime (M5.2): it fires synchronously on
+    ``on_incumbent`` makes the solve anytime: it fires synchronously on
     every new BCP incumbent with the same record that lands in the result's
     ``incumbents`` array (``{"time", "value", "origin", "routes"}``, routes in
     Lera numbering). Keep the hook cheap — the solve blocks on it; an exception
     raised inside it aborts the solve and propagates.
 
-    ``initial_routes`` warm-starts the BPC (M5.3) with heuristic incumbent
+    ``initial_routes`` warm-starts the BPC with heuristic incumbent
     routes as customer-id sequences without depots (``kayros.Solution.routes``
     fits directly). They are repriced under the solver's own arithmetic, added
     as initial columns, and — when they still partition the customers — their
@@ -200,7 +199,7 @@ def solve_duration(
     result has the proven ``value`` but an **empty** ``routes`` list: the
     initial routes are the optimum and the caller already holds them.
 
-    Gap diagnostic (M5.5): on ``TimeLimitReached``, ``exact_log.best_bound``
+    Gap diagnostic: on ``TimeLimitReached``, ``exact_log.best_bound``
     is a valid lower bound whenever the root relaxation finished (the best
     open node's bound; absent when the TL hit during root CG — a truncated
     restricted master value is *not* a valid bound), and
@@ -208,7 +207,7 @@ def solve_duration(
     ``(best_int_value - best_bound) / best_int_value`` is the proven gap.
     ``exact_log.root_lp_value`` carries the root LP bound itself.
 
-    ``stab_alpha`` (M5.1b) is the Neame dual-smoothing factor in [0, 1):
+    ``stab_alpha`` is the Neame dual-smoothing factor in [0, 1):
     pricing runs on EMA-smoothed duals with misprice-safe termination (CG
     only ever stops on true duals). Default 0.0 (off): smoothing measured
     monotonically harmful with the pool-based pricing ladder — experimental
@@ -247,3 +246,60 @@ def routes_to_mamut(routes: list[dict[str, Any]], num_customers: int) -> list[li
     """Map Lera route paths back to MAMUT vertex numbering (end depot -> 0)."""
     end_depot = num_customers + 1
     return [[0 if v == end_depot else int(v) for v in route["path"]] for route in routes]
+
+
+#: The honest wording of a kayros lera optimality certificate. The route-cost
+#: arithmetic is exact by construction (see the module docstring); the LP dual
+#: bounds carry the standard solver tolerances and pricing completeness is
+#: modulo the vendored epsilon comparisons — so a certificate never claims
+#: more than this sentence.
+CERTIFICATE = (
+    "optimal under checker-exact route costs and standard LP/pricing "
+    "tolerances, completeness modulo Lera epsilon dominance"
+)
+
+
+def optimality_metadata(
+    result: dict[str, Any],
+    *,
+    wall_time_s: float | None = None,
+    time_limit_s: float | None = None,
+    campaign: str | None = None,
+    date: str | None = None,
+) -> dict[str, Any] | None:
+    """Build a structured optimality stamp from a :func:`solve_duration` result.
+
+    Returns ``None`` unless the solve terminated with status ``Optimum``.
+    Otherwise returns a plain dict in the shape mamut-routing-lib stores under
+    BKS ``metadata["optimality"]`` (``OptimalityMetadata``): the prover string
+    names this kayros version and LP backend, ``certificate`` is
+    :data:`CERTIFICATE`, ``proven_optimum`` is the solve's checker-exact
+    objective and ``dual_bound`` the matching lower bound. ``campaign`` (a
+    self-contained provenance sentence), ``wall_time_s`` and ``time_limit_s``
+    are the caller's to provide; ``date`` defaults to today (ISO).
+    """
+    exact_log = result.get("exact_log") or {}
+    if exact_log.get("status") != "Optimum":
+        return None
+
+    from datetime import date as _date
+
+    from kayros import __version__, _lera
+
+    backend = getattr(_lera, "LP_BACKEND", "HiGHS")
+    stamp: dict[str, Any] = {
+        "proven": True,
+        "prover": f"kayros {__version__} lera BPC ({backend} LP backend)",
+        "certificate": CERTIFICATE,
+        "date": date if date is not None else _date.today().isoformat(),
+        "arithmetic": "checker-exact-routes",
+        "proven_optimum": result.get("value"),
+        "dual_bound": exact_log.get("best_bound"),
+    }
+    if wall_time_s is not None:
+        stamp["wall_time_s"] = float(wall_time_s)
+    if time_limit_s is not None:
+        stamp["time_limit_s"] = float(time_limit_s)
+    if campaign is not None:
+        stamp["campaign"] = campaign
+    return stamp
