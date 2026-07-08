@@ -238,8 +238,13 @@ def solve_duration(
         kwargs["on_incumbent"] = _hook
     if initial_routes is not None:
         kwargs["initial_routes"] = [[int(c) for c in route] for route in initial_routes]
-    result = _lera.solve_duration_json(json.dumps(payload), **kwargs)
-    return json.loads(result)
+    result = json.loads(_lera.solve_duration_json(json.dumps(payload), **kwargs))
+    result["stepwise_atfs"] = any(
+        xs[k + 1] == xs[k]
+        for _, _, xs, _ in payload["mamut_raw"]["atfs"]
+        for k in range(len(xs) - 1)
+    )
+    return result
 
 
 def routes_to_mamut(routes: list[dict[str, Any]], num_customers: int) -> list[list[int]]:
@@ -269,7 +274,11 @@ def optimality_metadata(
 ) -> dict[str, Any] | None:
     """Build a structured optimality stamp from a :func:`solve_duration` result.
 
-    Returns ``None`` unless the solve terminated with status ``Optimum``.
+    Returns ``None`` unless the solve terminated with status ``Optimum``, and
+    always ``None`` when the instance carries stepwise ATFs (the result's
+    ``stepwise_atfs`` flag): those certificates were refuted by counterexample
+    (see ``cpp/lera/NOTICE.md`` item 9) and must not be issued until the
+    labeling handles value jumps exactly.
     Otherwise returns a plain dict in the shape mamut-routing-lib stores under
     BKS ``metadata["optimality"]`` (``OptimalityMetadata``): the prover string
     names this kayros version and LP backend, ``certificate`` is
@@ -280,6 +289,14 @@ def optimality_metadata(
     """
     exact_log = result.get("exact_log") or {}
     if exact_log.get("status") != "Optimum":
+        return None
+    if result.get("stepwise_atfs"):
+        # Certificates on stepwise (duplicate-x jump) ATFs are refuted by
+        # counterexample (Rifki2020, 2026-07-08): pricing is incomplete on the
+        # mollified functions — the 1e-3 bridges over value jumps amplify the
+        # labeling's epsilon arithmetic into O(step-height) merge mispricing,
+        # so an "Optimum" status is warm-start-dependent and not a proof.
+        # See cpp/lera/NOTICE.md item 9. No stamp until value jumps are exact.
         return None
 
     from datetime import date as _date

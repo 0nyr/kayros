@@ -60,6 +60,23 @@ def test_optimality_metadata_none_unless_optimum() -> None:
     assert optimality_metadata({}) is None
 
 
+RIFKI_10 = pick(family_instances("TDVRPTW", "Rifki2020", ["n=10"]), {"Rifki-1"})
+
+
+@pytest.mark.parametrize("instance_path", RIFKI_10, ids=lambda p: "Rifki-1")
+def test_no_optimality_stamp_on_stepwise_atfs(instance_path) -> None:
+    # Stepwise (duplicate-x jump) ATFs: certificates refuted by counterexample
+    # (Rifki2020 retraction, 2026-07-08; NOTICE item 9) — an "Optimum" status
+    # there is warm-start-dependent, so the stamp helper must refuse it.
+    from kayros.lera import optimality_metadata, solve_duration
+
+    loaded = load_td_instance(instance_path)
+    result = solve_duration(loaded, time_limit_s=120.0)
+    assert result["stepwise_atfs"] is True
+    assert result["exact_log"]["status"] == "Optimum"
+    assert optimality_metadata(result, wall_time_s=1.0, time_limit_s=120.0) is None
+
+
 @pytest.mark.parametrize("instance_path", C101_25, ids=lambda p: "C101")
 def test_lera_warm_start_contract(instance_path) -> None:
     from kayros.lera import routes_to_mamut, solve_duration
