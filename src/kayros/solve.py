@@ -23,12 +23,15 @@ class InfeasibleError(KayrosError):
 
 @dataclass
 class Params:
-    """Solver parameters. ``strategy`` picks the search: ``"aco"`` (TD-ACO,
-    the historical default — M7.4's head-to-head campaign will re-pick the
-    default from data), ``"ils"`` (single-trajectory TD-ILS: granular VND +
-    ruin-and-recreate + late-acceptance, Stream 7), or ``"aco+ils"`` (an
+    """Solver parameters. ``strategy`` picks the search: ``"ils"``
+    (single-trajectory TD-ILS: granular VND + ruin-and-recreate +
+    late-acceptance — the default since 0.4.0, picked by a 20,808-run
+    head-to-head campaign where ILS beat ACO on 5714 of 6936 paired cells
+    and lost 305, with the margin growing with instance size), ``"aco"``
+    (TD-ACO, the historical default through 0.3.x), or ``"aco+ils"`` (an
     experimental budget split: ACO for ``aco_budget_fraction`` of the time
-    limit, then ILS warm-started from the ACO best).
+    limit, then ILS warm-started from the ACO best — statistically tied
+    with pure ILS on small instances and dominated by it at scale).
 
     ACO parameter defaults are the original tuned bp_heur values; ILS
     defaults follow PyVRP v0.14 (restart threshold scaled to kayros's
@@ -37,7 +40,7 @@ class Params:
     default-on since 0.4.0; set ``num_neighbours=0`` for the pre-0.4.0
     exhaustive scans."""
 
-    strategy: str = "aco"
+    strategy: str = "ils"
     max_iterations: int = 3000
     max_no_improvement: int = 20
     nb_ants: int = 8
@@ -64,7 +67,9 @@ class Params:
     weight_wait: float = 0.2
     # TD-ILS (M7.1/M7.2): perturbation magnitude, LAHC history, restart-to-
     # best threshold, exhaustive polish on new global bests. ils_max_iterations
-    # 0 means unbounded (the time limit is then the stopping criterion).
+    # 0 means unbounded when a time limit is set (the TL is then the stopping
+    # criterion); with neither, solve() falls back to five restart windows
+    # (5 * restart_no_improvement iterations) so the default call stays finite.
     min_perturbations: int = 1
     max_perturbations: int = 25
     lahc_history: int = 300
@@ -189,11 +194,13 @@ def solve(
 
     if params.strategy not in ("aco", "ils", "aco+ils"):
         raise ValueError(f"unknown strategy {params.strategy!r}")
+    # The ILS loop has no convergence stop: without a time limit or an
+    # explicit iteration budget it runs five restart windows (5 *
+    # restart_no_improvement iterations, 100k with the defaults) so the
+    # no-argument solve() stays finite.
+    ils_fallback_iterations = 0
     if params.strategy == "ils" and tl <= 0.0 and params.ils_max_iterations <= 0:
-        raise ValueError(
-            "strategy='ils' needs a time_limit or ils_max_iterations > 0 "
-            "(the ILS loop has no convergence stop)"
-        )
+        ils_fallback_iterations = 5 * params.restart_no_improvement
     if params.strategy == "aco+ils" and tl <= 0.0:
         raise ValueError("strategy='aco+ils' needs a time_limit to split")
 
@@ -217,8 +224,10 @@ def solve(
         result = _core.solve_aco(core, params._to_core(), seed, tl, make_hook())
         extra_incumbents: list[Incumbent] = []
     elif params.strategy == "ils":
-        result = _core.solve_ils(core, params._to_ils_core(), seed, tl,
-                                 make_hook())
+        ils_core = params._to_ils_core()
+        if ils_fallback_iterations > 0:
+            ils_core.max_iterations = ils_fallback_iterations
+        result = _core.solve_ils(core, ils_core, seed, tl, make_hook())
         extra_incumbents = []
     else:  # "aco+ils": ACO phase, then ILS warm-started from the ACO best.
         import time as _time

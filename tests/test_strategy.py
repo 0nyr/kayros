@@ -28,8 +28,9 @@ def dabia(name, size_dir="n=25"):
     return path
 
 
-def test_default_strategy_is_aco() -> None:
-    assert kayros.Params().strategy == "aco"
+def test_default_strategy_is_ils() -> None:
+    # 0.4.0 default, picked by the M7.4 head-to-head campaign data.
+    assert kayros.Params().strategy == "ils"
 
 
 def test_unknown_strategy_rejected() -> None:
@@ -38,10 +39,15 @@ def test_unknown_strategy_rejected() -> None:
         kayros.solve(path, kayros.Params(strategy="hgs"), time_limit=1)
 
 
-def test_ils_requires_a_budget() -> None:
+def test_ils_without_budget_falls_back_to_restart_windows() -> None:
+    """No time limit + no ils_max_iterations: solve() bounds the run at five
+    restart windows (5 * restart_no_improvement) instead of raising."""
     path = dabia("R101")
-    with pytest.raises(ValueError, match="time_limit or ils_max_iterations"):
-        kayros.solve(path, kayros.Params(strategy="ils"))
+    solution = kayros.solve(
+        path, kayros.Params(strategy="ils", restart_no_improvement=40), seed=7
+    )
+    assert solution.iterations == 200
+    assert solution.duration > 0.0
 
 
 def test_split_requires_time_limit() -> None:
@@ -112,7 +118,7 @@ def test_ils_strategy_beats_construction_only() -> None:
     )
     no_ls = kayros.solve(
         path,
-        kayros.Params(max_iterations=40, max_no_improvement=40,
+        kayros.Params(strategy="aco", max_iterations=40, max_no_improvement=40,
                       local_search=False),
         seed=3,
     )

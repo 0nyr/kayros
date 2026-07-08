@@ -196,8 +196,9 @@ def test_solve_with_ls_beats_construction_only() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=25", "R101")
     if path is None:
         pytest.skip("instance not present")
-    budget = kayros.Params(max_iterations=40, max_no_improvement=40)
+    budget = kayros.Params(strategy="aco", max_iterations=40, max_no_improvement=40)
     budget_no_ls = kayros.Params(
+        strategy="aco",
         max_iterations=40, max_no_improvement=40, local_search=False
     )
     with_ls = kayros.solve(path, budget, seed=3)
@@ -210,7 +211,7 @@ def test_solve_with_ls_deterministic() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=25", "C101")
     if path is None:
         pytest.skip("instance not present")
-    budget = kayros.Params(max_iterations=30, max_no_improvement=30)
+    budget = kayros.Params(strategy="aco", max_iterations=30, max_no_improvement=30)
     a = kayros.solve(path, budget, seed=11)
     b = kayros.solve(path, budget, seed=11)
     assert a.routes == b.routes

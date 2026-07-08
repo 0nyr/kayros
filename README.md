@@ -6,7 +6,7 @@
 
 The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime-**Y**ielding **R**outing **O**ptimization **S**olver.
 
-> Status: **alpha**, under active development as part of a PhD. v0.3.0 ships both solving modes: the anytime heuristic stack (TD-ACO + time-dependent local search), which produced the large majority of the MAMUT store's best-known solutions, and the exact branch-price-and-cut component (`kayros.lera`), which certified 334 of them optimal.
+> Status: **alpha**, under active development as part of a PhD. v0.4.0 ships two anytime heuristics — TD-ILS (single-trajectory iterated local search, the default) and TD-ACO, both over the same time-dependent granular local search; together they produced the large majority of the MAMUT store's best-known solutions. The exact branch-price-and-cut component (`kayros.lera`) certified 334 of them optimal.
 
 ## Install
 
@@ -41,12 +41,13 @@ def on_incumbent(incumbent, routes):
 
 solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumbent)
 
-# Strategy (0.4.0): "aco" (default), "ils" (single-trajectory iterated local
-# search — the intended workhorse at large n), or "aco+ils" (budget split).
-solution = kayros.solve(instance_path, kayros.Params(strategy="ils"), time_limit=60.0)
+# Strategy (0.4.0): "ils" (single-trajectory iterated local search — the
+# default), "aco" (the historical default through 0.3.x), or "aco+ils"
+# (budget split, experimental).
+solution = kayros.solve(instance_path, kayros.Params(strategy="aco"), time_limit=60.0)
 ```
 
-> **Behavior change in 0.4.0**: the local search of *every* strategy now enumerates moves over granular candidate lists (`num_neighbours=50`, a time-dependent Vidal-style proximity) instead of exhaustive scans — up to ~13x faster descents at n=1000 for a sub-percent quality gap. Set `Params(num_neighbours=0)` to restore the 0.3.0 exhaustive enumeration.
+> **Behavior changes in 0.4.0**: (1) the default strategy is now `"ils"` — a 20,808-run head-to-head campaign (5 TD families, n=10..1000, equal time limits and seeds) had ILS beat ACO on 5714 of 6936 paired cells vs 305 losses, with the margin growing with instance size (−4.5% to −5.4% on n=200..1000); set `Params(strategy="aco")` to restore the 0.3.0 solver. Without a time limit the ILS run is bounded at five restart windows (`5 * restart_no_improvement` iterations). (2) The local search of *every* strategy now enumerates moves over granular candidate lists (`num_neighbours=50`, a time-dependent Vidal-style proximity) instead of exhaustive scans — up to ~13x faster descents at n=1000 for a sub-percent quality gap. Set `Params(num_neighbours=0)` to restore the 0.3.0 exhaustive enumeration.
 
 Exact solve — branch-price-and-cut with checker-exact certificates, optionally warm-started from a known solution (the fast path when certifying near-optimal solutions, e.g. stored best-known ones):
 

@@ -76,7 +76,7 @@ def test_family_checker_equivalence(instance_path) -> None:
 def test_family_solve_smoke(instance_path) -> None:
     solution = kayros.solve(
         instance_path,
-        kayros.Params(max_iterations=40, max_no_improvement=40),
+        kayros.Params(ils_max_iterations=250),  # default strategy ("ils" since 0.4.0)
         seed=1,
     )
     assert solution.duration > 0.0
