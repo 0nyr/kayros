@@ -597,7 +597,22 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
         if (pf.domain.Intersects(pg.domain))
         {
             double left = max(pf.domain.left, pg.domain.left), right = min(pf.domain.right, pg.domain.right);
-            h.AddPiece(LinearFunction({left, pf.Value(left)+pg.Value(left)}, {right, pf.Value(right)+pg.Value(right)}));
+            if (pf.is_vertical() || pg.is_vertical())
+            {
+                // M5.9: a value jump in either operand -> a value jump in the sum
+                // at the same abscissa x0 (== left == right). The sum's image is
+                // the jump's image shifted by the other (continuous) function's
+                // value there; if both jump, the two images add. Value() on a
+                // vertical returns only its lower endpoint, so we add the image
+                // endpoints directly to keep the jump.
+                double lo_f = pf.is_vertical() ? pf.image.left  : pf.Value(left);
+                double hi_f = pf.is_vertical() ? pf.image.right : pf.Value(left);
+                double lo_g = pg.is_vertical() ? pg.image.left  : pg.Value(left);
+                double hi_g = pg.is_vertical() ? pg.image.right : pg.Value(left);
+                h.AddPiece(LinearFunction({left, lo_f + lo_g}, {left, hi_f + hi_g}));
+            }
+            else
+                h.AddPiece(LinearFunction({left, pf.Value(left)+pg.Value(left)}, {right, pf.Value(right)+pg.Value(right)}));
         }
         if (epsilon_equal(pf.domain.right, pg.domain.right)) { ++i; ++j; }
         else if (epsilon_smaller(pf.domain.right, pg.domain.right)) { ++i; }

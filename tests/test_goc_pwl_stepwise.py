@@ -95,3 +95,39 @@ def test_inverse_step_is_left_continuous_and_involutive():
     ff = g.inverse()
     for x in (0.0, 5.0, 9.0, 10.0, 15.0, 20.0):
         assert ff.value(x) == pytest.approx(f.value(x))
+
+
+# --- Compose must preserve value jumps (f o g)(x) = f(g(x)) ------------------
+
+
+def test_compose_identity_preserves_f_step():
+    """f o id == f, including f's value jump."""
+    f = PWL(STEP_XS, STEP_YS)  # step 5->12 at x=10
+    ident = PWL([0.0, 20.0], [0.0, 20.0])
+    fog = f.compose(ident)
+    assert fog.value(9.0) == pytest.approx(4.5)
+    assert fog.value(10.0) == pytest.approx(5.0)  # left-continuous lower value
+    assert fog.value(15.0) == pytest.approx(12.0)
+
+
+def test_compose_f_step_with_increasing_g():
+    """g increasing maps x->2x on [0,10]; f steps at y=10. f(g(x)) steps at x=5."""
+    # f: slope 1 on [0,10], up-step 10->30 at x=10, slope 1 on [10,20] (30..40).
+    f = PWL([0.0, 10.0, 10.0, 20.0], [0.0, 10.0, 30.0, 40.0])
+    g = PWL([0.0, 10.0], [0.0, 20.0])  # slope 2, image [0,20]
+    fog = f.compose(g)
+    # g(5)=10 -> f steps there. Left-continuous: fog(5)=f(10^-)=10.
+    assert fog.value(4.0) == pytest.approx(8.0)  # f(g(4))=f(8)=8
+    assert fog.value(5.0) == pytest.approx(10.0)  # lower side of the step
+    assert fog.value(6.0) == pytest.approx(32.0)  # f(g(6))=f(12)=32
+
+
+def test_compose_g_step_makes_fog_jump():
+    """g itself has a value jump; f linear. f(g(x)) inherits the jump."""
+    f = PWL([0.0, 40.0], [0.0, 40.0])  # identity on [0,40]
+    # g: slope 1 on [0,10], up-step 10->30 at x=10, slope 1 on [10,20].
+    g = PWL([0.0, 10.0, 10.0, 20.0], [0.0, 10.0, 30.0, 40.0])
+    fog = f.compose(g)  # == g since f is identity
+    assert fog.value(9.0) == pytest.approx(9.0)
+    assert fog.value(10.0) == pytest.approx(10.0)  # left-continuous lower value of g's jump
+    assert fog.value(11.0) == pytest.approx(31.0)
