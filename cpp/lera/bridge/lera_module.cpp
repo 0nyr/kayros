@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <nyr/math/ndcpwlf.h>
+#include <goc/math/pwl_function.h>
 
 #include "lera_bridge.h"
 
@@ -77,4 +78,30 @@ PYBIND11_MODULE(_lera, m) {
         .def_property_readonly("min_image", &nyr::NDCPWLF::get_min_image)
         .def_property_readonly("max_image", &nyr::NDCPWLF::get_max_image)
         .def("__eq__", &nyr::NDCPWLF::operator==, py::arg("other"));
+
+    // --- goc::PWLFunction test surface (M5.9 step-capable retrofit) ---------
+    // The labeling's general (non-monotone) duration/cost functions live on
+    // goc::PWLFunction; the retrofit teaches it genuine value jumps (verticals)
+    // + left-continuous evaluation + step-aware Compose/Inverse/Min/Max. This
+    // surface pins the behavior at each step of that work.
+    auto goc_mod = m.def_submodule(
+        "goc", "goc::PWLFunction general step-capable PWL (M5.9 test surface)");
+    py::class_<goc::PWLFunction>(goc_mod, "PWLFunction")
+        .def(py::init<const std::vector<double>&, const std::vector<double>&>(),
+             py::arg("breakpoints"), py::arg("values"))
+        .def("value", &goc::PWLFunction::Value, py::arg("x"))
+        .def("__call__", &goc::PWLFunction::operator(), py::arg("x"))
+        .def("pre_value", &goc::PWLFunction::PreValue, py::arg("y"))
+        .def("piece_count", &goc::PWLFunction::PieceCount)
+        .def("empty", &goc::PWLFunction::Empty)
+        .def("compose", &goc::PWLFunction::Compose, py::arg("g"))
+        .def("inverse", &goc::PWLFunction::Inverse)
+        .def_property_readonly(
+            "min_domain", [](const goc::PWLFunction& f) { return f.Domain().left; })
+        .def_property_readonly(
+            "max_domain", [](const goc::PWLFunction& f) { return f.Domain().right; })
+        .def_property_readonly(
+            "min_image", [](const goc::PWLFunction& f) { return f.Image().left; })
+        .def_property_readonly(
+            "max_image", [](const goc::PWLFunction& f) { return f.Image().right; });
 }
