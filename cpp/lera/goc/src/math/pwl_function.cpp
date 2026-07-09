@@ -196,12 +196,20 @@ double PWLFunction::Value(double x) const
         fail("PWLFunction::Value(" + STR(x) +") failed, because domain is " + STR(Domain()));
         return -1;
     }
-    
-    // Look for a piece that include x in their domain.
-    for (int i = pieces_.size()-1; i >= 0; --i)
+
+    // Left-continuous evaluation (M5.9): return the FIRST piece (front-to-back)
+    // whose domain includes x. At the abscissa of a value jump this is the piece
+    // ending at x from the left, so Value returns the pre-jump (lower) value —
+    // the checker's authoritative convention, and the one every step-aware
+    // primitive below relies on. For a continuous function all pieces meeting at
+    // a breakpoint agree, so this is identical (modulo the pre-existing
+    // slope*x+intercept ulp) to the previous back-to-front scan; it only
+    // disambiguates genuine verticals (a zero-width piece is ordered after the
+    // left piece that ends at its abscissa, so it is never selected for x).
+    for (int i = 0; i < (int) pieces_.size(); ++i)
         if (pieces_[i].domain.Includes(x))
             return pieces_[i].Value(x);
-    
+
     // The function is not continuous and x is not in the domain of any piece.
     fail("PWLFunction::Value(" + STR(x) +") failed, because x is not inside the domain of its pieces.");
     return -1;
