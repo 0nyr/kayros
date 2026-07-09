@@ -49,6 +49,17 @@ double LinearFunction::Value(double x) const
     return slope * x + intercept;
 }
 
+std::pair<double, double> LinearFunction::sweep_endpoints() const
+{
+    if (is_vertical())
+    {
+        double incoming = intercept;
+        double outgoing = (incoming == image.left) ? image.right : image.left;
+        return {incoming, outgoing};
+    }
+    return {Value(domain.left), Value(domain.right)};
+}
+
 double LinearFunction::operator()(double x) const
 {
     return Value(x);
@@ -64,6 +75,15 @@ double LinearFunction::PreValue(double y) const
 
 bool LinearFunction::Intersects(const LinearFunction& f) const
 {
+    // M5.9: a vertical (value jump at x0) crosses f iff x0 is in f's domain and
+    // f(x0) lies within the jump's image span. Intersection() below returns x0.
+    if (is_vertical() || f.is_vertical())
+    {
+        const LinearFunction& vert = is_vertical() ? *this : f;
+        const LinearFunction& other = is_vertical() ? f : *this;
+        double x0 = vert.domain.left;
+        return other.domain.Includes(x0) && vert.image.Includes(other.Value(x0));
+    }
     // If both pieces have the same slope, check if they have the same intercept.
     if (epsilon_equal(slope, f.slope)) return epsilon_equal(intercept, f.intercept);
     // Otherwise check if intersection is inside both functions domains.
@@ -73,6 +93,10 @@ bool LinearFunction::Intersects(const LinearFunction& f) const
 
 double LinearFunction::Intersection(const LinearFunction& l) const
 {
+    // M5.9: a vertical (slope INFTY) crosses at its own abscissa x0; the generic
+    // (l.intercept - intercept)/(slope - l.slope) divides by INFTY -> ~0, wrong.
+    if (is_vertical()) return domain.left;
+    if (l.is_vertical()) return l.domain.left;
     double denominator = slope - l.slope;
     if (epsilon_equal(denominator, 0.0))
     {
@@ -135,12 +159,25 @@ void to_json(json& j, const LinearFunction& f)
     j.push_back(Point2D(f.domain.right, f.Value(f.domain.right)));
 }
 
+// The (incoming, outgoing) endpoints of a piece over the overlap [l, r]. For a
+// vertical (value jump, l == r) both image endpoints are returned; for an
+// ordinary piece the restriction Value(l), Value(r). M5.9: pairing incoming with
+// incoming and outgoing with outgoing preserves jumps under pointwise arithmetic
+// that would otherwise collapse to a single Value().
+static inline std::pair<double, double> sweep_over(const LinearFunction& f, double l, double r)
+{
+    if (f.is_vertical()) return f.sweep_endpoints();
+    return {f.Value(l), f.Value(r)};
+}
+
 LinearFunction operator+(const LinearFunction& f, const LinearFunction& g)
 {
     if (!f.domain.Intersects(g.domain)) return LinearFunction(Point2D(0.0, 0.0), Point2D(-1.0, 0.0));
     double l = max(f.domain.left, g.domain.left);
     double r = min(f.domain.right, g.domain.right);
-    return LinearFunction(Point2D(l, f.Value(l)+g.Value(l)), Point2D(r, f.Value(r)+g.Value(r)));
+    auto [f_in, f_out] = sweep_over(f, l, r);
+    auto [g_in, g_out] = sweep_over(g, l, r);
+    return LinearFunction(Point2D(l, f_in+g_in), Point2D(r, f_out+g_out));
 }
 
 // Returns: h(x) = f(x)*g(x).
@@ -150,19 +187,23 @@ LinearFunction operator*(const LinearFunction& f, const LinearFunction& g)
     if (!f.domain.Intersects(g.domain)) return LinearFunction(Point2D(0.0, 0.0), Point2D(-1.0, 0.0));
     double l = max(f.domain.left, g.domain.left);
     double r = min(f.domain.right, g.domain.right);
-    return LinearFunction(Point2D(l, f.Value(l)*g.Value(l)), Point2D(r, f.Value(r)*g.Value(r)));
+    auto [f_in, f_out] = sweep_over(f, l, r);
+    auto [g_in, g_out] = sweep_over(g, l, r);
+    return LinearFunction(Point2D(l, f_in*g_in), Point2D(r, f_out*g_out));
 }
 
 // Returns: h(x) = f(x)+a.
 LinearFunction operator+(const LinearFunction& f, double a)
 {
-    return LinearFunction(Point2D(f.domain.left, f.Value(f.domain.left)+a), Point2D(f.domain.right, f.Value(f.domain.right)+a));
+    auto [lo, hi] = f.sweep_endpoints();
+    return LinearFunction(Point2D(f.domain.left, lo + a), Point2D(f.domain.right, hi + a));
 }
 
 // Returns: h(x) = f(x)*a.
 LinearFunction operator*(const LinearFunction& f, double a)
 {
-    return LinearFunction(Point2D(f.domain.left, f.Value(f.domain.left)*a), Point2D(f.domain.right, f.Value(f.domain.right)*a));
+    auto [lo, hi] = f.sweep_endpoints();
+    return LinearFunction(Point2D(f.domain.left, lo * a), Point2D(f.domain.right, hi * a));
 }
 
 std::size_t LinearFunction::memory_footprint_bytes() const {

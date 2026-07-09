@@ -8,12 +8,15 @@ merge/dominance mispricing. Negative-reduced-cost columns are silently dropped
 and the branch-and-price closes at a wrong, warm-start-dependent "optimum".
 See ``cpp/lera/NOTICE.md`` item 9 and the 2026-07-08 Rifki retraction report.
 
-These tests are the *specification* of the fix. The two soundness gates are
-``xfail(strict=True)`` until exact value-jump handling lands: the branch suite
-stays green now, and the moment the fix makes a gate pass, strict-xfail turns
-the XPASS into a failure — a forcing function to delete the marker and promote
-it to a hard gate. The guard tests (jump-free family) must stay green
-throughout: they protect the currently-correct proofs against regressions.
+These tests are the *specification* of the fix, now satisfied (M5.9). The fix
+was NOT exact value-jump handling: the mollified (continuous) labeling is sound
+once goc's numerics are exact -- the non-decreasing ``Inverse`` rebuilt as a
+coordinate swap removed the pricing incompleteness that made the prover certify
+8376 > 8361. The two soundness gates below were ``xfail(strict=True)`` until the
+fix landed; they are now hard gates. The guard tests (jump-free family) must
+stay green throughout: they protect the currently-correct proofs against
+regressions. Soundness across random instances is covered by the differential
+fuzzer in ``test_prover_fuzz_soundness.py``.
 
 The decisive minimal reproducer is TDVRPTW/Rifki2020/n=20/Rifki-16: cold solve
 certifies ``Optimum 8376`` while the checker-valid solution below carries cost
@@ -90,16 +93,13 @@ def test_reproducer_counterexample_is_checker_valid():
     assert chk.routing_cost == RIFKI16_N20_COUNTEREXAMPLE_COST
 
 
-@pytest.mark.xfail(
-    reason="M5.9: exact stepwise labeling not yet implemented — prover certifies "
-    "8376 > 8361 cold (pricing incompleteness on mollified jumps)",
-    strict=True,
-)
 def test_stepwise_certified_value_is_sound():
     """A certified optimum must not exceed a known checker-valid solution.
 
     Cold solve of the reproducer: the certified value must be <= 8361 (the
-    checker cost of a feasible solution). Currently the prover returns 8376.
+    checker cost of a feasible solution). Fixed in M5.9 (exact non-decreasing
+    ``Inverse`` removed the pricing incompleteness that made the mollified path
+    certify 8376); was strict-xfail before the fix.
     """
     require_benchmarks()
     assert RIFKI16_N20 is not None
@@ -109,17 +109,12 @@ def test_stepwise_certified_value_is_sound():
     assert res["value"] <= RIFKI16_N20_COUNTEREXAMPLE_COST
 
 
-@pytest.mark.xfail(
-    reason="M5.9: exact stepwise labeling not yet implemented — certified value is "
-    "warm-start dependent (8376 cold vs 8361 warm)",
-    strict=True,
-)
 def test_stepwise_certification_is_warm_start_independent():
     """A sound proof cannot depend on the warm start.
 
     Cold and counterexample-warm solves must both certify Optimum at the same
-    value. Currently: 8376 (cold) vs 8361 (warm) — warm-start dependence is the
-    decisive soundness signature.
+    value. Before M5.9: 8376 (cold) vs 8361 (warm) -- warm-start dependence was
+    the decisive soundness signature; now both certify 8361.
     """
     require_benchmarks()
     assert RIFKI16_N20 is not None

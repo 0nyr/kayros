@@ -73,9 +73,15 @@ def _atf_to_travel_time_pieces(xs, ys) -> list[list[list[float]]]:
     """ATF breakpoints -> Lera PWL travel-time pieces tau(t) = f(t) - t.
 
     Each piece is ``[[x1, y1], [x2, y2]]`` (goc ``LinearFunction`` JSON).
-    Duplicate-x breakpoints are continuized first (see
-    :func:`_continuize_breakpoints`); for jump-free ATFs this is a no-op and
-    the emitted floats are bit-identical to the raw breakpoints.
+    Value jumps (duplicate-x breakpoints) are continuized into narrow steep
+    bridges first (see :func:`_continuize_breakpoints`); for jump-free ATFs this
+    is a no-op and the emitted floats are bit-identical to the raw breakpoints.
+    M5.9: the mollifier is load-bearing -- the prover's exact (true-vertical)
+    labeling is not sound (time-reversal / composition of a left-continuous step
+    is not left-continuous), whereas the mollified continuous path is sound once
+    the goc numerics are exact (non-decreasing Inverse via coordinate swap). The
+    residual 1e-3 arrival error is validated sound by the randomized differential
+    fuzzer (tests/test_prover_fuzz_soundness.py).
     """
     xs, ys = _continuize_breakpoints([float(x) for x in xs], [float(y) for y in ys])
     return [

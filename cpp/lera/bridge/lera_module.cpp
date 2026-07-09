@@ -103,5 +103,25 @@ PYBIND11_MODULE(_lera, m) {
         .def_property_readonly(
             "min_image", [](const goc::PWLFunction& f) { return f.Image().left; })
         .def_property_readonly(
-            "max_image", [](const goc::PWLFunction& f) { return f.Image().right; });
+            "max_image", [](const goc::PWLFunction& f) { return f.Image().right; })
+        // M5.9 step-op test surface: the labeling's value-jump-critical ops.
+        .def("max", [](const goc::PWLFunction& f, const goc::PWLFunction& g) {
+            return goc::Max(f, g); }, py::arg("g"))
+        .def("min", [](const goc::PWLFunction& f, const goc::PWLFunction& g) {
+            return goc::Min(f, g); }, py::arg("g"))
+        .def("__add__", [](const goc::PWLFunction& f, const goc::PWLFunction& g) {
+            return f + g; })
+        .def("__sub__", [](const goc::PWLFunction& f, const goc::PWLFunction& g) {
+            return f - g; })
+        .def("__mul__", [](const goc::PWLFunction& f, double a) { return f * a; })
+        // Per-piece dump: (dom_left, dom_right, img_left, img_right, is_vertical).
+        // A vertical carries its jump in [img_left, img_right]; Value returns only
+        // img_left (the incoming/left-continuous endpoint).
+        .def("pieces", [](const goc::PWLFunction& f) {
+            std::vector<std::tuple<double, double, double, double, bool>> out;
+            for (const auto& p : f.Pieces())
+                out.emplace_back(p.domain.left, p.domain.right,
+                                 p.image.left, p.image.right, p.is_vertical());
+            return out;
+        });
 }

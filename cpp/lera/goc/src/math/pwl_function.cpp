@@ -636,7 +636,23 @@ PWLFunction operator*(const PWLFunction& f, const PWLFunction& g)
         if (pf.domain.Intersects(pg.domain))
         {
             double left = max(pf.domain.left, pg.domain.left), right = min(pf.domain.right, pg.domain.right);
-            h.AddPiece(LinearFunction({left, pf.Value(left)*pg.Value(left)}, {right, pf.Value(right)*pg.Value(right)}));
+            if (pf.is_vertical() || pg.is_vertical())
+            {
+                // M5.9: a value jump in either operand -> a value jump in the
+                // product at the same abscissa x0 (== left == right, since a
+                // zero-width operand pins the overlap to a point). Pair incoming
+                // with incoming and outgoing with outgoing; a vertical contributes
+                // its two image endpoints (Value() returns only the incoming one,
+                // which would collapse the jump), a continuous operand its value
+                // at x0 for both.
+                auto [f_in, f_out] = pf.is_vertical() ? pf.sweep_endpoints()
+                                                      : std::make_pair(pf.Value(left), pf.Value(left));
+                auto [g_in, g_out] = pg.is_vertical() ? pg.sweep_endpoints()
+                                                      : std::make_pair(pg.Value(left), pg.Value(left));
+                h.AddPiece(LinearFunction({left, f_in * g_in}, {left, f_out * g_out}));
+            }
+            else
+                h.AddPiece(LinearFunction({left, pf.Value(left)*pg.Value(left)}, {right, pf.Value(right)*pg.Value(right)}));
         }
         if (epsilon_equal(pf.domain.right, pg.domain.right)) { ++i; ++j; }
         else if (epsilon_smaller(pf.domain.right, pg.domain.right)) { ++i; }

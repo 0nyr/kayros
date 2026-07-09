@@ -92,6 +92,13 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 			// Compute reverse travel functions.
 			r.arr[v][u] = vrp.T - vrp.dep[u][v].Compose(vrp.T - PWLFunction::IdentityFunction({0.0, vrp.T}));
 			r.arr[v][u] = Min(PWLFunction::ConstantFunction(min(img(r.arr[v][u])), {min(r.tw[v]), min(dom(r.arr[v][u]))}), r.arr[v][u]);
+			// M5.9: the reverse mollifier is load-bearing and unconditional.
+			// Time-reversal turns a left-continuous forward step function into a
+			// right-continuous reverse one; the labeling assumes uniform
+			// left-continuity, so exact reverse verticals misprice at jumps. The
+			// mollified continuous path is sound (validated by the randomized
+			// differential fuzzer). continuize_value_jumps is a no-op on
+			// jump-free arcs.
 			r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
 			r.tau[v][u] = r.arr[v][u] - PWLFunction::IdentityFunction({0.0, vrp.T});
 			r.dep[v][u] = r.arr[v][u].Inverse();

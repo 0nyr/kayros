@@ -36,6 +36,14 @@ public:
     // domain a point with distinct image endpoints), marked with slope = INFTY.
     // A plateau (slope 0) and a single point are NOT verticals.
     bool is_vertical() const { return slope == INFTY; }
+
+    // Returns: the (incoming, outgoing) endpoint values in sweep (left-to-right)
+    // order. For an ordinary piece these are Value(domain.left), Value(domain.right).
+    // For a vertical (value jump) Value returns only the incoming endpoint, so we
+    // return both image endpoints, incoming first (intercept holds the
+    // left-continuous incoming value). M5.9: preserves jumps under pointwise
+    // arithmetic (operator+/operator*), which otherwise collapse them.
+    std::pair<double, double> sweep_endpoints() const;
     
     // Returns: the value of the function f(x).
     // Precondition: x \in domain.
