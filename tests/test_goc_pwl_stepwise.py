@@ -79,14 +79,6 @@ def test_inverse_jumpfree():
     assert g.value(5.0) == pytest.approx(10.0)  # slope 2
 
 
-@pytest.mark.xfail(
-    reason="M5.9: goc AddPiece merges a vertical into its neighbour at "
-    "construction (both encode as slope 0), so the step degrades to image.left "
-    "and Inverse cannot recover it. Needs a genuine vertical marker in "
-    "LinearFunction (slope=INFTY) + non-merging AddPiece; also the plateau->step "
-    "inverse convention (min vs max pre-image) must be pinned to the labeling.",
-    strict=True,
-)
 def test_inverse_step_is_left_continuous_and_involutive():
     # arr-like: slope 0.5 on [0,10], up-step 5->12 at x=10, plateau 12 on [10,20].
     f = PWL(STEP_XS, STEP_YS)

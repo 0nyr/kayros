@@ -9,6 +9,7 @@
 #include <iostream>
 
 #include "goc/math/interval.h"
+#include "goc/math/number_utils.h"
 #include "goc/math/point_2d.h"
 #include "goc/lib/json.hpp"
 #include "goc/print/printable.h"
@@ -26,10 +27,15 @@ public:
     double slope, intercept;
     
     LinearFunction() = default;
-    
+
     // Creates a linear function from p1 to p2.
     // Precondition: p1.x <= p2.x.
     LinearFunction(const Point2D& p1, const Point2D& p2);
+
+    // Returns: whether this piece is a genuine value jump (a vertical segment,
+    // domain a point with distinct image endpoints), marked with slope = INFTY.
+    // A plateau (slope 0) and a single point are NOT verticals.
+    bool is_vertical() const { return slope == INFTY; }
     
     // Returns: the value of the function f(x).
     // Precondition: x \in domain.

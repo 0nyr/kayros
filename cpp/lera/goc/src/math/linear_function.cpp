@@ -20,9 +20,24 @@ namespace goc
 LinearFunction::LinearFunction(const Point2D& p1, const Point2D& p2)
     : domain(p1.x, p2.x), image(min(p1.y, p2.y), max(p1.y, p2.y))
 {
-    slope = epsilon_equal(p2.x, p1.x) ? 0.0 : (p2.y - p1.y) / (p2.x - p1.x);
-    if (epsilon_equal(slope, 0.0)) slope = 0.0;
-    intercept = p2.y - slope * p2.x;
+    if (epsilon_equal(p2.x, p1.x))
+    {
+        // Zero-width piece (M5.9): a genuine value jump (vertical) when the
+        // endpoints differ, else a single point. A vertical is marked
+        // slope = INFTY so it is distinguishable from a plateau (slope 0) — goc
+        // used to collapse both to slope 0, which destroyed step structure
+        // (AddPiece then merged the "vertical" into the neighbouring plateau).
+        // Its intercept holds the left-continuous value = the incoming (p1)
+        // endpoint, so Value returns the pre-jump value.
+        slope = epsilon_equal(p1.y, p2.y) ? 0.0 : INFTY;
+        intercept = p1.y;
+    }
+    else
+    {
+        slope = (p2.y - p1.y) / (p2.x - p1.x);
+        if (epsilon_equal(slope, 0.0)) slope = 0.0;
+        intercept = p2.y - slope * p2.x;
+    }
     // Fix for numerical errors.
     if (domain.left != INFTY && domain.left > domain.right)
         domain.left = domain.right;
@@ -30,6 +45,7 @@ LinearFunction::LinearFunction(const Point2D& p1, const Point2D& p2)
 
 double LinearFunction::Value(double x) const
 {
+    if (slope == INFTY) return intercept; // vertical: left-continuous (pre-jump) value
     return slope * x + intercept;
 }
 
@@ -41,6 +57,7 @@ double LinearFunction::operator()(double x) const
 double LinearFunction::PreValue(double y) const
 {
     if (!image.Includes(y)) fail(STR(y) + " is not in the image " + STR(image));
+    if (slope == INFTY) return domain.left; // vertical: every y in the image maps to the single x
     if (epsilon_equal(slope, 0.0)) return domain.right;
     return (y - intercept) / slope;
 }
