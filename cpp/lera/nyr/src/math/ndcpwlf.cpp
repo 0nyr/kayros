@@ -45,59 +45,58 @@ size_t nyr::NDCPWLF::nb_pieces() const {
 }
 
 double nyr::NDCPWLF::evaluate(double x) const {
-    // If the function is empty, throw an exception
     if (empty()) {
         throw std::out_of_range("Cannot evaluate empty NDCPWLF");
     }
-
-    // Check if x is in the domain using epsilon comparisons
     if (!interval_vector_includes(xs, x)) {
         throw std::out_of_range("x is outside NDCPWLF domain");
     }
 
-    // Binary search to find the right segment
-    // Find first breakpoint that is epsilon_bigger than x
-    // NOTE: Do not use epsilon comparison here (better optimization)
-    // and perform check after finding the segment.
-    auto it = std::upper_bound(xs.begin(), xs.end(), x);
-    
-    // Handle edge case where upper_bound returns end()
-    // NOTE: critical safety check to prevent undefined behavior 
-    // when dereferencing the iterator.
+    // Left-continuous at value jumps: f(x) = lim_{t->x^-} f(t). At the abscissa
+    // of an up-step (duplicate x) the function takes the LOWER (pre-jump) value,
+    // i.e. the FIRST y stored at that x. This matches the canonical checker's
+    // convention (its lower_bound returns the first y on an exact hit) and is
+    // the semantics every downstream primitive (Inverse, Max, domination)
+    // relies on. lower_bound returns the first breakpoint >= x, so an exact hit
+    // lands on the first occurrence of the abscissa = the lower step value.
+    auto it = std::lower_bound(xs.begin(), xs.end(), x);
+    if (it == xs.begin()) {
+        return ys.front();  // x at (or dust below) the domain start
+    }
     if (it == xs.end()) {
-        return ys.back();
+        return ys.back();  // x at (or dust above) the domain end
     }
-    
-    // Handle case where x is very close to a breakpoint
-    if (goc::epsilon_equal(x, *it)) {
-        size_t idx = std::distance(xs.begin(), it);
-        return ys[idx];
+    size_t idx = static_cast<size_t>(std::distance(xs.begin(), it));
+    if (goc::epsilon_equal(*it, x)) {
+        return ys[idx];  // exact breakpoint hit -> first occurrence -> lower value
     }
-    
-    // Get indices for the segment [x_i, x_{i+1}]
-    size_t right_idx = std::distance(xs.begin(), it);
-    size_t left_idx = right_idx - 1;
-    
-    // Linear interpolation between (x_i, y_i) and (x_{i+1}, y_{i+1})
-    double x_left = xs[left_idx];
-    double x_right = xs[right_idx];
-    double y_left = ys[left_idx];
-    double y_right = ys[right_idx];
-    
-    #ifndef NDEBUG
-        // Handle degenerate case using epsilon comparison
-        if (goc::epsilon_equal(x_right, x_left)) {
-            return y_left;
-        }
-    #endif
-    
-    // Linear interpolation: y = y_left + (y_right - y_left) * (x - x_left) / (x_right - x_left)
+
+    // Interior of the piece [idx-1, idx]. Since *it > x (not epsilon-equal) and
+    // everything before is < x, we have xs[idx-1] < x < xs[idx]: a genuine
+    // non-degenerate sloped/flat piece, never a vertical step.
+    double x_left = xs[idx - 1], x_right = xs[idx];
+    double y_left = ys[idx - 1], y_right = ys[idx];
     double t = (x - x_left) / (x_right - x_left);
     return y_left + t * (y_right - y_left);
 }
 
 double nyr::NDCPWLF::operator()(double x) const {
     return evaluate(x);
+}
+
+nyr::NDCPWLF nyr::NDCPWLF::inverse() const {
+    if (empty()) {
+        return NDCPWLF();
+    }
+    // A non-decreasing PWL stores both xs and ys non-decreasing, so the graph
+    // reflected across y = x is again a valid non-decreasing PWL: f^{-1} is the
+    // exact coordinate swap. Sloped pieces invert to sloped pieces; a value jump
+    // (step: duplicate x) inverts to a plateau (duplicate y) and a plateau
+    // inverts to a step. Collinearity is preserved by the reflection, so a
+    // normalized f yields a normalized f^{-1} with no extra work and, crucially,
+    // no numerical error: this is the operation the 1e-3 mollifier existed to
+    // avoid on goc::PWLFunction.
+    return NDCPWLF(ys, xs);
 }
 
 bool nyr::NDCPWLF::check_invariant() const {

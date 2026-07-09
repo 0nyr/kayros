@@ -85,6 +85,17 @@ public:
     // Improved with post-normalization.
     NDCPWLF compose(const NDCPWLF& g) const;
 
+    // Returns: the inverse function f^{-1}, defined on the image of f.
+    // Since a non-decreasing PWL stores both xs and ys non-decreasing, the
+    // inverse is the exact coordinate swap (xs <-> ys): a sloped piece inverts
+    // to a sloped piece, a value jump (step, duplicate x) inverts to a plateau
+    // (duplicate y) and vice versa. This is the step<->plateau duality, carried
+    // exactly with no mollification. Evaluation of the result stays
+    // left-continuous, so f^{-1}(y) on a plateau-turned-step yields the LOWER
+    // (earliest) x attaining y; on a step-turned-plateau f^{-1} is constant.
+    // Precondition: f is non-empty (an empty inverse is returned for empty f).
+    NDCPWLF inverse() const;
+
     goc::PWLFunction to_goc_pwl_function() const;
 
     void Print(std::ostream& os) const;

@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <nyr/math/ndcpwlf.h>
+
 #include "lera_bridge.h"
 
 namespace py = pybind11;
@@ -50,4 +52,29 @@ PYBIND11_MODULE(_lera, m) {
         py::arg("on_incumbent") = py::none(),
         py::arg("initial_routes") = std::vector<std::vector<int>>{},
         py::arg("stab_alpha") = 0.0);
+
+    // --- nyr NDCPWLF test surface (M5.9 exact stepwise labeling) -----------
+    // Direct pytest access to the step-capable PWL primitives while they are
+    // built and hardened against the checker's left-continuous semantics,
+    // before they replace goc::PWLFunction inside the labeling.
+    auto nyr_mod = m.def_submodule(
+        "nyr", "nyr NDCPWLF step-capable PWL primitives (M5.9 test surface)");
+    py::class_<nyr::NDCPWLF>(nyr_mod, "NDCPWLF")
+        .def(py::init<std::vector<double>, std::vector<double>>(), py::arg("xs"),
+             py::arg("ys"))
+        .def("evaluate", &nyr::NDCPWLF::evaluate, py::arg("x"))
+        .def("__call__", &nyr::NDCPWLF::operator(), py::arg("x"))
+        .def("nb_pieces", &nyr::NDCPWLF::nb_pieces)
+        .def("empty", &nyr::NDCPWLF::empty)
+        .def("check_invariant", &nyr::NDCPWLF::check_invariant)
+        .def("check_normalization", &nyr::NDCPWLF::check_normalization)
+        .def("compose", &nyr::NDCPWLF::compose, py::arg("g"))
+        .def("inverse", &nyr::NDCPWLF::inverse)
+        .def("get_xs", &nyr::NDCPWLF::get_xs)
+        .def("get_ys", &nyr::NDCPWLF::get_ys)
+        .def_property_readonly("min_domain", &nyr::NDCPWLF::get_min_domain)
+        .def_property_readonly("max_domain", &nyr::NDCPWLF::get_max_domain)
+        .def_property_readonly("min_image", &nyr::NDCPWLF::get_min_image)
+        .def_property_readonly("max_image", &nyr::NDCPWLF::get_max_image)
+        .def("__eq__", &nyr::NDCPWLF::operator==, py::arg("other"));
 }
