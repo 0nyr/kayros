@@ -79,7 +79,7 @@ def test_inverse_jumpfree():
     assert g.value(5.0) == pytest.approx(10.0)  # slope 2
 
 
-def test_inverse_step_is_left_continuous_and_involutive():
+def test_inverse_step_choice_semantics_and_involutive():
     # arr-like: slope 0.5 on [0,10], up-step 5->12 at x=10, plateau 12 on [10,20].
     f = PWL(STEP_XS, STEP_YS)
     g = f.inverse()
@@ -89,12 +89,24 @@ def test_inverse_step_is_left_continuous_and_involutive():
     assert g.value(5.0) == pytest.approx(10.0)
     # f^{-1}(8): interior of the plateau-turned-flat -> constant 10.
     assert g.value(8.0) == pytest.approx(10.0)
-    # f^{-1}(12): step of g, left-continuous lower value -> 10.
-    assert g.value(12.0) == pytest.approx(10.0)
-    # Double inverse recovers f pointwise (exact swap twice).
+    # f^{-1}(12): the plateau inverts into a CHOICE vertical (memo 13.2) whose
+    # representative is the LATEST x = 20 (dep semantics: latest departure
+    # arriving by 12; goc's historical max{x : f(x) = y}). Before 13.2 this
+    # returned the lower endpoint 10 under the left-continuity convention.
+    assert g.value(12.0) == pytest.approx(20.0)
+    verts = [p for p in g.pieces() if p[4]]
+    assert len(verts) == 1 and verts[0][5] == "choice"
+    # Double inverse recovers f pointwise AWAY from the jump abscissa. AT the
+    # jump abscissa the attainment side is lost: the jump inverts into a
+    # plateau, and re-inverting any plateau yields a CHOICE vertical with the
+    # latest representative (13.2) because plateaus carry no provenance tag.
+    # Solver-safe: every solver inversion produces a dep-role function (arr ->
+    # dep, r.arr -> r.dep), where plateau-inverse = choice is always correct;
+    # nothing ever re-inverts a dep back into an arr.
     ff = g.inverse()
-    for x in (0.0, 5.0, 9.0, 10.0, 15.0, 20.0):
+    for x in (0.0, 5.0, 9.0, 15.0, 20.0):
         assert ff.value(x) == pytest.approx(f.value(x))
+    assert ff.value(10.0) == pytest.approx(12.0)  # latest representative, not 5
 
 
 # --- Compose must preserve value jumps (f o g)(x) = f(g(x)) ------------------
@@ -217,26 +229,70 @@ def test_compose_g_jump_produces_composite_jump_pieces():
     assert fog.value(11.0) == pytest.approx(62.0)   # f(31)
     verts = [p for p in fog.pieces() if p[4]]
     assert len(verts) == 1
-    dl, dr, il, ir, _ = verts[0]
+    dl, dr, il, ir, _, kind = verts[0]
+    assert kind == "jump"
     assert dl == dr == pytest.approx(10.0)
     assert (il, ir) == (pytest.approx(20.0), pytest.approx(60.0))
 
 
-@pytest.mark.xfail(
-    reason="M5.9 section 13.2: awaiting the tagged-vertical Compose. The first "
-    "pointwise implementation broke production dep CHOICE verticals (inverse of "
-    "a plateau: interior values are attained departure choices, needing the "
-    "legacy sweep) and was reverted; jump verticals still collapse to a point.",
-    strict=True,
-)
 def test_compose_f_jump_through_increasing_g_keeps_span():
-    """f jumps at y=10; g = 2x reaches it at x=5. fog jumps at 5, span kept."""
+    """f jumps at y=10; g = 2x reaches it at x=5. fog jumps at 5, span kept.
+
+    Implemented by the tagged-vertical Compose (13.2): JUMP verticals of f
+    emit their span; CHOICE verticals keep the generic representative collapse.
+    """
     f = PWL([0.0, 10.0, 10.0, 20.0], [0.0, 10.0, 30.0, 40.0])
     g = PWL([0.0, 10.0], [0.0, 20.0])
     fog = f.compose(g)
     verts = [p for p in fog.pieces() if p[4]]
     assert len(verts) == 1
-    dl, _, il, ir, _ = verts[0]
+    dl, _, il, ir, _, kind = verts[0]
+    assert kind == "jump"
     assert dl == pytest.approx(5.0)
     assert (min(il, ir), max(il, ir)) == (pytest.approx(10.0), pytest.approx(30.0))
     assert fog.value(5.0) == pytest.approx(10.0)  # attained (f left-continuous)
+
+
+# --- Tagged verticals (memo 13.2): jump vs choice --------------------------
+
+
+def test_inverse_plateau_yields_choice_vertical_latest_representative():
+    """arr plateau [10,20] -> 15 inverts to a CHOICE vertical at 15, rep = 20."""
+    arr = PWL([0.0, 10.0, 20.0], [5.0, 15.0, 15.0])
+    dep = arr.inverse()
+    assert dep.value(15.0) == pytest.approx(20.0)  # latest departure
+    verts = [p for p in dep.pieces() if p[4]]
+    assert len(verts) == 1
+    dl, dr, il, ir, _, kind = verts[0]
+    assert kind == "choice"
+    assert dl == pytest.approx(15.0)
+    assert (il, ir) == (pytest.approx(10.0), pytest.approx(20.0))
+
+
+def test_compose_through_choice_vertical_sweeps_outer():
+    """A CHOICE vertical in g sweeps f over the span (prices the choice).
+
+    f is V-shaped (min interior); g = dep-like with a choice vertical at x=15
+    spanning [10, 20]. fog at 15 must contain f's values over the WHOLE span
+    (min included), unlike a jump, which would keep only the endpoints.
+    """
+    f = PWL([0.0, 15.0, 30.0], [30.0, 0.0, 30.0])  # V shape, min 0 at 15
+    arr = PWL([0.0, 10.0, 20.0], [5.0, 15.0, 15.0])
+    dep = arr.inverse()  # choice vertical at 15 spanning [10, 20]
+    fog = f.compose(dep)
+    # The sweep must expose f's interior minimum f(15) = 0 at x0 = 15.
+    assert fog.min_image == pytest.approx(0.0)
+    swept = [p for p in fog.pieces() if p[0] == pytest.approx(15.0) and p[0] == p[1]]
+    assert len(swept) >= 2  # f's two slopes over the span, stacked at x0
+    assert all(p[5] == "choice" for p in swept if p[4])
+
+
+def test_flip_time_preserves_choice_tag():
+    arr = PWL([0.0, 10.0, 20.0], [5.0, 15.0, 15.0])
+    dep = arr.inverse()
+    flipped = dep.flip_time(20.0)
+    verts = [p for p in flipped.pieces() if p[4]]
+    assert len(verts) == 1 and verts[0][5] == "choice"
+    # Representative preserved through the reflection: value at the reflected
+    # abscissa (20 - 15 = 5) is still the latest departure 20.
+    assert flipped.value(5.0) == pytest.approx(20.0)

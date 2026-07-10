@@ -131,19 +131,16 @@ def test_stepwise_certification_is_warm_start_independent():
 # --- The pinned SYMMETRIC-merge defect (target of the exact value-jump work) --
 
 
-@pytest.mark.xfail(
-    reason="M5.9 section 12: the symmetric bidirectional merge (t_m = T/2) "
-    "misprices stepwise ATFs — cold certifies 4820 > 4357 on Rifki-25 n=10. "
-    "This is the pinned reproducer for the exact value-jump labeling work; "
-    "production uses symmetric=false (sound on every gate) until it lands.",
-    strict=True,
-)
 def test_symmetric_merge_stepwise_is_sound(monkeypatch):
-    """Under KAYROS_LBL_SYMMETRIC=1 the prover must still certify true optima.
+    """Under KAYROS_LBL_SYMMETRIC=1 the prover must certify the true optimum.
 
     The uninitialized-`symmetric` UB (fixed in commit 8/n) made this path the
-    silent default on some builds (the 2026-07-10 g5k campaign); it is now
-    opt-in and unsound until the labeling handles value jumps exactly.
+    silent default on some builds (the 2026-07-10 g5k campaign): cold certified
+    4820 > 4357. FIXED by the tagged-vertical semantics (memo 13.2): choice
+    verticals (plateau inverses) sweep in Compose and carry the latest-departure
+    representative in Inverse. Was strict-xfail; now a hard regression gate.
+    Note: one reproducer passing does not re-enable symmetric mode in
+    production; that still awaits a clean two-arm campaign on both paths.
     """
     require_benchmarks()
     from conftest import benchmarks_root
@@ -155,6 +152,28 @@ def test_symmetric_merge_stepwise_is_sound(monkeypatch):
     res = _cold(loaded, tl=60.0)
     assert res["exact_log"]["status"] == "Optimum"
     assert res["value"] == pytest.approx(4357.0, abs=1e-6)
+
+
+@pytest.mark.xfail(
+    reason="M5.9: the remaining ASYMMETRIC-path defect — Rifki-14 n=30 cold "
+    "certifies 10207 > 10188 (warm), identically on both platforms (2026-07-10 "
+    "two-platform gate). Pinned target for the next tagged-vertical iteration.",
+    strict=True,
+)
+def test_asymmetric_rifki14_n30_is_sound():
+    """Cold and warm must certify the same value on Rifki-14 n=30 (true 10188)."""
+    require_benchmarks()
+    from conftest import benchmarks_root
+    import json
+
+    src = benchmarks_root() / "TDVRPTW" / "Rifki2020" / "n=30" / "Rifki-14.vrp.json"
+    assert src.exists()
+    loaded = load_td_instance(src)
+    bks = json.loads(src.with_name("Rifki-14.bks.Duration.json").read_text())
+    cold = _cold(loaded, tl=240.0)
+    warm = _warm(loaded, [[int(c) for c in r] for r in bks["routes"]], tl=240.0)
+    assert cold["exact_log"]["status"] == warm["exact_log"]["status"] == "Optimum"
+    assert cold["value"] == pytest.approx(warm["value"], abs=1e-6)
 
 
 # --- Regression guards: jump-free family proofs must stay correct/stable -----

@@ -265,6 +265,44 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
         // Put i inside bounds.
         i = max(0, min(f.PieceCount()-1, i));
 
+        // M5.9 (design memo 13.2): verticals in g dispatch on their kind.
+        if (g[j].is_vertical())
+        {
+            double x0 = g[j].domain.left;
+            if (g[j].is_choice_vertical())
+            {
+                // CHOICE vertical (inverse of a plateau): every y in the span is
+                // genuinely attainable (a real departure choice), so SWEEP f over
+                // the span at x0 — this prices the waiting/departure choice. The
+                // swept pieces are themselves choice verticals of fog.
+                double lo = g[j].image.left, hi = g[j].image.right;
+                while (i > 0 && epsilon_bigger_equal(max(dom(f[i-1])), lo)) --i;
+                while (i < f.PieceCount() && epsilon_smaller(max(dom(f[i])), lo)) ++i;
+                for (; i < f.PieceCount() && dom(f[i]).Intersects(Interval(lo, hi)); ++i)
+                {
+                    Interval inter = dom(f[i]).Intersection(Interval(lo, hi));
+                    LinearFunction v(Point2D(x0, f[i](inter.left)), Point2D(x0, f[i](inter.right)));
+                    fog.AddPiece(v.is_vertical() ? v.as_choice_vertical() : v);
+                }
+                continue;
+            }
+            // JUMP vertical (12.3): pointwise semantics; the interior of the
+            // span is unattained and DISCARDED (sweeping it would add
+            // unattainable values to the image, corrupting minima and bounds).
+            // The span is clamped into dom(f): emitting nothing while any part
+            // is covered would punch a hole in dom(fog) at x0.
+            double y_att = g[j].intercept;
+            double y_other = (y_att == g[j].image.left) ? g[j].image.right : g[j].image.left;
+            double flo = f.Domain().left, fhi = f.Domain().right;
+            double y1 = min(fhi, max(flo, y_att));
+            double y2 = min(fhi, max(flo, y_other));
+            bool covered = epsilon_smaller_equal(min(y_att, y_other), fhi)
+                        && epsilon_bigger_equal(max(y_att, y_other), flo);
+            if (covered)
+                fog.AddPiece(LinearFunction(Point2D(x0, f.Value(y1)), Point2D(x0, f.Value(y2))));
+            continue;
+        }
+
         // If g[j] is constant, image is a single y = min(img(g[j])) = max(img(g[j])).
         if (epsilon_equal(g[j].slope, 0.0))
         {
@@ -288,6 +326,23 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
             // For each piece f[i] such that dom(f[i]) \cap img(g[j]) \neq \emptyset
             for (; i < f.PieceCount() && dom(f[i]).Intersects(img(g[j])); ++i)
             {
+                // M5.9 (13.2): a JUMP vertical of f at y0 = g(x0), reached by a
+                // strictly increasing g, becomes a jump of fog at x0 with f's
+                // span, attained endpoint first (the generic path would collapse
+                // it to a point at the attained value). A CHOICE vertical of f
+                // keeps the generic collapse to its representative.
+                if (f[i].is_jump_vertical())
+                {
+                    double y0 = f[i].domain.left;
+                    if (img(g[j]).Includes(y0))
+                    {
+                        double x0 = g[j].PreValue(y0);
+                        double v_att = f[i].intercept;
+                        double v_other = (v_att == f[i].image.left) ? f[i].image.right : f[i].image.left;
+                        fog.AddPiece(LinearFunction(Point2D(x0, v_att), Point2D(x0, v_other)));
+                    }
+                    continue;
+                }
                 // Find intersection.
                 Interval inter = dom(f[i]).Intersection(img(g[j]));
                 double left = g[j].PreValue(inter.left), right = g[j].PreValue(inter.right);
@@ -354,7 +409,21 @@ PWLFunction PWLFunction::Inverse() const
 
     PWLFunction inv;
     for (size_t i = 0; i + 1 < ys.size(); ++i)
-        inv.AddPiece(LinearFunction(Point2D(ys[i], xs[i]), Point2D(ys[i + 1], xs[i + 1])));
+    {
+        // M5.9 (13.2): a plateau of f (duplicate y over distinct x) inverts into
+        // a CHOICE vertical: every x in [xs[i], xs[i+1]] genuinely attains ys[i],
+        // so the inverse is set-valued there. Its representative (intercept,
+        // listed first) is the LATEST x: goc's historical max{x : f(x) = y}
+        // inverse semantics, the duration-optimal departure for dep = arr^-1.
+        // At the current call sites every plateau-to-vertical inversion is a
+        // choice (arr is never rebuilt by re-inverting dep, so jump-origin
+        // plateaus in dep are never re-inverted here).
+        if (ys[i] == ys[i + 1] && xs[i] != xs[i + 1])
+            inv.AddPiece(LinearFunction(Point2D(ys[i], xs[i + 1]),
+                                        Point2D(ys[i], xs[i])).as_choice_vertical());
+        else
+            inv.AddPiece(LinearFunction(Point2D(ys[i], xs[i]), Point2D(ys[i + 1], xs[i + 1])));
+    }
     return inv;
 }
 
@@ -387,7 +456,10 @@ PWLFunction PWLFunction::FlipTime(double t_max) const
         const LinearFunction& p = pieces_[i];
         auto [v1, v2] = piece_values(p);
         if (p.is_vertical())
-            g.AddPiece(LinearFunction({t_max - p.domain.left, v1}, {t_max - p.domain.left, v2}));
+        {
+            LinearFunction v({t_max - p.domain.left, v1}, {t_max - p.domain.left, v2});
+            g.AddPiece(p.is_choice_vertical() ? v.as_choice_vertical() : v);
+        }
         else
             g.AddPiece(LinearFunction({t_max - p.domain.right, v2}, {t_max - p.domain.left, v1}));
     }
@@ -403,7 +475,10 @@ PWLFunction PWLFunction::FlipValue(double t_max) const
     {
         auto [v1, v2] = piece_values(p);
         if (p.is_vertical())
-            h.AddPiece(LinearFunction({p.domain.left, t_max - v1}, {p.domain.left, t_max - v2}));
+        {
+            LinearFunction v({p.domain.left, t_max - v1}, {p.domain.left, t_max - v2});
+            h.AddPiece(p.is_choice_vertical() ? v.as_choice_vertical() : v);
+        }
         else
             h.AddPiece(LinearFunction({p.domain.left, t_max - v1}, {p.domain.right, t_max - v2}));
     }

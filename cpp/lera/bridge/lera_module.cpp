@@ -116,14 +116,17 @@ PYBIND11_MODULE(_lera, m) {
         .def("__sub__", [](const goc::PWLFunction& f, const goc::PWLFunction& g) {
             return f - g; })
         .def("__mul__", [](const goc::PWLFunction& f, double a) { return f * a; })
-        // Per-piece dump: (dom_left, dom_right, img_left, img_right, is_vertical).
-        // A vertical carries its jump in [img_left, img_right]; Value returns only
-        // img_left (the incoming/left-continuous endpoint).
+        // Per-piece dump: (dom_left, dom_right, img_left, img_right, is_vertical,
+        // kind) with kind in {"", "jump", "choice"} (M5.9 memo 13.2). A vertical
+        // spans [img_left, img_right]; Value returns its attained/representative
+        // endpoint (the intercept).
         .def("pieces", [](const goc::PWLFunction& f) {
-            std::vector<std::tuple<double, double, double, double, bool>> out;
+            std::vector<std::tuple<double, double, double, double, bool, std::string>> out;
             for (const auto& p : f.Pieces())
                 out.emplace_back(p.domain.left, p.domain.right,
-                                 p.image.left, p.image.right, p.is_vertical());
+                                 p.image.left, p.image.right, p.is_vertical(),
+                                 p.is_jump_vertical() ? "jump"
+                                 : p.is_choice_vertical() ? "choice" : "");
             return out;
         });
 }

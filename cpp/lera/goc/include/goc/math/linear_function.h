@@ -32,10 +32,30 @@ public:
     // Precondition: p1.x <= p2.x.
     LinearFunction(const Point2D& p1, const Point2D& p2);
 
-    // Returns: whether this piece is a genuine value jump (a vertical segment,
-    // domain a point with distinct image endpoints), marked with slope = INFTY.
+    // Verticals (zero-width pieces with distinct image endpoints) come in two
+    // kinds with different composition semantics (M5.9, design memo 13.2):
+    //  - JUMP (slope = +INFTY): a genuine discontinuity of a pointwise function
+    //    (e.g. a stepwise travel-time up-step in arr). Interior span values are
+    //    unattained; composition discards them.
+    //  - CHOICE (slope = -INFTY): the inverse of a plateau (dep at a waiting
+    //    plateau or a slope-0 arr stretch). Every interior value is a genuinely
+    //    attainable choice; composition SWEEPS the outer function over the span.
+    // Both store the attained/representative value in `intercept` (13.1): for a
+    // choice vertical that is the duration-optimal representative (the latest
+    // departure, goc's historical max{x : f(x) = y} inverse semantics).
     // A plateau (slope 0) and a single point are NOT verticals.
-    bool is_vertical() const { return slope == INFTY; }
+    bool is_vertical() const { return slope == INFTY || slope == -INFTY; }
+    bool is_jump_vertical() const { return slope == INFTY; }
+    bool is_choice_vertical() const { return slope == -INFTY; }
+
+    // Returns: a copy of this vertical re-tagged as a CHOICE vertical.
+    // Precondition: is_vertical().
+    LinearFunction as_choice_vertical() const
+    {
+        LinearFunction c = *this;
+        c.slope = -INFTY;
+        return c;
+    }
 
     // Returns: the (incoming, outgoing) endpoint values in sweep (left-to-right)
     // order. For an ordinary piece these are Value(domain.left), Value(domain.right).

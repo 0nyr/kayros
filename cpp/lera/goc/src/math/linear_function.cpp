@@ -45,7 +45,7 @@ LinearFunction::LinearFunction(const Point2D& p1, const Point2D& p2)
 
 double LinearFunction::Value(double x) const
 {
-    if (slope == INFTY) return intercept; // vertical: left-continuous (pre-jump) value
+    if (is_vertical()) return intercept; // vertical (jump or choice): attained/representative value
     return slope * x + intercept;
 }
 
@@ -68,7 +68,7 @@ double LinearFunction::operator()(double x) const
 double LinearFunction::PreValue(double y) const
 {
     if (!image.Includes(y)) fail(STR(y) + " is not in the image " + STR(image));
-    if (slope == INFTY) return domain.left; // vertical: every y in the image maps to the single x
+    if (is_vertical()) return domain.left; // vertical (jump or choice): every y in the image maps to the single x
     if (epsilon_equal(slope, 0.0)) return domain.right;
     return (y - intercept) / slope;
 }
