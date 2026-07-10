@@ -752,12 +752,28 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
                 double hi_f = pf.is_vertical() ? pf.image.right : pf.Value(left);
                 double lo_g = pg.is_vertical() ? pg.image.left  : pg.Value(left);
                 double hi_g = pg.is_vertical() ? pg.image.right : pg.Value(left);
-                h.AddPiece(LinearFunction({left, lo_f + lo_g}, {left, hi_f + hi_g}));
+                LinearFunction v({left, lo_f + lo_g}, {left, hi_f + hi_g});
+                bool jump = pf.is_jump_vertical() || pg.is_jump_vertical();
+                if (v.is_vertical() && !jump) v = v.as_choice_vertical();
+                h.AddPiece(v);
             }
             else
                 h.AddPiece(LinearFunction({left, pf.Value(left)+pg.Value(left)}, {right, pf.Value(right)+pg.Value(right)}));
         }
-        if (epsilon_equal(pf.domain.right, pg.domain.right)) { ++i; ++j; }
+        // M5.9: when both operands end at the same abscissa but one of them has
+        // a boundary VERTICAL next (a zero-width piece starting exactly there,
+        // e.g. dep's trailing choice vertical), advancing both would skip it:
+        // hold the other operand so the vertical still meets it.
+        bool f_vert_next = i + 1 < f.PieceCount() && f.Piece(i + 1).is_vertical()
+                        && epsilon_equal(f.Piece(i + 1).domain.left, pf.domain.right);
+        bool g_vert_next = j + 1 < g.PieceCount() && g.Piece(j + 1).is_vertical()
+                        && epsilon_equal(g.Piece(j + 1).domain.left, pg.domain.right);
+        if (epsilon_equal(pf.domain.right, pg.domain.right))
+        {
+            if (f_vert_next && !pf.is_vertical()) { ++i; }
+            else if (g_vert_next && !pg.is_vertical()) { ++j; }
+            else { ++i; ++j; }
+        }
         else if (epsilon_smaller(pf.domain.right, pg.domain.right)) { ++i; }
         else { ++j; }
     }
@@ -792,12 +808,24 @@ PWLFunction operator*(const PWLFunction& f, const PWLFunction& g)
                                                       : std::make_pair(pf.Value(left), pf.Value(left));
                 auto [g_in, g_out] = pg.is_vertical() ? pg.sweep_endpoints()
                                                       : std::make_pair(pg.Value(left), pg.Value(left));
-                h.AddPiece(LinearFunction({left, f_in * g_in}, {left, f_out * g_out}));
+                LinearFunction v({left, f_in * g_in}, {left, f_out * g_out});
+                bool jump = pf.is_jump_vertical() || pg.is_jump_vertical();
+                if (v.is_vertical() && !jump) v = v.as_choice_vertical();
+                h.AddPiece(v);
             }
             else
                 h.AddPiece(LinearFunction({left, pf.Value(left)*pg.Value(left)}, {right, pf.Value(right)*pg.Value(right)}));
         }
-        if (epsilon_equal(pf.domain.right, pg.domain.right)) { ++i; ++j; }
+        bool f_vert_next = i + 1 < f.PieceCount() && f.Piece(i + 1).is_vertical()
+                        && epsilon_equal(f.Piece(i + 1).domain.left, pf.domain.right);
+        bool g_vert_next = j + 1 < g.PieceCount() && g.Piece(j + 1).is_vertical()
+                        && epsilon_equal(g.Piece(j + 1).domain.left, pg.domain.right);
+        if (epsilon_equal(pf.domain.right, pg.domain.right))
+        {
+            if (f_vert_next && !pf.is_vertical()) { ++i; }
+            else if (g_vert_next && !pg.is_vertical()) { ++j; }
+            else { ++i; ++j; }
+        }
         else if (epsilon_smaller(pf.domain.right, pg.domain.right)) { ++i; }
         else { ++j; }
     }
@@ -846,6 +874,10 @@ PWLFunction Max(const PWLFunction& f_orig, const PWLFunction& g_orig)
         // If pf has a part before pg.
         if (epsilon_smaller(pf.domain.left, pg.domain.left))
         {
+            // M5.9: a vertical with no counterpart passes through verbatim (the
+            // two-point reconstruction below collapses it to its attained value
+            // and, worse, the image.left mutation corrupts the span).
+            if (pf.is_vertical()) { h.AddPiece(pf); ++i; continue; }
             double l = pf.domain.left, r = min(pf.domain.right, pg.domain.left);
             h.AddPiece(LinearFunction(Point2D(l, pf.Value(l)), Point2D(r, pf.Value(r))));
             pf.domain.left = r;
@@ -854,6 +886,7 @@ PWLFunction Max(const PWLFunction& f_orig, const PWLFunction& g_orig)
         }
         else if (epsilon_smaller(pg.domain.left, pf.domain.left))
         {
+            if (pg.is_vertical()) { h.AddPiece(pg); ++j; continue; }
             double l = pg.domain.left, r = min(pg.domain.right, pf.domain.left);
             h.AddPiece(LinearFunction(Point2D(l, pg.Value(l)), Point2D(r, pg.Value(r))));
             pg.domain.left = r;
@@ -862,6 +895,43 @@ PWLFunction Max(const PWLFunction& f_orig, const PWLFunction& g_orig)
         }
         else if (epsilon_equal(pf.domain.left, pg.domain.left))
         {
+            // M5.9 (13.2): verticals meeting the other function at their
+            // abscissa. The pointwise max of a span [lo, hi] against a value v
+            // is the span [max(lo, v), max(hi, v)] with the attained endpoint
+            // mapped through; the kind survives (jump wins over choice when
+            // both are vertical, per the conservative mixing rule).
+            if (pf.is_vertical() || pg.is_vertical())
+            {
+                double x0 = pf.domain.left;
+                const LinearFunction* verts[2] = {nullptr, nullptr};
+                double other_val = 0.0;
+                if (pf.is_vertical() && pg.is_vertical()) { verts[0] = &pf; verts[1] = &pg; }
+                else if (pf.is_vertical()) { verts[0] = &pf; other_val = pg.Value(x0); }
+                else { verts[0] = &pg; other_val = pf.Value(x0); }
+                double att, other;
+                bool jump;
+                if (verts[1])
+                {
+                    auto [a1, b1] = verts[0]->sweep_endpoints();
+                    auto [a2, b2] = verts[1]->sweep_endpoints();
+                    att = max(a1, a2); other = max(b1, b2);
+                    jump = verts[0]->is_jump_vertical() || verts[1]->is_jump_vertical();
+                }
+                else
+                {
+                    auto [a1, b1] = verts[0]->sweep_endpoints();
+                    att = max(a1, other_val); other = max(b1, other_val);
+                    jump = verts[0]->is_jump_vertical();
+                }
+                if (att != other)
+                {
+                    LinearFunction v(Point2D(x0, att), Point2D(x0, other));
+                    h.AddPiece(jump ? v : v.as_choice_vertical());
+                }
+                if (pf.is_vertical()) ++i; else { pf.domain.left = x0; }
+                if (pg.is_vertical()) ++j; else { pg.domain.left = x0; }
+                continue;
+            }
             double inter = pf.Intersection(pg);
             double l = pf.domain.left;
             double r = min(pf.domain.right, pg.domain.right);

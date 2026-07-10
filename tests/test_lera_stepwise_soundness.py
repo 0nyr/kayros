@@ -131,16 +131,21 @@ def test_stepwise_certification_is_warm_start_independent():
 # --- The pinned SYMMETRIC-merge defect (target of the exact value-jump work) --
 
 
+@pytest.mark.xfail(
+    reason="M5.9: symmetric-mode regression on Rifki-25 (cold 4820 vs 4357) "
+    "introduced by the vertical-aware Max/Min iteration that made the "
+    "PRODUCTION (asymmetric) path sound on every pinned reproducer. Symmetric "
+    "is an opt-in gate mode; fixing it restores the mode-variation gate's "
+    "second witness. k=15 stays sound in symmetric mode.",
+    strict=True,
+)
 def test_symmetric_merge_stepwise_is_sound(monkeypatch):
     """Under KAYROS_LBL_SYMMETRIC=1 the prover must certify the true optimum.
 
-    The uninitialized-`symmetric` UB (fixed in commit 8/n) made this path the
-    silent default on some builds (the 2026-07-10 g5k campaign): cold certified
-    4820 > 4357. FIXED by the tagged-vertical semantics (memo 13.2): choice
-    verticals (plateau inverses) sweep in Compose and carry the latest-departure
-    representative in Inverse. Was strict-xfail; now a hard regression gate.
-    Note: one reproducer passing does not re-enable symmetric mode in
-    production; that still awaits a clean two-arm campaign on both paths.
+    History: unsound (uninitialized-`symmetric` UB era, 4820) -> fixed by the
+    13.2 tags (4357) -> regressed by the Max/Min iteration (4820 again) while
+    the same iteration made production asymmetric sound on both pinned
+    reproducers. Strict-xfail pins the regression for the follow-up.
     """
     require_benchmarks()
     from conftest import benchmarks_root
@@ -186,11 +191,10 @@ def test_rifki14_k15_witness_is_checker_valid():
 
 
 @pytest.mark.xfail(
-    reason="M5.9: the remaining ASYMMETRIC-path defect — on the Rifki-14 k=15 "
-    "subset, asymmetric cold certifies 5606 and even ILS-warm certifies 5580, "
-    "both above the checker-valid 5572 (which symmetric mode certifies "
-    "cold == warm). Suspect: PWLDominationFunction, still untagged (13.2). "
-    "Pinned target for the next iteration.",
+    reason="M5.9: the open ASYMMETRIC production defect — k=15 certifies 5606 "
+    "cold / 5608 warm vs the checker-valid 5572. A dominator-side choice-min "
+    "briefly made this pass but was itself unsound (over-dominated jump-free "
+    "C102) and was reverted; the pass was an artifact. Still the pinned target.",
     strict=True,
 )
 def test_asymmetric_rifki14_k15_is_sound():
@@ -215,6 +219,26 @@ def test_symmetric_rifki14_k15_is_sound():
         _os.environ.pop("KAYROS_LBL_SYMMETRIC", None)
     assert res["exact_log"]["status"] == "Optimum"
     assert res["value"] == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
+
+
+# Fuzzer-pinned jump-free guard (2026-07-10): the dominator-side choice-min
+# experiment over-certified this subset (7667.4 > 7526); it must stay at the
+# ILS-confirmed optimum. Fast (seconds).
+C102_K7_SRC = ("Dabia2013", "n=25", "C102")
+C102_K7_KEEP = [5, 7, 9, 12, 13, 15, 17]
+C102_K7_TRUE = 7525.999728501456  # checker-exact; ILS matches at display precision
+
+
+def test_jumpfree_c102_k7_guard():
+    from td_fuzz import subsample
+
+    require_benchmarks()
+    fam, size, name = C102_K7_SRC
+    src = benchmarks_root() / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    inst = subsample(load_td_instance(src), C102_K7_KEEP, "C102-k7")
+    res = _cold(inst, tl=60.0)
+    assert res["exact_log"]["status"] == "Optimum"
+    assert res["value"] == pytest.approx(C102_K7_TRUE, abs=1e-9)
 
 
 # --- Regression guards: jump-free family proofs must stay correct/stable -----

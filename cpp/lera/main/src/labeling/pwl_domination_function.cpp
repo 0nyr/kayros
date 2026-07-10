@@ -4,6 +4,8 @@
 
 #include "labeling/pwl_domination_function.h"
 
+#include <cstdlib>
+
 using namespace std;
 using namespace goc;
 
@@ -18,9 +20,11 @@ namespace
 // to be dominated; comparing only one endpoint (the old Value call) silently
 // discarded undominated better choices, a pricing incompleteness. A JUMP
 // vertical exposes only its attained value (the span interior is unattained).
-// DOMINATOR side (f2): a CHOICE vertical dominates with its BEST (minimum)
-// value — any choice is realizable by the dominating label — while a JUMP
-// vertical dominates only with its attained value.
+// DOMINATOR side (f2): the attained/representative value ONLY. Strengthening
+// the dominator with its span minimum was tried and is UNSOUND in practice
+// (jump-free C102 subset cold over-certified 7667 > 7526; the fuzzer caught
+// it): the low end of a swept span is not guaranteed to dominate every
+// continuation the way a pointwise value is. Conservative = attained.
 inline double candidate_value(const LinearFunction& p, double x)
 {
 	if (p.is_choice_vertical()) return min(p.image);
@@ -29,7 +33,6 @@ inline double candidate_value(const LinearFunction& p, double x)
 
 inline double dominator_value(const LinearFunction& p, double x)
 {
-	if (p.is_choice_vertical()) return min(p.image);
 	return p.Value(x);
 }
 } // namespace

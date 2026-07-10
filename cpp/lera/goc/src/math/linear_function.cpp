@@ -113,6 +113,11 @@ LinearFunction LinearFunction::Inverse() const
 
 LinearFunction LinearFunction::RestrictDomain(const Interval& domain) const
 {
+    // M5.9: a vertical is a zero-width piece; if its abscissa is inside the
+    // restriction it survives verbatim (the two-point reconstruction below
+    // would collapse it to its attained value). Callers skip non-intersecting
+    // pieces beforehand.
+    if (is_vertical()) return *this;
     double left = max(this->domain.left, domain.left);
     double right = min(this->domain.right, domain.right);
     return LinearFunction({left, Value(left)}, {right, Value(right)});
@@ -120,6 +125,19 @@ LinearFunction LinearFunction::RestrictDomain(const Interval& domain) const
 
 LinearFunction LinearFunction::RestrictImage(const Interval& image) const
 {
+    // M5.9: clip a vertical's span to the image restriction; the attained
+    // value clamps into the surviving span; the kind is preserved. The generic
+    // PreValue path below would collapse the piece.
+    if (is_vertical())
+    {
+        double lo = max(this->image.left, image.left);
+        double hi = min(this->image.right, image.right);
+        if (lo > hi) fail("Linear function is empty");
+        double att = min(hi, max(lo, intercept));
+        double other = (intercept == this->image.left) ? hi : lo;
+        LinearFunction v(Point2D(domain.left, att), Point2D(domain.left, other));
+        return is_choice_vertical() ? v.as_choice_vertical() : v;
+    }
     if (epsilon_equal(slope, 0.0))
     {
         if (image.Includes(intercept)) return *this;
@@ -170,6 +188,18 @@ static inline std::pair<double, double> sweep_over(const LinearFunction& f, doub
     return {f.Value(l), f.Value(r)};
 }
 
+// M5.9 (13.2): the kind of a vertical produced by combining pieces. If either
+// operand is a JUMP the result is a jump (conservative: attained-only
+// domination, no min-strengthening); a choice combined with continuous stays a
+// choice. Applied only when the RESULT is itself a vertical.
+static inline LinearFunction propagate_kind(LinearFunction r, const LinearFunction& f, const LinearFunction& g)
+{
+    if (!r.is_vertical()) return r;
+    bool jump = f.is_jump_vertical() || g.is_jump_vertical();
+    if (!jump && (f.is_choice_vertical() || g.is_choice_vertical())) return r.as_choice_vertical();
+    return r;
+}
+
 LinearFunction operator+(const LinearFunction& f, const LinearFunction& g)
 {
     if (!f.domain.Intersects(g.domain)) return LinearFunction(Point2D(0.0, 0.0), Point2D(-1.0, 0.0));
@@ -177,7 +207,7 @@ LinearFunction operator+(const LinearFunction& f, const LinearFunction& g)
     double r = min(f.domain.right, g.domain.right);
     auto [f_in, f_out] = sweep_over(f, l, r);
     auto [g_in, g_out] = sweep_over(g, l, r);
-    return LinearFunction(Point2D(l, f_in+g_in), Point2D(r, f_out+g_out));
+    return propagate_kind(LinearFunction(Point2D(l, f_in+g_in), Point2D(r, f_out+g_out)), f, g);
 }
 
 // Returns: h(x) = f(x)*g(x).
@@ -189,21 +219,21 @@ LinearFunction operator*(const LinearFunction& f, const LinearFunction& g)
     double r = min(f.domain.right, g.domain.right);
     auto [f_in, f_out] = sweep_over(f, l, r);
     auto [g_in, g_out] = sweep_over(g, l, r);
-    return LinearFunction(Point2D(l, f_in*g_in), Point2D(r, f_out*g_out));
+    return propagate_kind(LinearFunction(Point2D(l, f_in*g_in), Point2D(r, f_out*g_out)), f, g);
 }
 
 // Returns: h(x) = f(x)+a.
 LinearFunction operator+(const LinearFunction& f, double a)
 {
     auto [lo, hi] = f.sweep_endpoints();
-    return LinearFunction(Point2D(f.domain.left, lo + a), Point2D(f.domain.right, hi + a));
+    return propagate_kind(LinearFunction(Point2D(f.domain.left, lo + a), Point2D(f.domain.right, hi + a)), f, f);
 }
 
 // Returns: h(x) = f(x)*a.
 LinearFunction operator*(const LinearFunction& f, double a)
 {
     auto [lo, hi] = f.sweep_endpoints();
-    return LinearFunction(Point2D(f.domain.left, lo * a), Point2D(f.domain.right, hi * a));
+    return propagate_kind(LinearFunction(Point2D(f.domain.left, lo * a), Point2D(f.domain.right, hi * a)), f, f);
 }
 
 std::size_t LinearFunction::memory_footprint_bytes() const {

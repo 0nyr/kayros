@@ -296,3 +296,58 @@ def test_flip_time_preserves_choice_tag():
     # Representative preserved through the reflection: value at the reflected
     # abscissa (20 - 15 = 5) is still the latest departure 20.
     assert flipped.value(5.0) == pytest.approx(20.0)
+
+
+# --- Max/Min and Restrict ops with verticals (memo 12.4) ---------------------
+
+
+def test_max_with_constant_preserves_jump():
+    """Max(STEP, const) must keep the jump structure (it used to drop it)."""
+    f = PWL(STEP_XS, STEP_YS)  # slope to 5, jump 5->12 at 10, plateau 12
+    c = PWL([0.0, 20.0], [8.0, 8.0])
+    m = f.max(c)
+    assert m.value(0.0) == pytest.approx(8.0)
+    assert m.value(10.0) == pytest.approx(8.0)   # max(attained 5, 8)
+    assert m.value(15.0) == pytest.approx(12.0)
+    verts = [p for p in m.pieces() if p[4]]
+    assert len(verts) == 1
+    dl, _, il, ir, _, kind = verts[0]
+    assert kind == "jump" and dl == pytest.approx(10.0)
+    assert (min(il, ir), max(il, ir)) == (pytest.approx(8.0), pytest.approx(12.0))
+
+
+def test_min_with_constant_preserves_jump():
+    """Min(STEP, const 8): jump span clips to [5, 8]; plateau clamps to 8."""
+    f = PWL(STEP_XS, STEP_YS)
+    c = PWL([0.0, 20.0], [8.0, 8.0])
+    m = f.min(c)
+    assert m.value(10.0) == pytest.approx(5.0)   # min(attained 5, 8)
+    assert m.value(15.0) == pytest.approx(8.0)
+    verts = [p for p in m.pieces() if p[4]]
+    assert len(verts) == 1
+    _, _, il, ir, _, kind = verts[0]
+    assert kind == "jump"
+    assert (min(il, ir), max(il, ir)) == (pytest.approx(5.0), pytest.approx(8.0))
+
+
+def test_max_passes_choice_vertical_through():
+    """A choice vertical outside the other function's reach survives with tag."""
+    arr = PWL([0.0, 10.0, 20.0], [5.0, 15.0, 15.0])
+    dep = arr.inverse()  # choice vertical at 15 spanning [10, 20]
+    low = PWL([0.0, 15.0], [0.0, 0.0])  # constant 0 over [0, 15]
+    m = dep.max(low)
+    verts = [p for p in m.pieces() if p[4]]
+    assert len(verts) == 1 and verts[0][5] == "choice"
+    assert m.value(15.0) == pytest.approx(20.0)  # representative kept
+
+
+def test_scalar_ops_preserve_tags():
+    arr = PWL([0.0, 10.0, 20.0], [5.0, 15.0, 15.0])
+    dep = arr.inverse()
+    neg = dep.__mul__(-1.0)
+    verts = [p for p in neg.pieces() if p[4]]
+    assert len(verts) == 1 and verts[0][5] == "choice"
+    f = PWL(STEP_XS, STEP_YS)
+    neg2 = f.__mul__(-1.0)
+    verts2 = [p for p in neg2.pieces() if p[4]]
+    assert len(verts2) == 1 and verts2[0][5] == "jump"
