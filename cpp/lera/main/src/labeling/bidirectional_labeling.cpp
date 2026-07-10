@@ -115,7 +115,8 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 			// mollified continuous path is sound (validated by the randomized
 			// differential fuzzer). continuize_value_jumps is a no-op on
 			// jump-free arcs.
-			r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
+			if (!std::getenv("KAYROS_STEP_EXACT")) // M5.9 exact-jump path (13.2 tagged verticals)
+				r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
 			r.tau[v][u] = r.arr[v][u] - PWLFunction::IdentityFunction({0.0, vrp.T});
 			r.dep[v][u] = r.arr[v][u].Inverse();
 			r.pretau[v][u] = PWLFunction::IdentityFunction(dom(r.dep[v][u])) - r.dep[v][u];

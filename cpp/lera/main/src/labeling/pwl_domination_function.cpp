@@ -9,6 +9,31 @@ using namespace goc;
 
 namespace solver
 {
+namespace
+{
+// M5.9 (design memo 13.2): domination values of a piece at [l, r], respecting
+// the vertical kinds. CANDIDATE side (f1, the function being pruned): a CHOICE
+// vertical carries a whole span of genuinely achievable durations, so it is
+// protected by its BEST (minimum) value — erasing it requires the entire span
+// to be dominated; comparing only one endpoint (the old Value call) silently
+// discarded undominated better choices, a pricing incompleteness. A JUMP
+// vertical exposes only its attained value (the span interior is unattained).
+// DOMINATOR side (f2): a CHOICE vertical dominates with its BEST (minimum)
+// value — any choice is realizable by the dominating label — while a JUMP
+// vertical dominates only with its attained value.
+inline double candidate_value(const LinearFunction& p, double x)
+{
+	if (p.is_choice_vertical()) return min(p.image);
+	return p.Value(x); // jump vertical: attained; continuous: pointwise
+}
+
+inline double dominator_value(const LinearFunction& p, double x)
+{
+	if (p.is_choice_vertical()) return min(p.image);
+	return p.Value(x);
+}
+} // namespace
+
 PWLDominationFunction::PWLDominationFunction(const PWLFunction& f)
 {
 	// Add all f's pieces in order.
@@ -78,8 +103,8 @@ bool PWLDominationFunction::DominatePieces(const PWLFunction& f2, double delta)
 		double l = max(p1.domain.left, p2.domain.left);
 		double r = min(p1.domain.right, p2.domain.right);
 		
-		double f1l = p1.Value(l), f1r = p1.Value(r);
-		double f2l = p2.Value(l), f2r = p2.Value(r);
+		double f1l = candidate_value(p1, l), f1r = candidate_value(p1, r);
+		double f2l = dominator_value(p2, l), f2r = dominator_value(p2, r);
 		
 		// There is some domination if f1(l) >= f2(l)+delta or f1(r) >= f2(r)+delta.
 		if (epsilon_bigger_equal(f1l, f2l+delta) || epsilon_bigger_equal(f1r, f2r+delta))
@@ -178,8 +203,8 @@ bool PWLDominationFunction::IsAlwaysDominated(const PWLFunction& f2, double delt
 		double l = max(p1.domain.left, p2.domain.left);
 		double r = min(p1.domain.right, p2.domain.right);
 		
-		double f1l = p1.Value(l), f1r = p1.Value(r);
-		double f2l = p2.Value(l), f2r = p2.Value(r);
+		double f1l = candidate_value(p1, l), f1r = candidate_value(p1, r);
+		double f2l = dominator_value(p2, l), f2r = dominator_value(p2, r);
 		
 		// If f1(l) < f2(l)+delta or f1(r) < f2(r)+delta, then there is some part of f1 which is not dominated.
 		if (epsilon_smaller(f1l, f2l+delta) || epsilon_smaller(f1r, f2r+delta)) return false;

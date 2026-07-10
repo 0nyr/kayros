@@ -83,7 +83,12 @@ def _atf_to_travel_time_pieces(xs, ys) -> list[list[list[float]]]:
     residual 1e-3 arrival error is validated sound by the randomized differential
     fuzzer (tests/test_prover_fuzz_soundness.py).
     """
-    xs, ys = _continuize_breakpoints([float(x) for x in xs], [float(y) for y in ys])
+    import os as _os
+    if _os.environ.get("KAYROS_STEP_EXACT"):  # M5.9 exact-jump path (13.2 tagged verticals)
+        xs = [float(x) for x in xs]
+        ys = [float(y) for y in ys]
+    else:
+        xs, ys = _continuize_breakpoints([float(x) for x in xs], [float(y) for y in ys])
     return [
         [[xs[k], ys[k] - xs[k]], [xs[k + 1], ys[k + 1] - xs[k + 1]]]
         for k in range(len(xs) - 1)
