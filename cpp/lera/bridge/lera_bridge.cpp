@@ -200,6 +200,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         return R;
     };
 
+    int checker_infeasible_count = 0; // M5.9 (19/n): poisons the certificate.
+
     // Column adds, shared by both pricing passes below. Checker-exact costs
     // (M5.6 stage A): a route the labeling prices but the checker rejects
     // would break certification integrity — fail loudly, never drop silently
@@ -226,7 +228,23 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             if (!column_keys.insert(path_key(r.path)).second) continue;
             auto ev = checker_eval(checker_inst, r.path);
             if (!ev.feasible)
-                fail("M5.6: labeling priced a checker-infeasible route (path " + STR(r.path) + ")");
+            {
+                // M5.9 (19/n): the labeling CAN price a checker-infeasible
+                // route on stepwise ATFs (the documented mollifier-sliver
+                // hazard: dep on bridged arrivals believes slightly-later
+                // departures feasible; first materialized on Rifki-10 n=60
+                // once the Exact level actually ran). Crashing loses the whole
+                // solve and silently dropping could let CG close with
+                // improving columns outstanding — so the column is skipped,
+                // COUNTED, and the count poisons the certificate: the caller
+                // exposes it and the analyzer refuses instances with a
+                // nonzero count. Sound outcome: no certificate, not a wrong
+                // one, and the campaign run survives.
+                ++checker_infeasible_count;
+                clog << "M5.9: skipped checker-infeasible priced route (path "
+                     << STR(r.path) << "), certificate poisoned" << endl;
+                continue;
+            }
             spf.AddRoute(Route(r.path, ev.departure, ev.duration));
             ++added;
         }
@@ -315,6 +333,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
 
     nlohmann::json result;
     result["exact_log"] = log;
+    result["checker_infeasible_columns"] = checker_infeasible_count;
     result["incumbents"] = incumbents;
     if (!warm_log.is_null()) result["warm_start"] = warm_log;
     if (alpha > 0.0) result["stabilization"] = {{"alpha", alpha}, {"misprices", misprice_count}};
