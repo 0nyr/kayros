@@ -75,7 +75,11 @@ bool PWLDominationFunction::DominatePieces(const PWLFunction& f2, double delta)
 	if (f2.Domain().IsPoint() && !f1.Domain().IsPoint()) return false;
 
 	// Piece to add to the final of f2 with waiting time to include all f1's domain.
-	double f2_last_duration = f2.LastPiece().Value(f2.Domain().right);
+	// M5.9: if f2 ends on a vertical, the completion must start from the TOP of
+	// its span (a lower base under-estimates the dominator's extension and
+	// over-dominates the candidate's tail: unsound pruning).
+	double f2_last_duration = f2.LastPiece().is_vertical()
+		? max(f2.LastPiece().image) : f2.LastPiece().Value(f2.Domain().right);
 	auto completion_piece = LinearFunction(
 		{max(dom(f2)), f2_last_duration},
 		{f1.Domain().right, f2_last_duration + (f1.Domain().right - max(dom(f2)))}
@@ -182,7 +186,9 @@ bool PWLDominationFunction::IsAlwaysDominated(const PWLFunction& f2, double delt
 	if (epsilon_bigger(min(dom(f2)), f1.Domain().left)) return false;
 	
 	// Piece to add to the final of f2 with waiting time to include all f1's domain.
-	double f2_last_duration = f2.LastPiece().Value(f2.Domain().right);
+	// M5.9: see DominatePieces — vertical last piece completes from its span top.
+	double f2_last_duration = f2.LastPiece().is_vertical()
+		? max(f2.LastPiece().image) : f2.LastPiece().Value(f2.Domain().right);
 	auto completion_piece = LinearFunction(
 		{max(dom(f2)), f2_last_duration},
 		{f1.Domain().right, f2_last_duration + (f1.Domain().right - max(dom(f2)))}
