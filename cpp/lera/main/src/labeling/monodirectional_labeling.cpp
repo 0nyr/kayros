@@ -36,6 +36,53 @@ double duration_at(const Label* l, double t)
 // an inverted incremental domain_ (left > right by ~1e-3) that later
 // evaluations reject. Rebuild with monotone non-overlapping boundaries;
 // dust-inverted fragments are dropped. Search arithmetic only.
+// M5.9 label tracing (dev tool, zero cost when unset): KAYROS_TRACE_PATH is a
+// comma-separated vertex sequence (e.g. "0,8,9,7,13,3,1,16"); every label whose
+// path is a PREFIX of it gets its fate printed to stderr (extension, domination
+// verdict incl. the dominator, enumeration filters, queue events). Used to find
+// where cold pricing kills a witness column's label chain.
+namespace trace
+{
+inline const std::vector<goc::Vertex>& target()
+{
+	static std::vector<goc::Vertex> t = [] {
+		std::vector<goc::Vertex> v;
+		const char* env = std::getenv("KAYROS_TRACE_PATH");
+		if (env)
+		{
+			int cur = -1;
+			for (const char* c = env;; ++c)
+			{
+				if (*c >= '0' && *c <= '9') cur = (cur < 0 ? 0 : cur * 10) + (*c - '0');
+				else { if (cur >= 0) v.push_back(cur); cur = -1; if (!*c) break; }
+			}
+		}
+		return v;
+	}();
+	return t;
+}
+
+inline bool on() { return !target().empty(); }
+
+// Returns the label's path length if it is a prefix of the target, else -1.
+inline int prefix_len(const Label* l)
+{
+	if (!on()) return -1;
+	goc::GraphPath path = l->Path();
+	if (path.empty() || path.size() > target().size()) return -1;
+	for (size_t k = 0; k < path.size(); ++k)
+		if (path[k] != target()[k]) return -1;
+	return (int) path.size();
+}
+
+inline std::string path_str(const Label* l)
+{
+	std::string s;
+	for (auto v: l->Path()) s += (s.empty() ? "" : ",") + std::to_string(v);
+	return s;
+}
+} // namespace trace
+
 PWLFunction normalize_pwl(const PWLFunction& f)
 {
 	// Fast path: boundaries already monotone (the norm) — return untouched so
@@ -230,20 +277,41 @@ LazyLabel MonodirectionalLabeling::Init() const
 
 Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 {
-	if (correcting && ll.parent->duration.Empty()) return nullptr;
+	if (correcting && ll.parent->duration.Empty())
+	{
+		if (trace::on() && trace::prefix_len(ll.parent) > 0)
+			fprintf(stderr, "TRC EXT-FAIL path=%s+%d reason=parent-duration-empty(correcting)\n",
+				trace::path_str(ll.parent).c_str(), ll.v);
+		return nullptr;
+	}
 	auto& l = ll.parent;
 	Vertex v = ll.v;
 	Vertex u = l->v;
 	
 	// If correcting and now reaching vertex v is infeasible, return nullptr.
-	if (correcting && vrp_.ArrivalTime({u, v}, l->rw.left) == INFTY) return nullptr;
+	if (correcting && vrp_.ArrivalTime({u, v}, l->rw.left) == INFTY)
+	{
+		if (trace::on() && trace::prefix_len(l) > 0 && trace::prefix_len(l) < (int) trace::target().size()
+			&& trace::target()[trace::prefix_len(l)] == v)
+			fprintf(stderr, "TRC EXT-FAIL path=%s+%d reason=arrival-INFTY(correcting) rw_left=%.3f\n",
+				trace::path_str(l).c_str(), v, l->rw.left);
+		return nullptr;
+	}
 	
+	// M5.9 trace: does the extension complete a prefix of the target?
+	int tr_parent = trace::prefix_len(l);
+	bool tr = tr_parent > 0 && tr_parent < (int) trace::target().size() && trace::target()[tr_parent] == v;
+
 	// Check if depot triangle inequality holds.
 	// If max(rw(lv)) < a_v and tau_u0v(max(rw(lv))) <= a_v - max(rw(lv)) then ignore label.
 	if (epsilon_smaller(l->rw.right, vrp_.tw[v].left) && vrp_.D.IncludesArc({u, vrp_.d}) && vrp_.D.IncludesArc({vrp_.o, v}))
 	{
 		TimeUnit tau_u0v = vrp_.TravelTime({u, vrp_.d}, max(l->rw)) + vrp_.PreTravelTime({vrp_.o, v}, vrp_.tw[v].left);
-		if (epsilon_smaller(tau_u0v, vrp_.tw[v].left - l->rw.right)) return nullptr;
+		if (epsilon_smaller(tau_u0v, vrp_.tw[v].left - l->rw.right))
+		{
+			if (tr) fprintf(stderr, "TRC EXT-FAIL path=%s+%d reason=depot-triangle\n", trace::path_str(l).c_str(), v);
+			return nullptr;
+		}
 	}
 	
 	auto lv = new Label();
@@ -259,7 +327,11 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 		: (l->duration + vrp_.tau[u][v]).Compose(vrp_.dep[u][v]);
 	if (limited_extension && !cross) lv->duration.RestrictDomain({0.0, t_m});
 	lv->duration = normalize_pwl(lv->duration); // kayros (M5.7): heal mollifier-dust piece misorder.
-	if (lv->duration.Empty()) { delete lv; return nullptr; } // If no duration pieces exist, then the label is dominated.
+	if (lv->duration.Empty())
+	{
+		if (tr) fprintf(stderr, "TRC EXT-FAIL path=%s+%d reason=empty-duration\n", trace::path_str(l).c_str(), v);
+		delete lv; return nullptr; // If no duration pieces exist, then the label is dominated.
+	}
 	lv->rw = dom(lv->duration);
 	
 	if (ng_routes_relaxation && ng.has_value())
@@ -287,6 +359,9 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 		}
 	}
 	lv->min_cost = min(img(lv->duration)) - lv->p - lv->cut_cost;
+	if (tr) fprintf(stderr, "TRC EXT path=%s rw=[%.3f,%.3f] dur_img=[%.3f,%.3f] min_cost=%.6f q=%.1f\n",
+		trace::path_str(lv).c_str(), lv->rw.left, lv->rw.right,
+		min(img(lv->duration)), max(img(lv->duration)), lv->min_cost, lv->q);
 	return lv;
 }
 
@@ -317,9 +392,30 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 				else if (partial && !Delta.DominatePieces(m->duration, theta)) continue;
 			}
 			
+			if (trace::prefix_len(l) > 0)
+			{
+				std::string lu, mu;
+				for (int b = 0; b < (int) vrp_.D.NbVertices(); ++b)
+				{
+					if (l->U.test(b)) lu += std::to_string(b) + ",";
+					if (m->U.test(b)) mu += std::to_string(b) + ",";
+				}
+				fprintf(stderr, "TRC DOMINATED lvl=%s path=%s by=%s theta=%.6f m_dur_img=[%.3f,%.3f] lU={%s} mU={%s} l_rw=[%.3f,%.3f] m_rw=[%.3f,%.3f]\n",
+					(elementary_check_relaxation ? "HE" : cost_check_relaxation ? "HC" : "EX"),
+					trace::path_str(l).c_str(), trace::path_str(m).c_str(),
+					l->p + l->cut_cost - m->p - m->cut_cost,
+					min(img(m->duration)), max(img(m->duration)),
+					lu.c_str(), mu.c_str(), l->rw.left, l->rw.right, m->rw.left, m->rw.right);
+			}
 			return true;
 		}
 	}
+	if (trace::prefix_len(l) > 0)
+		fprintf(stderr, "TRC SURVIVED lvl=%s path=%s rw=[%.3f,%.3f] dur_img=[%.3f,%.3f] min_cost=%.6f\n",
+			(elementary_check_relaxation ? "HE" : cost_check_relaxation ? "HC" : "EX"),
+			trace::path_str(l).c_str(), min(dom((PWLFunction) Delta)), max(dom((PWLFunction) Delta)),
+			min(img((PWLFunction) Delta)), max(img((PWLFunction) Delta)),
+			min(img((PWLFunction) Delta)) - l->p - l->cut_cost);
 	l->duration = normalize_pwl((PWLFunction) Delta); // kayros (M5.7)
 	l->rw = l->duration.Domain();
 	l->min_cost = min(img(l->duration)) - l->p - l->cut_cost;
@@ -373,20 +469,25 @@ void MonodirectionalLabeling::ProcessStep(Label* l)
 vector<LazyLabel> MonodirectionalLabeling::EnumerationStep(Label* l) const
 {
 	vector<LazyLabel> E;
+	// M5.9 trace: which vertex must extend this prefix, if any.
+	int tl = trace::prefix_len(l);
+	Vertex trace_next = (tl > 0 && tl < (int) trace::target().size()) ? trace::target()[tl] : -1;
 	if (l->v == vrp_.d) return E; // End depot has no extensions.
 	for (Vertex v: vrp_.D.Successors(l->v))
 	{
-		if (l->U.test(v)) continue;
-		if (epsilon_bigger(l->q + vrp_.q[v], vrp_.Q)) continue;
-		if (epsilon_bigger(min(l->rw), max(dom(vrp_.arr[l->v][v])))) continue;
+		bool tr = trace_next >= 0 && v == trace_next;
+		if (l->U.test(v)) { if (tr) fprintf(stderr, "TRC ENUM-SKIP path=%s v=%d reason=unreachable-set\n", trace::path_str(l).c_str(), v); continue; }
+		if (epsilon_bigger(l->q + vrp_.q[v], vrp_.Q)) { if (tr) fprintf(stderr, "TRC ENUM-SKIP path=%s v=%d reason=capacity\n", trace::path_str(l).c_str(), v); continue; }
+		if (epsilon_bigger(min(l->rw), max(dom(vrp_.arr[l->v][v])))) { if (tr) fprintf(stderr, "TRC ENUM-SKIP path=%s v=%d reason=rw-beyond-arr-dom rw_min=%.3f arr_dom_max=%.3f\n", trace::path_str(l).c_str(), v, min(l->rw), max(dom(vrp_.arr[l->v][v]))); continue; }
 		double makespan = vrp_.arr[l->v][v](max(min(l->rw), min(dom(vrp_.arr[l->v][v]))));
 		LazyLabel ll{l, v, cross ? l->rw.left : makespan};
 		if (!lazy_extension)
 		{
 			ll.extension = ExtensionStep(ll);
-			if (!ll.extension) continue;
+			if (!ll.extension) { if (tr) fprintf(stderr, "TRC ENUM-SKIP path=%s v=%d reason=eager-extension-failed\n", trace::path_str(l).c_str(), v); continue; }
 			ll.makespan = ll.extension->rw.left;
 		}
+		if (tr) fprintf(stderr, "TRC ENUM-PUSH path=%s v=%d makespan=%.3f\n", trace::path_str(l).c_str(), v, ll.makespan);
 		E.push_back(ll);
 	}
 	return E;

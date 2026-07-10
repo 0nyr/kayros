@@ -182,31 +182,21 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         LabelingLevel::HeuristicCost, LabelingLevel::HeuristicElementarity, LabelingLevel::Exact};
     const vector<string> level_names = {"Heuristic Cost", "Heuristic Elementarity", "Exact"};
     size_t heuristic_level = 0;
-    auto run_ladder = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
+    auto run_one_level = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
         vector<Route> R;
-        while (heuristic_level < levels.size()) {
-            // (M5.2) Residual budget from the BCP's single absolute deadline,
-            // not from a per-call stopwatch chain.
-            lbl.time_limit = bcp.deadline.Remaining();
-            auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
+        // (M5.2) Residual budget from the BCP's single absolute deadline,
+        // not from a per-call stopwatch chain.
+        lbl.time_limit = bcp.deadline.Remaining();
+        auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
 
-            // Add iteration log.
-            cg_execution_log->iterations->push_back(lbl_log);
-            cg_execution_log->iterations->back()["iteration_name"] = level_names[heuristic_level];
+        // Add iteration log.
+        cg_execution_log->iterations->push_back(lbl_log);
+        cg_execution_log->iterations->back()["iteration_name"] = level_names[heuristic_level];
 
-            // Update merge_start and closing_state.
-            lbl.closing_state |=
-                heuristic_level == levels.size() - 1 && lbl_log.status == BLBStatus::Finished;
-            lbl.merge_start = (lbl.merge_start + lbl_log.forward_log->processed_count) / 2;
-
-            if (!R.empty()) break;
-            ++heuristic_level;
-        }
-        if (heuristic_level >= levels.size()) {
-            heuristic_level = 0;
-            lbl.closing_state = false;
-            lbl.merge_start = 0;
-        }
+        // Update merge_start and closing_state.
+        lbl.closing_state |=
+            heuristic_level == levels.size() - 1 && lbl_log.status == BLBStatus::Finished;
+        lbl.merge_start = (lbl.merge_start + lbl_log.forward_log->processed_count) / 2;
         return R;
     };
 
@@ -243,6 +233,35 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         return added;
     };
 
+    // M5.9 (17/n): ladder escalation is driven by NEW columns, not by a
+    // non-empty pricing pool. A heuristic level can keep re-pricing an
+    // EXISTING column (its labeling-arithmetic reduced cost slightly negative
+    // while the checker-exact master cost is not), the fingerprint dedup then
+    // adds 0, and the old ladder broke without escalating — so the BCP read
+    // "no new columns" as node-optimal WITHOUT the Exact level ever running:
+    // unsound termination (the Rifki-14 k=15 reproducer certified 5606 with
+    // pricing logs showing zero Exact iterations). Now the ladder climbs until
+    // some level contributes new columns or the Exact level finishes empty.
+    auto run_ladder_and_add = [&](const PricingProblem& pp, CGExecutionLog* lg) {
+        int added = 0;
+        while (!bcp.deadline.Reached()) {
+            added = add_columns(run_one_level(pp, lg));
+            if (added > 0) break;
+            if (heuristic_level + 1 >= levels.size()) {
+                // The Exact level contributed nothing new: pricing exhausted.
+                // (If it still REPORTED a negative-reduced-cost duplicate, the
+                // discrepancy is labeling-vs-checker dust within the documented
+                // certificate tolerance; the Exact level did run.)
+                heuristic_level = 0;
+                lbl.closing_state = false;
+                lbl.merge_start = 0;
+                break;
+            }
+            ++heuristic_level;
+        }
+        return added;
+    };
+
     // Dual stabilization (M5.1b residual), Neame's rule: pricing runs on the
     // exponential moving average pi_s = alpha*pi_s_prev + (1-alpha)*pi, which
     // tracks the dual trajectory while damping the oscillations HiGHS's
@@ -266,10 +285,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             center_sigma.resize(pricing_problem.sigma.size(), 0.0);
             for (size_t i = 0; i < pps.sigma.size(); ++i)
                 pps.sigma[i] = alpha * center_sigma[i] + (1.0 - alpha) * pricing_problem.sigma[i];
-            int added = add_columns(run_ladder(pps, cg_execution_log));
+            int added = run_ladder_and_add(pps, cg_execution_log);
             if (added == 0 && !bcp.deadline.Reached()) {
                 ++misprice_count;
-                add_columns(run_ladder(pricing_problem, cg_execution_log));
+                run_ladder_and_add(pricing_problem, cg_execution_log);
                 center_P = pricing_problem.P;
                 center_sigma = pricing_problem.sigma;
             } else {
@@ -278,7 +297,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 center_sigma = std::move(pps.sigma);
             }
         } else {
-            add_columns(run_ladder(pricing_problem, cg_execution_log));
+            run_ladder_and_add(pricing_problem, cg_execution_log);
             if (!center_set) {
                 center_P = pricing_problem.P;
                 center_sigma = pricing_problem.sigma;

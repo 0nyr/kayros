@@ -131,21 +131,14 @@ def test_stepwise_certification_is_warm_start_independent():
 # --- The pinned SYMMETRIC-merge defect (target of the exact value-jump work) --
 
 
-@pytest.mark.xfail(
-    reason="M5.9: symmetric-mode regression on Rifki-25 (cold 4820 vs 4357) "
-    "introduced by the vertical-aware Max/Min iteration that made the "
-    "PRODUCTION (asymmetric) path sound on every pinned reproducer. Symmetric "
-    "is an opt-in gate mode; fixing it restores the mode-variation gate's "
-    "second witness. k=15 stays sound in symmetric mode.",
-    strict=True,
-)
 def test_symmetric_merge_stepwise_is_sound(monkeypatch):
     """Under KAYROS_LBL_SYMMETRIC=1 the prover must certify the true optimum.
 
     History: unsound (uninitialized-`symmetric` UB era, 4820) -> fixed by the
-    13.2 tags (4357) -> regressed by the Max/Min iteration (4820 again) while
-    the same iteration made production asymmetric sound on both pinned
-    reproducers. Strict-xfail pins the regression for the follow-up.
+    13.2 tags -> apparently regressed (4820) -> ROOT CAUSE was the pricing
+    ladder's unsound termination (memo 13.8: a heuristic level re-pricing an
+    existing column stalled column generation before the Exact level ever ran);
+    fixed by added-driven escalation in the bridge. Hard gate.
     """
     require_benchmarks()
     from conftest import benchmarks_root
@@ -190,15 +183,16 @@ def test_rifki14_k15_witness_is_checker_valid():
     assert cost == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
 
 
-@pytest.mark.xfail(
-    reason="M5.9: the open ASYMMETRIC production defect — k=15 certifies 5606 "
-    "cold / 5608 warm vs the checker-valid 5572. A dominator-side choice-min "
-    "briefly made this pass but was itself unsound (over-dominated jump-free "
-    "C102) and was reverted; the pass was an artifact. Still the pinned target.",
-    strict=True,
-)
 def test_asymmetric_rifki14_k15_is_sound():
-    """Asymmetric cold must not certify above the checker-valid 5572."""
+    """Asymmetric cold must not certify above the checker-valid 5572.
+
+    FIXED by the added-driven ladder escalation (memo 13.8): the label-trace
+    harness showed the witness column's labels were only ever killed at
+    HEURISTIC pricing levels, and the level logs showed the Exact level never
+    ran — the ladder broke on a non-empty pricing pool whose columns were all
+    fingerprint-duplicates, and the BCP read added == 0 as node-optimal. Cold
+    and warm now certify 5572 with Exact iterations in the log. Hard gate.
+    """
     require_benchmarks()
     inst = _load_rifki14_k15()
     res = _cold(inst, tl=120.0)
