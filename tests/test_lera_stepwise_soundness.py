@@ -36,7 +36,7 @@ from mamut_routing_lib.td import (
     load_td_instance,
 )
 
-from conftest import family_instances, require_benchmarks
+from conftest import benchmarks_root, family_instances, require_benchmarks
 
 
 def _pick(paths, name):
@@ -154,26 +154,67 @@ def test_symmetric_merge_stepwise_is_sound(monkeypatch):
     assert res["value"] == pytest.approx(4357.0, abs=1e-6)
 
 
+# Shrunk from Rifki-14 n=30 (cold 10207 vs warm 10188 on both platforms, the
+# 2026-07-10 two-platform gate's one material failure). k=15 subset, locally
+# minimal under single drops. The checker-valid solution below (cost 5572,
+# found and certified by the SYMMETRIC tagged-vertical path, cold == warm)
+# refutes BOTH asymmetric arms: cold 5606 AND ILS-warm 5580 — so warm-start
+# agreement alone cannot certify the asymmetric path, and mode-variation
+# (asymmetric vs symmetric) joins the gate family.
+RIFKI14_K15_SRC = ("Rifki2020", "n=30", "Rifki-14")
+RIFKI14_K15_KEEP = [2, 5, 6, 7, 9, 10, 11, 12, 13, 15, 20, 22, 23, 25, 30]
+RIFKI14_K15_TRUE_UB = 5572.0
+RIFKI14_K15_WITNESS = [[8, 9, 7, 13, 3, 1], [6, 2, 4, 10, 15], [12, 11], [5, 14]]
+
+
+def _load_rifki14_k15():
+    from td_fuzz import subsample
+
+    fam, size, name = RIFKI14_K15_SRC
+    src = benchmarks_root() / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    return subsample(load_td_instance(src), RIFKI14_K15_KEEP, "Rifki-14-k15")
+
+
+def test_rifki14_k15_witness_is_checker_valid():
+    """Anchor: the 5572 witness is a valid solution of the k=15 subset."""
+    require_benchmarks()
+    inst = _load_rifki14_k15()
+    from mamut_routing_lib.td import compute_solution_cost
+
+    cost = compute_solution_cost(inst.instance, inst.atfs, RIFKI14_K15_WITNESS)
+    assert cost == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
+
+
 @pytest.mark.xfail(
-    reason="M5.9: the remaining ASYMMETRIC-path defect — Rifki-14 n=30 cold "
-    "certifies 10207 > 10188 (warm), identically on both platforms (2026-07-10 "
-    "two-platform gate). Pinned target for the next tagged-vertical iteration.",
+    reason="M5.9: the remaining ASYMMETRIC-path defect — on the Rifki-14 k=15 "
+    "subset, asymmetric cold certifies 5606 and even ILS-warm certifies 5580, "
+    "both above the checker-valid 5572 (which symmetric mode certifies "
+    "cold == warm). Suspect: PWLDominationFunction, still untagged (13.2). "
+    "Pinned target for the next iteration.",
     strict=True,
 )
-def test_asymmetric_rifki14_n30_is_sound():
-    """Cold and warm must certify the same value on Rifki-14 n=30 (true 10188)."""
+def test_asymmetric_rifki14_k15_is_sound():
+    """Asymmetric cold must not certify above the checker-valid 5572."""
     require_benchmarks()
-    from conftest import benchmarks_root
-    import json
+    inst = _load_rifki14_k15()
+    res = _cold(inst, tl=120.0)
+    assert res["exact_log"]["status"] == "Optimum"
+    assert res["value"] <= RIFKI14_K15_TRUE_UB + 1e-6
 
-    src = benchmarks_root() / "TDVRPTW" / "Rifki2020" / "n=30" / "Rifki-14.vrp.json"
-    assert src.exists()
-    loaded = load_td_instance(src)
-    bks = json.loads(src.with_name("Rifki-14.bks.Duration.json").read_text())
-    cold = _cold(loaded, tl=240.0)
-    warm = _warm(loaded, [[int(c) for c in r] for r in bks["routes"]], tl=240.0)
-    assert cold["exact_log"]["status"] == warm["exact_log"]["status"] == "Optimum"
-    assert cold["value"] == pytest.approx(warm["value"], abs=1e-6)
+
+def test_symmetric_rifki14_k15_is_sound():
+    """The symmetric tagged-vertical path certifies the true 5572 (hard gate)."""
+    require_benchmarks()
+    import os as _os
+
+    _os.environ["KAYROS_LBL_SYMMETRIC"] = "1"
+    try:
+        inst = _load_rifki14_k15()
+        res = _cold(inst, tl=120.0)
+    finally:
+        _os.environ.pop("KAYROS_LBL_SYMMETRIC", None)
+    assert res["exact_log"]["status"] == "Optimum"
+    assert res["value"] == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
 
 
 # --- Regression guards: jump-free family proofs must stay correct/stable -----
