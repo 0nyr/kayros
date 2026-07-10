@@ -9,6 +9,7 @@
 #include "bcp/pricing_problem.h"
 
 #include <climits>
+#include <cstdlib>
 
 using namespace std;
 using namespace goc;
@@ -150,6 +151,14 @@ BidirectionalLabeling::BidirectionalLabeling(
 	partial = limited_extension = lazy_extension = unreachable_strengthened = sort_by_cost = true;
 	elementary_check_relaxation = cost_check_relaxation = ng_routes_relaxation = false;
 	correcting = false;
+	// M5.9: `symmetric` was NEVER initialized (upstream set it from the
+	// experiment JSON, e.g. bpc_lera.json: false; the vendoring dropped that
+	// wiring), so line ~172 read an indeterminate value: per-binary-
+	// deterministic garbage that can differ across toolchains. Prime suspect
+	// for the 2026-07-10 cross-platform certification divergence. Default =
+	// upstream Lera BPC config (false: asymmetric, t_m = T). Env toggle for
+	// the divergence experiment; TODO remove after the experiment concludes.
+	symmetric = std::getenv("KAYROS_LBL_SYMMETRIC") != nullptr;
 }
 
 BLBExecutionLog BidirectionalLabeling::Run(
