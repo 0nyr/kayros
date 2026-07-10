@@ -97,10 +97,11 @@ def test_fuzz_batch(seed0):
         family, size, name, inst = case
         r = soundness(inst, seed=seed0 + c, tl_ils=5.0, tl_exact=30.0)
         tag = "OK " if r["sound"] else "*** UNSOUND"
+        fmt = lambda v: f"{v:8.1f}" if v is not None else "    None"
         print(f"[{seed0}:{c:02d}] {family:10s} k={inst.instance.num_customers} "
               f"{name[:36]:36s} ILS={r['ils_cost']:8.1f} "
-              f"cold={r['cold_status'][:4]}:{r['cold_value']:8.1f} "
-              f"warm={r['warm_status'][:4]}:{r['warm_value']:8.1f} {tag}")
+              f"cold={r['cold_status'][:4]}:{fmt(r['cold_value'])} "
+              f"warm={r['warm_status'][:4]}:{fmt(r['warm_value'])} {tag}")
         if not r["sound"]:
             unsound.append((name, r["ils_cost"], r["cold_value"], r["warm_value"]))
     assert not unsound, f"unsound instances: {unsound}"

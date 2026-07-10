@@ -128,8 +128,9 @@ def soundness(loaded: LoadedTDInstance, *, tl_ils: float = 5.0, tl_exact: float 
     ils_cost, ils_routes = run_ils(loaded, seed=seed, tl=tl_ils)
     cold = run_exact(loaded, tl_exact)
     warm = run_exact(loaded, tl_exact, warm=ils_routes)
-    cs, cv = cold["exact_log"]["status"], cold["value"]
-    ws, wv = warm["exact_log"]["status"], warm["value"]
+    # .get: a TL-hit solve (full-instance cases especially) carries no value.
+    cs, cv = cold["exact_log"]["status"], cold.get("value")
+    ws, wv = warm["exact_log"]["status"], warm.get("value")
     s1 = not (cs == "Optimum" and cv > ils_cost + 1e-6)
     s2 = not (cs == "Optimum" and ws == "Optimum" and abs(cv - wv) > 1e-6)
     return {
