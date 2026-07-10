@@ -128,6 +128,35 @@ def test_stepwise_certification_is_warm_start_independent():
     assert cold["value"] == warm["value"]
 
 
+# --- The pinned SYMMETRIC-merge defect (target of the exact value-jump work) --
+
+
+@pytest.mark.xfail(
+    reason="M5.9 section 12: the symmetric bidirectional merge (t_m = T/2) "
+    "misprices stepwise ATFs — cold certifies 4820 > 4357 on Rifki-25 n=10. "
+    "This is the pinned reproducer for the exact value-jump labeling work; "
+    "production uses symmetric=false (sound on every gate) until it lands.",
+    strict=True,
+)
+def test_symmetric_merge_stepwise_is_sound(monkeypatch):
+    """Under KAYROS_LBL_SYMMETRIC=1 the prover must still certify true optima.
+
+    The uninitialized-`symmetric` UB (fixed in commit 8/n) made this path the
+    silent default on some builds (the 2026-07-10 g5k campaign); it is now
+    opt-in and unsound until the labeling handles value jumps exactly.
+    """
+    require_benchmarks()
+    from conftest import benchmarks_root
+
+    src = benchmarks_root() / "TDVRPTW" / "Rifki2020" / "n=10" / "Rifki-25.vrp.json"
+    assert src.exists()
+    monkeypatch.setenv("KAYROS_LBL_SYMMETRIC", "1")
+    loaded = load_td_instance(src)
+    res = _cold(loaded, tl=60.0)
+    assert res["exact_log"]["status"] == "Optimum"
+    assert res["value"] == pytest.approx(4357.0, abs=1e-6)
+
+
 # --- Regression guards: jump-free family proofs must stay correct/stable -----
 
 

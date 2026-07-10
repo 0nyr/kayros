@@ -76,8 +76,16 @@ def subsample(loaded: LoadedTDInstance, keep_customers: list[int], name: str) ->
     )
 
 
-def random_case(rng: random.Random, root: Path, *, stepwise_prob: float = 0.7):
-    """A random subsampled instance. Returns (family, size, name, LoadedTDInstance)."""
+def random_case(rng: random.Random, root: Path, *, stepwise_prob: float = 0.7,
+                full_prob: float = 0.3):
+    """A random instance: subsampled (k<=8) or, with ``full_prob``, the FULL
+    source instance. Returns (family, size, name, LoadedTDInstance).
+
+    Full-instance cases exist because the 2026-07-10 campaign showed defects
+    that only express with full jump mass (the k<=8 subsamples all passed
+    while full n=10 instances misclosed): a fuzz round without full instances
+    under-tests the labeling.
+    """
     pool = STEPWISE_POOL if rng.random() < stepwise_prob else JUMPFREE_POOL
     family, size = rng.choice(pool)
     paths = instances_in(root, family, size)
@@ -86,9 +94,11 @@ def random_case(rng: random.Random, root: Path, *, stepwise_prob: float = 0.7):
     src = rng.choice(paths)
     loaded = load_td_instance(src)
     n = loaded.instance.num_customers
+    stem = src.name.removesuffix(".vrp.json")
+    if rng.random() < full_prob:
+        return family, size, f"{stem}~full", loaded
     k = rng.randint(4, min(8, n))
     keep = sorted(rng.sample(range(1, n + 1), k))
-    stem = src.name.removesuffix(".vrp.json")
     name = f"{stem}~{'.'.join(map(str, keep))}"
     return family, size, name, subsample(loaded, keep, name)
 
