@@ -8,8 +8,10 @@ invariants S1/S2 (see ``td_fuzz``) are asserted.
 - ``test_rifki22_reproducer_*`` pin a *fixed* minimal reproducer discovered by
   the fuzzer (Rifki-22 n=20, customers {4,6,8,10,12,13,15,19}): before M5.9 cold
   certified ``Optimum 2504`` while the true optimum is ``2496`` (ILS and warm
-  both reach it). These were strict-xfail until the fix landed and are now hard
-  gates (exact non-decreasing ``Inverse`` restored sound pricing).
+  both reach it). Strict-xfail until the exact-``Inverse`` fix landed; now hard
+  gates. NOTE (2026-07-10): these gates pin LOCAL-BUILD soundness only; the g5k
+  re-certification showed the residual mispricing is build-dependent (identical
+  payloads certify differently under another toolchain). See NOTICE item 9.
 - ``test_fuzz_batch`` is the broad sweep. It is opt-in (set ``KAYROS_FUZZ=1``)
   because each case runs a full solve; it prints every unsound case so new
   reproducers can be pinned.

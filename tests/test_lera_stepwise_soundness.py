@@ -8,15 +8,17 @@ merge/dominance mispricing. Negative-reduced-cost columns are silently dropped
 and the branch-and-price closes at a wrong, warm-start-dependent "optimum".
 See ``cpp/lera/NOTICE.md`` item 9 and the 2026-07-08 Rifki retraction report.
 
-These tests are the *specification* of the fix, now satisfied (M5.9). The fix
-was NOT exact value-jump handling: the mollified (continuous) labeling is sound
-once goc's numerics are exact -- the non-decreasing ``Inverse`` rebuilt as a
-coordinate swap removed the pricing incompleteness that made the prover certify
-8376 > 8361. The two soundness gates below were ``xfail(strict=True)`` until the
-fix landed; they are now hard gates. The guard tests (jump-free family) must
-stay green throughout: they protect the currently-correct proofs against
-regressions. Soundness across random instances is covered by the differential
-fuzzer in ``test_prover_fuzz_soundness.py``.
+These tests are the *specification* of the fix. The M5.9 numerics fix (exact
+coordinate-swap ``Inverse`` for non-decreasing functions) made them pass on the
+local build: the pricing incompleteness that certified 8376 > 8361 is gone
+here, so the gates below are hard gates. **They are necessary, not sufficient**:
+the 2026-07-10 g5k re-certification showed the residual mispricing is
+BUILD-DEPENDENT (bit-identical payloads certify differently under gcc-13/Debian
+vs the local NixOS toolchain; e.g. Rifki-25 n=10 cold 4820 vs true 4357 on g5k
+only). These gates therefore pin local-build soundness against regressions;
+they do not certify the prover on stepwise ATFs. See NOTICE item 9 and the
+2026-07-10 campaign report. The guard tests (jump-free family) must stay green
+throughout. Randomized coverage: ``test_prover_fuzz_soundness.py``.
 
 The decisive minimal reproducer is TDVRPTW/Rifki2020/n=20/Rifki-16: cold solve
 certifies ``Optimum 8376`` while the checker-valid solution below carries cost
