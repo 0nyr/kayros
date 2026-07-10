@@ -6,6 +6,9 @@
 
 #include "goc/math/pwl_function.h"
 
+#include <cstdio>
+#include <cstdlib>
+
 #include "goc/print/print_utils.h"
 #include "goc/exception/exception_utils.h"
 #include "goc/string/string_utils.h"
@@ -85,7 +88,12 @@ void PWLFunction::AddPiece(const LinearFunction& piece)
     // If this piece is a continuation of the last piece, then we need to merge them into one piece to have the
     // function normalized.
     bool is_continuation_of_last_piece = false;
-    if (!pieces_.empty())
+    // M5.9: never merge across a value jump. A vertical is a zero-width piece,
+    // so the old IsPoint() clause let the FOLLOWING piece absorb it whenever
+    // their values touched (true for reflected jumps, where the attained
+    // endpoint is the one adjacent to the next piece), silently destroying the
+    // jump and inflating the merged piece's image with the whole jump span.
+    if (!pieces_.empty() && !pieces_.back().is_vertical() && !piece.is_vertical())
     {
         if (epsilon_equal(pieces_.back().domain.right, piece.domain.left))
         {
@@ -197,18 +205,26 @@ double PWLFunction::Value(double x) const
         return -1;
     }
 
-    // Left-continuous evaluation (M5.9): return the FIRST piece (front-to-back)
-    // whose domain includes x. At the abscissa of a value jump this is the piece
-    // ending at x from the left, so Value returns the pre-jump (lower) value —
-    // the checker's authoritative convention, and the one every step-aware
-    // primitive below relies on. For a continuous function all pieces meeting at
-    // a breakpoint agree, so this is identical (modulo the pre-existing
-    // slope*x+intercept ulp) to the previous back-to-front scan; it only
-    // disambiguates genuine verticals (a zero-width piece is ordered after the
-    // left piece that ends at its abscissa, so it is never selected for x).
-    for (int i = 0; i < (int) pieces_.size(); ++i)
-        if (pieces_[i].domain.Includes(x))
-            return pieces_[i].Value(x);
+    // Attained-value evaluation (M5.9, design memo 13.1): at a jump abscissa the
+    // value is the jump's ATTAINED endpoint, stored in the vertical's intercept.
+    // Checker-loaded forward functions are left-continuous (attained = incoming,
+    // so this matches the checker exactly); reflected functions (flip_time) are
+    // right-continuous with attained = outgoing, which a fixed left-continuous
+    // scan would get wrong. Scan front-to-back: a vertical whose abscissa is x
+    // wins; otherwise the first piece containing x (for continuous functions all
+    // candidates agree modulo the pre-existing slope*x+intercept ulp).
+    {
+        const LinearFunction* first = nullptr;
+        for (int i = 0; i < (int) pieces_.size(); ++i)
+        {
+            const LinearFunction& p = pieces_[i];
+            if (epsilon_bigger(p.domain.left, x)) break;
+            if (!p.domain.Includes(x)) continue;
+            if (p.is_vertical()) return p.intercept; // attained value at the jump
+            if (!first) first = &p;
+        }
+        if (first) return first->Value(x);
+    }
 
     // The function is not continuous and x is not in the domain of any piece.
     fail("PWLFunction::Value(" + STR(x) +") failed, because x is not inside the domain of its pieces.");
@@ -248,7 +264,7 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
     {
         // Put i inside bounds.
         i = max(0, min(f.PieceCount()-1, i));
-        
+
         // If g[j] is constant, image is a single y = min(img(g[j])) = max(img(g[j])).
         if (epsilon_equal(g[j].slope, 0.0))
         {
@@ -340,6 +356,58 @@ PWLFunction PWLFunction::Inverse() const
     for (size_t i = 0; i + 1 < ys.size(); ++i)
         inv.AddPiece(LinearFunction(Point2D(ys[i], xs[i]), Point2D(ys[i + 1], xs[i + 1])));
     return inv;
+}
+
+namespace
+{
+// The endpoint values of a piece for exact graph transforms (M5.9). For a
+// vertical: (attained, other) per the 13.1 convention (attained == intercept).
+// For an ordinary piece: the sweep endpoint values.
+inline std::pair<double, double> piece_values(const LinearFunction& p)
+{
+    if (p.is_vertical())
+    {
+        double attained = p.intercept;
+        double other = (attained == p.image.left) ? p.image.right : p.image.left;
+        return {attained, other};
+    }
+    return {p.slope * p.domain.left + p.intercept, p.slope * p.domain.right + p.intercept};
+}
+} // namespace
+
+PWLFunction PWLFunction::FlipTime(double t_max) const
+{
+    // g(x) = f(t_max - x): traverse pieces back-to-front, each abscissa moves by
+    // ONE IEEE subtraction (platform-stable, no epsilon logic). A vertical keeps
+    // its attained endpoint first (13.1), so g's pointwise value at the reflected
+    // jump abscissa equals f's at the original one.
+    PWLFunction g;
+    for (int i = (int) pieces_.size() - 1; i >= 0; --i)
+    {
+        const LinearFunction& p = pieces_[i];
+        auto [v1, v2] = piece_values(p);
+        if (p.is_vertical())
+            g.AddPiece(LinearFunction({t_max - p.domain.left, v1}, {t_max - p.domain.left, v2}));
+        else
+            g.AddPiece(LinearFunction({t_max - p.domain.right, v2}, {t_max - p.domain.left, v1}));
+    }
+    return g;
+}
+
+PWLFunction PWLFunction::FlipValue(double t_max) const
+{
+    // h(x) = t_max - f(x): values move by one IEEE subtraction each; attained
+    // endpoints stay attained (13.1).
+    PWLFunction h;
+    for (const LinearFunction& p : pieces_)
+    {
+        auto [v1, v2] = piece_values(p);
+        if (p.is_vertical())
+            h.AddPiece(LinearFunction({p.domain.left, t_max - v1}, {p.domain.left, t_max - v2}));
+        else
+            h.AddPiece(LinearFunction({p.domain.left, t_max - v1}, {p.domain.right, t_max - v2}));
+    }
+    return h;
 }
 
 PWLFunction PWLFunction::RestrictDomain(const Interval& domain) const

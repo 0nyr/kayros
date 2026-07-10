@@ -96,6 +96,8 @@ PYBIND11_MODULE(_lera, m) {
         .def("empty", &goc::PWLFunction::Empty)
         .def("compose", &goc::PWLFunction::Compose, py::arg("g"))
         .def("inverse", &goc::PWLFunction::Inverse)
+        .def("flip_time", &goc::PWLFunction::FlipTime, py::arg("t_max"))
+        .def("flip_value", &goc::PWLFunction::FlipValue, py::arg("t_max"))
         .def_property_readonly(
             "min_domain", [](const goc::PWLFunction& f) { return f.Domain().left; })
         .def_property_readonly(

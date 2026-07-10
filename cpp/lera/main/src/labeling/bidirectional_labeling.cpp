@@ -90,9 +90,24 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 	{
 		for (Vertex v: vrp.D.Successors(u))
 		{
-			// Compute reverse travel functions.
-			r.arr[v][u] = vrp.T - vrp.dep[u][v].Compose(vrp.T - PWLFunction::IdentityFunction({0.0, vrp.T}));
-			r.arr[v][u] = Min(PWLFunction::ConstantFunction(min(img(r.arr[v][u])), {min(r.tw[v]), min(dom(r.arr[v][u]))}), r.arr[v][u]);
+			// Compute reverse travel functions. M5.9 (design memo 12.2): the
+			// reflection T - dep(T - t) is built by the exact graph transforms
+			// FlipTime + FlipValue (one IEEE subtraction per coordinate,
+			// platform-stable, jumps keep their attained endpoints), not by
+			// Compose(T - Id) + arithmetic. The waiting-time prefix (a plateau
+			// at the earliest reverse arrival, covering [min tw, min dom)) is a
+			// direct graph edit equivalent to the old Min(Constant, .) on a
+			// non-decreasing function, avoiding Max/Intersection entirely.
+			r.arr[v][u] = vrp.dep[u][v].FlipTime(vrp.T).FlipValue(vrp.T);
+			if (epsilon_smaller(min(r.tw[v]), min(dom(r.arr[v][u]))))
+			{
+				PWLFunction padded;
+				padded.AddPiece(LinearFunction(
+					Point2D(min(r.tw[v]), min(img(r.arr[v][u]))),
+					Point2D(min(dom(r.arr[v][u])), min(img(r.arr[v][u])))));
+				for (auto& p: r.arr[v][u].Pieces()) padded.AddPiece(p);
+				r.arr[v][u] = padded;
+			}
 			// M5.9: the reverse mollifier is load-bearing and unconditional.
 			// Time-reversal turns a left-continuous forward step function into a
 			// right-continuous reverse one; the labeling assumes uniform
@@ -373,7 +388,11 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	}
 	else
 	{
-		PWLFunction lm_duration = l->duration + m->duration.Compose(T - PWLFunction::IdentityFunction({0.0, T}));
+		// M5.9 (design memo 12.2): m->duration(T - t) via the exact graph
+		// reflection FlipTime, not Compose(T - Id). One IEEE subtraction per
+		// breakpoint (platform-stable, no epsilon/PreValue arithmetic), and
+		// value jumps keep their attained endpoints through the reflection.
+		PWLFunction lm_duration = l->duration + m->duration.FlipTime(T);
 		if (lm_duration.Empty()) return;
 		r.duration = min(img(lm_duration));
 	}

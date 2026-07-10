@@ -108,6 +108,18 @@ public:
     
     // Returns: the inverse of this function (f) if is inversible, otherwise returns g(y) = max{x : f(x) = y}.
     PWLFunction Inverse() const;
+
+    // Returns: g(x) = f(T - x). Exact graph transform (M5.9, design memo 12.2):
+    // each breakpoint abscissa moves by ONE IEEE subtraction (platform-stable, no
+    // epsilon logic), arrays reversed; a value jump's ATTAINED endpoint (13.1) is
+    // preserved by construction. Replaces Compose(T - Id), the labeling's only
+    // decreasing-inner composition (reverse_instance, Merge).
+    PWLFunction FlipTime(double t_max) const;
+
+    // Returns: h(x) = T - f(x). Exact graph transform on the values; attained
+    // endpoints preserved. Combined with FlipTime it builds the reverse arrival
+    // function T - dep(T - t) exactly.
+    PWLFunction FlipValue(double t_max) const;
     
     // Restricts the domain to only the pieces included in the parameter.
     // Returns: the restricted function.

@@ -131,3 +131,112 @@ def test_compose_g_step_makes_fog_jump():
     assert fog.value(9.0) == pytest.approx(9.0)
     assert fog.value(10.0) == pytest.approx(10.0)  # left-continuous lower value of g's jump
     assert fog.value(11.0) == pytest.approx(31.0)
+
+
+# --- Exact graph reflections (M5.9 section 12-13): flip_time / flip_value ----
+# These replace the labeling's only decreasing-inner compositions
+# (reverse_instance and Merge use T - Id). Each breakpoint moves by ONE IEEE
+# subtraction: platform-stable, no epsilon logic, and attainment (the pointwise
+# value at a jump abscissa) is preserved by construction (section 13.1).
+
+
+def test_flip_time_continuous():
+    f = PWL([0.0, 10.0, 25.0], [0.0, 5.0, 30.0])
+    g = f.flip_time(25.0)  # g(x) = f(25 - x)
+    assert g.min_domain == pytest.approx(0.0) and g.max_domain == pytest.approx(25.0)
+    assert g.value(0.0) == pytest.approx(30.0)
+    assert g.value(15.0) == pytest.approx(5.0)  # f(10)
+    assert g.value(25.0) == pytest.approx(0.0)
+
+
+def test_flip_time_step_preserves_attained_value():
+    """g = flip_time(STEP, 20): the jump moves to x=10 and stays ATTAINED at 5.
+
+    STEP is left-continuous (STEP(10) = 5, the lower value). g(10) = STEP(10)
+    = 5 must hold even though g's jump is now right-continuous (its left
+    limit at 10 is the plateau 12).
+    """
+    f = PWL(STEP_XS, STEP_YS)
+    g = f.flip_time(20.0)
+    assert g.value(0.0) == pytest.approx(12.0)   # f(20), plateau side
+    assert g.value(5.0) == pytest.approx(12.0)   # f(15)
+    assert g.value(10.0) == pytest.approx(5.0)   # f(10): ATTAINED value kept
+    assert g.value(15.0) == pytest.approx(2.5)   # f(5)
+    assert g.value(20.0) == pytest.approx(0.0)   # f(0)
+
+
+def test_flip_time_is_involutive_on_steps():
+    f = PWL(STEP_XS, STEP_YS)
+    ff = f.flip_time(20.0).flip_time(20.0)
+    for x in (0.0, 5.0, 9.5, 10.0, 12.0, 20.0):
+        assert ff.value(x) == pytest.approx(f.value(x))
+
+
+def test_flip_value_step():
+    """h = flip_value(STEP, 20): h(x) = 20 - STEP(x), jump span reflected."""
+    f = PWL(STEP_XS, STEP_YS)
+    h = f.flip_value(20.0)
+    assert h.value(0.0) == pytest.approx(20.0)
+    assert h.value(10.0) == pytest.approx(15.0)  # 20 - 5, attained side kept
+    assert h.value(15.0) == pytest.approx(8.0)   # 20 - 12
+    assert h.min_image == pytest.approx(8.0) and h.max_image == pytest.approx(20.0)
+
+
+def test_double_flip_is_the_reverse_arrival_reflection():
+    """r(x) = T - f(T - x): non-decreasing again, attained value = T - f(T - x0).
+
+    This is the reverse_instance construction. For STEP with T = 20 the jump
+    lands at x = 10 spanning 8..15 with r(10) = 20 - STEP(10) = 15: the
+    attained value is now the UPPER endpoint (a right-continuous-style jump),
+    which is exactly what left-continuity-assuming code used to get wrong.
+    """
+    f = PWL(STEP_XS, STEP_YS)
+    r = f.flip_time(20.0).flip_value(20.0)
+    assert r.value(0.0) == pytest.approx(8.0)    # 20 - f(20)
+    assert r.value(9.0) == pytest.approx(8.0)    # plateau
+    assert r.value(10.0) == pytest.approx(15.0)  # 20 - f(10): attained UPPER
+    assert r.value(15.0) == pytest.approx(17.5)  # 20 - f(5)
+    assert r.value(20.0) == pytest.approx(20.0)  # 20 - f(0)
+
+
+def test_compose_g_jump_produces_composite_jump_pieces():
+    """A g-jump maps through continuous f to a genuine composite vertical.
+
+    f = 2x on [0, 60]; g jumps at x=10 from 10 to 30 (attained 10). fog must
+    jump at 10 from f(10)=20 (attained) to f(30)=60, with f's interior over
+    (10, 30) discarded. NOTE (13.2): this discard rule applies to JUMP
+    verticals only; dep-style CHOICE verticals (inverse of a plateau, every
+    interior value attained by a real departure choice) must keep the legacy
+    sweep semantics. The tagged-vertical Compose will carry both.
+    """
+    f = PWL([0.0, 60.0], [0.0, 120.0])
+    g = PWL([0.0, 10.0, 10.0, 20.0], [0.0, 10.0, 30.0, 40.0])
+    fog = f.compose(g)
+    assert fog.value(9.0) == pytest.approx(18.0)
+    assert fog.value(10.0) == pytest.approx(20.0)   # attained side preserved
+    assert fog.value(11.0) == pytest.approx(62.0)   # f(31)
+    verts = [p for p in fog.pieces() if p[4]]
+    assert len(verts) == 1
+    dl, dr, il, ir, _ = verts[0]
+    assert dl == dr == pytest.approx(10.0)
+    assert (il, ir) == (pytest.approx(20.0), pytest.approx(60.0))
+
+
+@pytest.mark.xfail(
+    reason="M5.9 section 13.2: awaiting the tagged-vertical Compose. The first "
+    "pointwise implementation broke production dep CHOICE verticals (inverse of "
+    "a plateau: interior values are attained departure choices, needing the "
+    "legacy sweep) and was reverted; jump verticals still collapse to a point.",
+    strict=True,
+)
+def test_compose_f_jump_through_increasing_g_keeps_span():
+    """f jumps at y=10; g = 2x reaches it at x=5. fog jumps at 5, span kept."""
+    f = PWL([0.0, 10.0, 10.0, 20.0], [0.0, 10.0, 30.0, 40.0])
+    g = PWL([0.0, 10.0], [0.0, 20.0])
+    fog = f.compose(g)
+    verts = [p for p in fog.pieces() if p[4]]
+    assert len(verts) == 1
+    dl, _, il, ir, _ = verts[0]
+    assert dl == pytest.approx(5.0)
+    assert (min(il, ir), max(il, ir)) == (pytest.approx(10.0), pytest.approx(30.0))
+    assert fog.value(5.0) == pytest.approx(10.0)  # attained (f left-continuous)
