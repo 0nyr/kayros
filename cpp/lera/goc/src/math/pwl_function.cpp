@@ -236,6 +236,23 @@ double PWLFunction::operator()(double x) const
     return Value(x);
 }
 
+bool PWLFunction::TryValue(double x, double* value) const
+{
+    if (epsilon_bigger(domain_.left, x) || epsilon_smaller(domain_.right, x)) return false;
+    const LinearFunction* first = nullptr;
+    for (int i = 0; i < (int) pieces_.size(); ++i)
+    {
+        const LinearFunction& p = pieces_[i];
+        if (epsilon_bigger(p.domain.left, x)) break;
+        if (!p.domain.Includes(x)) continue;
+        if (p.is_vertical()) { *value = p.intercept; return true; }
+        if (!first) first = &p;
+    }
+    if (!first) return false;
+    *value = first->Value(x);
+    return true;
+}
+
 double PWLFunction::PreValue(double y) const
 {
     if (epsilon_bigger(image_.left, y) || epsilon_smaller(image_.right, y))
@@ -296,10 +313,17 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
             double flo = f.Domain().left, fhi = f.Domain().right;
             double y1 = min(fhi, max(flo, y_att));
             double y2 = min(fhi, max(flo, y_other));
-            bool covered = epsilon_smaller_equal(min(y_att, y_other), fhi)
-                        && epsilon_bigger_equal(max(y_att, y_other), flo);
-            if (covered)
-                fog.AddPiece(LinearFunction(Point2D(x0, f.Value(y1)), Point2D(x0, f.Value(y2))));
+            // Hole-tolerant (M5.9): f may carry interior domain holes
+            // (post-domination durations); an endpoint landing in a hole
+            // contributes nothing at x0 rather than failing.
+            double v1, v2;
+            bool h1 = f.TryValue(y1, &v1), h2 = f.TryValue(y2, &v2);
+            if (h1 && h2)
+                fog.AddPiece(LinearFunction(Point2D(x0, v1), Point2D(x0, v2)));
+            else if (h1)
+                fog.AddPiece(LinearFunction(Point2D(x0, v1), Point2D(x0, v1)));
+            else if (h2)
+                fog.AddPiece(LinearFunction(Point2D(x0, v2), Point2D(x0, v2)));
             continue;
         }
 

@@ -102,6 +102,12 @@ public:
     // Exception: if no f(x) = y, then it throws an exception.
     double PreValue(double y) const;
     
+    // Returns: whether some piece covers x; if so *value = the attained value
+    // there (Value semantics without the hard failure). Post-domination label
+    // durations legitimately carry interior domain holes (M5.9); callers that
+    // may probe inside them use this instead of Value.
+    bool TryValue(double x, double* value) const;
+
     // Returns: the composition of this function (f) and g, i.e. fog(x) == f(g(x)).
     // Observation: the domain of the new function are those x such that g(x) \in dom(f).
     PWLFunction Compose(const PWLFunction& g) const;
