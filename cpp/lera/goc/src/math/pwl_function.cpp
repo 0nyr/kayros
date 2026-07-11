@@ -271,6 +271,25 @@ double PWLFunction::PreValue(double y) const
     return -1;
 }
 
+double PWLFunction::MinValueAt(double x) const
+{
+    double best = INFTY;
+    for (int i = 0; i < (int) pieces_.size(); ++i)
+    {
+        const LinearFunction& p = pieces_[i];
+        if (epsilon_bigger(p.domain.left, x)) break;
+        if (!p.domain.Includes(x)) continue;
+        double v;
+        if (p.is_choice_vertical()) v = min(p.image);
+        else if (p.is_vertical()) v = p.intercept; // jump: attained only
+        else v = p.Value(x);
+        best = std::min(best, v);
+    }
+    if (best == INFTY)
+        fail("PWLFunction::MinValueAt(" + STR(x) + ") failed, no piece covers x.");
+    return best;
+}
+
 PWLFunction PWLFunction::Compose(const PWLFunction& g) const
 {
     PWLFunction fog; // fog is the composition of this function (f) and g, i.e. fog(x) == f(g(x)).

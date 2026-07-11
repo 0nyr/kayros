@@ -16,6 +16,7 @@ using namespace nyr;
 
 namespace solver
 {
+extern bool trace_domination_detail; // pwl_domination_function.cpp
 namespace
 {
 // kayros (M5.7): a label's rw and dom(duration) can disagree by mollifier
@@ -27,7 +28,11 @@ namespace
 double duration_at(const Label* l, double t)
 {
 	t = std::max(min(dom(l->duration)), std::min(t, max(dom(l->duration))));
-	return l->duration.Value(t);
+	// M5.9 (21/n): durations are set-valued where departure-choice sets exist
+	// (stacked pieces at one abscissa); the label semantics is the MINIMUM.
+	// Value returns an arbitrary representative there, which over-priced
+	// merges and discarded optimal columns (the Ari-B10 trace).
+	return l->duration.MinValueAt(t);
 }
 
 // kayros (M5.7): when an entire label duration function lives inside a
@@ -373,6 +378,7 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 	// Create function Delta which will be dominated.
 	PWLDominationFunction Delta = l->duration;
 	double l_beta = beta(l, partial);
+	trace_domination_detail = trace::on() && trace::prefix_len(l) > 0;
 	
 	for (auto& demand_entry : U[l->v])
 	{
@@ -392,6 +398,7 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 				else if (partial && !Delta.DominatePieces(m->duration, theta)) continue;
 			}
 			
+			trace_domination_detail = false;
 			if (trace::prefix_len(l) > 0)
 			{
 				std::string lu, mu;
@@ -410,6 +417,7 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 			return true;
 		}
 	}
+	trace_domination_detail = false;
 	if (trace::prefix_len(l) > 0)
 		fprintf(stderr, "TRC SURVIVED lvl=%s path=%s rw=[%.3f,%.3f] dur_img=[%.3f,%.3f] min_cost=%.6f\n",
 			(elementary_check_relaxation ? "HE" : cost_check_relaxation ? "HC" : "EX"),

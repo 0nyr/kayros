@@ -380,7 +380,9 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	// Search arithmetic only — columns are repriced checker-exactly (stage A).
 	auto duration_at = [](const Label* x, double t) {
 		t = std::max(min(dom(x->duration)), std::min(t, max(dom(x->duration))));
-		return x->duration.Value(t);
+		// M5.9 (21/n): minimum over the departure-choice set (see
+		// monodirectional duration_at).
+		return x->duration.MinValueAt(t);
 	};
 	// Merge l and m duration functions lm_d(t) = l_d(t) + m_d(T-t).
 	if (epsilon_bigger_equal(T-max(m->rw), max(l->rw)))

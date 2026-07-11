@@ -11,6 +11,10 @@ using namespace goc;
 
 namespace solver
 {
+// M5.9 dev tracing: set by DominationStep when the candidate matches
+// KAYROS_TRACE_PATH; DominatePieces then prints its piece comparisons.
+bool trace_domination_detail = false;
+
 namespace
 {
 // M5.9 (design memo 13.2): domination values of a piece at [l, r], respecting
@@ -36,6 +40,25 @@ inline double dominator_value(const LinearFunction& p, double x)
 	return p.Value(x);
 }
 } // namespace
+
+// M5.9 (20/n): the completion base must be an UPPER bound of the dominator's
+// duration at its domain end. With stacked choice pieces (several zero-width
+// pieces at the same final abscissa, the departure-choice set), the LAST
+// piece's top is not necessarily the maximum: take the max image top over
+// every piece touching the final abscissa. A too-low base under-estimates the
+// completion and over-dominates candidates beyond the dominator's domain.
+static double completion_base(const PWLFunction& f2)
+{
+	double x_end = f2.Domain().right;
+	double base = -INFTY;
+	for (int i = f2.PieceCount() - 1; i >= 0; --i)
+	{
+		const LinearFunction& p = f2.Piece(i);
+		if (epsilon_smaller(p.domain.right, x_end)) break;
+		base = std::max(base, p.is_vertical() ? max(p.image) : p.Value(p.domain.right));
+	}
+	return base;
+}
 
 PWLDominationFunction::PWLDominationFunction(const PWLFunction& f)
 {
@@ -75,11 +98,9 @@ bool PWLDominationFunction::DominatePieces(const PWLFunction& f2, double delta)
 	if (f2.Domain().IsPoint() && !f1.Domain().IsPoint()) return false;
 
 	// Piece to add to the final of f2 with waiting time to include all f1's domain.
-	// M5.9: if f2 ends on a vertical, the completion must start from the TOP of
-	// its span (a lower base under-estimates the dominator's extension and
-	// over-dominates the candidate's tail: unsound pruning).
-	double f2_last_duration = f2.LastPiece().is_vertical()
-		? max(f2.LastPiece().image) : f2.LastPiece().Value(f2.Domain().right);
+	// M5.9 (20/n): base = max over ALL pieces at the final abscissa (stacked
+	// choice pieces can hide the maximum in a non-last piece).
+	double f2_last_duration = completion_base(f2);
 	auto completion_piece = LinearFunction(
 		{max(dom(f2)), f2_last_duration},
 		{f1.Domain().right, f2_last_duration + (f1.Domain().right - max(dom(f2)))}
@@ -112,7 +133,16 @@ bool PWLDominationFunction::DominatePieces(const PWLFunction& f2, double delta)
 		
 		double f1l = candidate_value(p1, l), f1r = candidate_value(p1, r);
 		double f2l = dominator_value(p2, l), f2r = dominator_value(p2, r);
-		
+
+		if (trace_domination_detail)
+			fprintf(stderr, "TRCD cmp p1=[%.3f,%.3f]img[%.3f,%.3f]%s p2=[%.3f,%.3f]img[%.3f,%.3f]%s l=%.3f r=%.3f f1(%.4f,%.4f) f2(%.4f,%.4f) delta=%.4f dom=%d\n",
+				p1.domain.left, p1.domain.right, p1.image.left, p1.image.right,
+				p1.is_vertical() ? (p1.is_choice_vertical() ? "C" : "J") : "-",
+				p2.domain.left, p2.domain.right, p2.image.left, p2.image.right,
+				p2.is_vertical() ? (p2.is_choice_vertical() ? "C" : "J") : "-",
+				l, r, f1l, f1r, f2l, f2r, delta,
+				(int)(epsilon_bigger_equal(f1l, f2l+delta) || epsilon_bigger_equal(f1r, f2r+delta)));
+
 		// There is some domination if f1(l) >= f2(l)+delta or f1(r) >= f2(r)+delta.
 		if (epsilon_bigger_equal(f1l, f2l+delta) || epsilon_bigger_equal(f1r, f2r+delta))
 		{
@@ -186,9 +216,8 @@ bool PWLDominationFunction::IsAlwaysDominated(const PWLFunction& f2, double delt
 	if (epsilon_bigger(min(dom(f2)), f1.Domain().left)) return false;
 	
 	// Piece to add to the final of f2 with waiting time to include all f1's domain.
-	// M5.9: see DominatePieces — vertical last piece completes from its span top.
-	double f2_last_duration = f2.LastPiece().is_vertical()
-		? max(f2.LastPiece().image) : f2.LastPiece().Value(f2.Domain().right);
+	// M5.9 (20/n): see DominatePieces — max over all pieces at the final abscissa.
+	double f2_last_duration = completion_base(f2);
 	auto completion_piece = LinearFunction(
 		{max(dom(f2)), f2_last_duration},
 		{f1.Domain().right, f2_last_duration + (f1.Domain().right - max(dom(f2)))}

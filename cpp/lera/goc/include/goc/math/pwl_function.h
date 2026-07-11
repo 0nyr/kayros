@@ -108,6 +108,15 @@ public:
     // may probe inside them use this instead of Value.
     bool TryValue(double x, double* value) const;
 
+    // Returns: the MINIMUM value attainable at x across every piece covering x
+    // (M5.9, 21/n). Label DURATION functions are set-valued at an abscissa
+    // where a departure-choice set exists (stacked point pieces or choice
+    // verticals from composing through dep): the label semantics D(t) = min
+    // duration at t demands the minimum, while Value returns an arbitrary
+    // (first) representative there. Jump verticals contribute only their
+    // attained value; choice verticals their span minimum.
+    double MinValueAt(double x) const;
+
     // Returns: the composition of this function (f) and g, i.e. fog(x) == f(g(x)).
     // Observation: the domain of the new function are those x such that g(x) \in dom(f).
     PWLFunction Compose(const PWLFunction& g) const;
