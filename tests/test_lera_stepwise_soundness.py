@@ -46,6 +46,19 @@ def _pick(paths, name):
     return None
 
 
+def _need(path, label):
+    """Skip (do not fail) when a specific instance is absent from the checkout.
+
+    ``require_benchmarks()`` only asserts the benchmarks *root* exists; CI and
+    sparse checkouts may carry only a subset (e.g. Dabia n=25), so the
+    stepwise reproducers (Rifki2020) can still be missing. These gates then
+    skip, consistent with every other benchmark-dependent test in the suite.
+    """
+    if path is None or not path.exists():
+        pytest.skip(f"{label} instance not in the benchmark checkout")
+    return path
+
+
 # Decisive minimal reproducer -------------------------------------------------
 RIFKI16_N20 = _pick(family_instances("TDVRPTW", "Rifki2020", ["n=20"]), "Rifki-16")
 
@@ -84,7 +97,7 @@ def test_reproducer_counterexample_is_checker_valid():
     is stale, not the solver.
     """
     require_benchmarks()
-    assert RIFKI16_N20 is not None, "Rifki-16 n=20 TDVRPTW instance missing"
+    _need(RIFKI16_N20, "Rifki-16 n=20 TDVRPTW")
     loaded = load_td_instance(RIFKI16_N20)
     sol = BenchmarkSolution(
         instance_name="Rifki-16",
@@ -104,7 +117,7 @@ def test_stepwise_certified_value_is_sound():
     certify 8376); was strict-xfail before the fix.
     """
     require_benchmarks()
-    assert RIFKI16_N20 is not None
+    _need(RIFKI16_N20, "Rifki-16 n=20 TDVRPTW")
     loaded = load_td_instance(RIFKI16_N20)
     res = _cold(loaded)
     assert res["exact_log"]["status"] == "Optimum"
@@ -119,7 +132,7 @@ def test_stepwise_certification_is_warm_start_independent():
     the decisive soundness signature; now both certify 8361.
     """
     require_benchmarks()
-    assert RIFKI16_N20 is not None
+    _need(RIFKI16_N20, "Rifki-16 n=20 TDVRPTW")
     loaded = load_td_instance(RIFKI16_N20)
     cold = _cold(loaded)
     warm = _warm(loaded, RIFKI16_N20_COUNTEREXAMPLE)
@@ -144,7 +157,7 @@ def test_symmetric_merge_stepwise_is_sound(monkeypatch):
     from conftest import benchmarks_root
 
     src = benchmarks_root() / "TDVRPTW" / "Rifki2020" / "n=10" / "Rifki-25.vrp.json"
-    assert src.exists()
+    _need(src, "Rifki-25 n=10 TDVRPTW")
     monkeypatch.setenv("KAYROS_LBL_SYMMETRIC", "1")
     loaded = load_td_instance(src)
     res = _cold(loaded, tl=60.0)
@@ -170,6 +183,7 @@ def _load_rifki14_k15():
 
     fam, size, name = RIFKI14_K15_SRC
     src = benchmarks_root() / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    _need(src, "Rifki-14 n=30 TDVRPTW")
     return subsample(load_td_instance(src), RIFKI14_K15_KEEP, "Rifki-14-k15")
 
 

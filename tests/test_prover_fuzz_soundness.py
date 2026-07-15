@@ -42,6 +42,11 @@ def _load_rifki22():
     root = benchmarks_root()
     fam, size, name = RIFKI22_SRC
     src = root / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    # Skip (not fail) when this specific instance is absent: require_benchmarks()
+    # only asserts the root exists, but a sparse/CI checkout may carry only a
+    # subset (e.g. Dabia n=25) without Rifki2020.
+    if not src.exists():
+        pytest.skip("Rifki-22 n=20 TDVRPTW instance not in the benchmark checkout")
     return subsample(load_td_instance(src), RIFKI22_KEEP, "Rifki-22-repro")
 
 
