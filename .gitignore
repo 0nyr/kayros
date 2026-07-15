@@ -27,3 +27,6 @@ build-lera*/
 # Nix
 result
 result-*
+
+# uv (lockfile not tracked: kayros is a library, deps are resolved by pyproject)
+uv.lock

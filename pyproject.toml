@@ -11,7 +11,7 @@ name = "kayros"
 # Bump BY HAND alongside this key: CITATION.cff `version:`, the README status
 # line, and create the matching GitHub release tag vX.Y.Z (publish.yml ships
 # the wheels to PyPI on release).
-version = "0.4.0"
+version = "0.5.0"
 description = "KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP)"
 readme = "README.md"
 authors = [
@@ -32,9 +32,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
 # The canonical benchmark/checker dependency: the TD layer (loaders, NDCPWLF
-# reference checker, BKS helpers) landed on PyPI with mamut-routing-lib 0.2.0.
+# reference checker, BKS helpers) landed on PyPI with mamut-routing-lib 0.2.0;
+# the floor is 0.6.0, the stack the 0.5.0 certification work was tested against
+# (needs the OptimalityMetadata schema, present since 0.4.0).
 dependencies = [
-    "mamut-routing-lib>=0.2.0",
+    "mamut-routing-lib>=0.6.0",
 ]
 
 [project.optional-dependencies]
@@ -56,6 +58,12 @@ minimum-version = "build-system.requires"
 cmake.version = ">=3.26"
 wheel.packages = ["src/kayros"]
 sdist.exclude = [".github", "nix-dev"]
+# License/attribution files carried into the wheel's .dist-info/licenses/. The
+# root LICENSE covers kayros itself; cpp/lera/NOTICE.md is the MIT attribution
+# for the vendored Lera-Romero BPC code, which ships compiled inside the wheel
+# and MUST travel with its NOTICE (the default license-files globs only match
+# top-level files, so the nested NOTICE is listed explicitly).
+wheel.license-files = ["LICENSE", "cpp/lera/NOTICE.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
