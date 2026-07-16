@@ -11,7 +11,7 @@ name = "kayros"
 # Bump BY HAND alongside this key: CITATION.cff `version:`, the README status
 # line, and create the matching GitHub release tag vX.Y.Z (publish.yml ships
 # the wheels to PyPI on release).
-version = "0.5.0"
+version = "1.0.0"
 description = "KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP)"
 readme = "README.md"
 authors = [
@@ -20,7 +20,7 @@ authors = [
 license = { text = "MIT" }
 requires-python = ">=3.11"
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
@@ -31,19 +31,12 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
-# The canonical benchmark/checker dependency: the TD layer (loaders, NDCPWLF
-# reference checker, BKS helpers) landed on PyPI with mamut-routing-lib 0.2.0;
-# the floor is 0.6.0, the stack the 0.5.0 certification work was tested against
-# (needs the OptimalityMetadata schema, present since 0.4.0).
+# The canonical benchmark/checker dependency: loaders, the NDCPWLF reference
+# checker, BKS helpers and the OptimalityMetadata schema. The floor is the
+# stack the certification work is tested against.
 dependencies = [
     "mamut-routing-lib>=0.6.0",
 ]
-
-[project.optional-dependencies]
-# lera: kept as a no-op alias for older install instructions — the exact BPC
-# component (HiGHS backend) ships in the default build since 0.3.0 (M5.8).
-# The CPLEX backend stays a source-build opt-in (-DLERA_LP_BACKEND=cplex).
-lera = []
 
 [dependency-groups]
 dev = ["pytest>=8"]

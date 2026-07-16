@@ -17,9 +17,11 @@ abstract: >-
   time-dependent vehicle routing problems, including TDVRPTW and TDVRP.
   It combines a C++23 and pybind11 optimization core with an exact
   non-decreasing continuous piecewise-linear arrival-time engine,
-  checker-refereed route pricing, greedy construction, and a
-  time-dependent ant colony optimization heuristic for the canonical
-  MAMUT-routing benchmark families.
+  checker-refereed route pricing, a time-dependent iterated local
+  search as the anytime heuristic, and an audited branch-price-and-cut
+  exact component issuing checker-exact optimality certificates for
+  the canonical MAMUT-routing benchmark families. Every run ends with
+  an honest verdict: optimum, time limit, or resource limit.
 keywords:
   - time-dependent vehicle routing problem
   - TDVRPTW
@@ -36,4 +38,4 @@ keywords:
   - routing
   - research software
 license: MIT
-version: "0.5.0"
+version: "1.0.0"
