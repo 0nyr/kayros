@@ -21,6 +21,14 @@ struct SolveParams {
     // initial SPF column; when the surviving routes partition the customers
     // exactly, their total becomes the initial UB for pruning.
     std::vector<std::vector<int>> initial_routes;
+    // Memory self-guard (M13.2): RSS watermark in MiB; <= 0 disables. When the
+    // process RSS crosses it, every component unwinds at its next check point
+    // (the same loop heads as the M5.2 deadline) and the solve returns an
+    // honest MemoryLimitReached status with valid bounds — instead of the
+    // OS OOM-killing the process with no verdict. The Python bridge resolves
+    // its default from the machine (own RSS + ~80% of available memory,
+    // capped by the cgroup limit); this field is the resolved value.
+    double memory_limit_mb = 0.0;
     // Dual stabilization (M5.1b): Neame smoothing factor in [0, 1); pricing
     // runs on the EMA alpha*center + (1-alpha)*duals with misprice-safe
     // termination (CG only ever stops on true duals). Default OFF: measured

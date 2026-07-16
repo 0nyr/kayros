@@ -243,6 +243,9 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			if (q[d].empty()) continue;
 			if (rolex.Peek() >= time_limit) { log.status = BLBStatus::TimeLimitReached; break; } // Check if TLim is reached.
 			if (S.size() >= solution_limit) { log.status = BLBStatus::SolutionLimitReached; break; } // Check if SLim is reached.
+			// kayros (M13.2): sticky memory watermark — also catches a
+			// monodirectional Run below that broke on MemoryLimitReached.
+			if (MemoryMonitor::Exceeded()) { log.status = BLBStatus::MemoryLimitReached; break; }
 			lbl_[d].time_limit = time_limit - rolex.Peek(); // Set time limit.
 			auto P = lbl_[d].Run(&q[d], mlb_log[d]);
 			
@@ -286,7 +289,8 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	}
 	
 	// Last-edge merge.
-	if (S.size() < solution_limit && rolex.Peek() < time_limit)
+	// kayros (M13.2): a memory-tripped run must not start the merge tail.
+	if (S.size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached)
 	{
 		merge_rolex.Reset().Resume();
 		LastArcMerge(q[0], lbl_[1].U);
@@ -296,8 +300,13 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		if (run_deadline_.Reached()) log.status = BLBStatus::TimeLimitReached;
 	}
 	
-	if (S.size() >= solution_limit) log.status = BLBStatus::SolutionLimitReached;
-	else if (log.status == BLBStatus::DidNotStart) log.status = BLBStatus::Finished;
+	// kayros (M13.2): MemoryLimitReached takes precedence — "Finished" or a
+	// full pool would let the caller read a truncated pricing as exhaustive.
+	if (log.status != BLBStatus::MemoryLimitReached)
+	{
+		if (S.size() >= solution_limit) log.status = BLBStatus::SolutionLimitReached;
+		else if (log.status == BLBStatus::DidNotStart) log.status = BLBStatus::Finished;
+	}
 	*log.time += rolex.Pause();
 	
 	// Add solutions from the pool to the return vector R.

@@ -7,6 +7,7 @@
 #pragma once
 
 #include "goc/base/maybe.h"
+#include "goc/base/memory_monitor.h" // kayros (M13.2)
 
 #include "goc/collection/bitset_utils.h"
 #include "goc/collection/collection_utils.h"

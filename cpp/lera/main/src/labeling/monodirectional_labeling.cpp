@@ -188,6 +188,10 @@ vector<Label*> MonodirectionalLabeling::Run(
 	{
 		if (P.size() >= process_limit) { log->status = MLBStatus::ProcessLimitReached; break; }
 		if (rolex.Peek() >= time_limit) { log->status = MLBStatus::TimeLimitReached; break; }
+		// kayros (M13.2): the label containers are where the full-horizon
+		// memory pathology accumulates — unwind with an honest verdict
+		// instead of being OOM-killed. Sticky: outer loops see it too.
+		if (MemoryMonitor::Exceeded()) { log->status = MLBStatus::MemoryLimitReached; break; }
 		
 		// If label crossed t_m, but should not, then stop processing queue.
 		// This extensions will be used for last-edge merge strategy.

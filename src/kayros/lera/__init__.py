@@ -30,6 +30,69 @@ from mamut_routing_lib.td import LoadedTDInstance
 
 _JUMP_DELTA = 1e-3  # mollifier width, seconds; >> goc EPS (1e-6), dust vs any horizon
 
+_AUTO_MEMORY_FRACTION = 0.8  # M13.2: fraction of available memory the auto guard may use
+
+
+def _read_meminfo_kb(field: str) -> int | None:
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith(field + ":"):
+                    return int(line.split()[1])
+    except OSError:
+        return None
+    return None
+
+
+def _read_own_rss_bytes() -> int | None:
+    try:
+        import os
+        with open("/proc/self/statm") as f:
+            resident_pages = int(f.read().split()[1])
+        return resident_pages * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _read_cgroup_limit_bytes() -> int | None:
+    """Effective cgroup memory limit (v2 then v1), None when unlimited/unknown."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(path) as f:
+                raw = f.read().strip()
+        except OSError:
+            continue
+        if raw == "max":
+            return None
+        try:
+            value = int(raw)
+        except ValueError:
+            continue
+        # cgroup v1 reports a huge sentinel (~PAGE_COUNTER_MAX) when unlimited.
+        if 0 < value < 1 << 60:
+            return value
+    return None
+
+
+def _auto_memory_limit_mb() -> float:
+    """Resolve the default RSS watermark for the M13.2 memory self-guard.
+
+    Rule: own current RSS + a fraction of the memory available right now,
+    capped by the cgroup limit when one is set. On a quiet dedicated machine
+    this approximates ~80% of RAM; on a shared node it never claims more than
+    what is actually free at solve start. Returns 0.0 (guard disabled) when
+    the /proc interface is unavailable (non-Linux) — never a false verdict.
+    """
+    own_rss = _read_own_rss_bytes()
+    available_kb = _read_meminfo_kb("MemAvailable")
+    if own_rss is None or available_kb is None:
+        return 0.0
+    limit = own_rss + _AUTO_MEMORY_FRACTION * available_kb * 1024
+    cgroup = _read_cgroup_limit_bytes()
+    if cgroup is not None:
+        limit = min(limit, _AUTO_MEMORY_FRACTION * cgroup)
+    return limit / 1048576.0
+
 
 def _continuize_breakpoints(xs: list[float], ys: list[float]) -> tuple[list[float], list[float]]:
     """Collapse duplicate-x breakpoints (arrival jumps) into steep segments.
@@ -187,6 +250,7 @@ def solve_duration(
     on_incumbent: Callable[[dict[str, Any]], None] | None = None,
     initial_routes: list[list[int]] | None = None,
     stab_alpha: float = 0.0,
+    memory_limit_mb: float | None = None,
 ) -> dict[str, Any]:
     """Run the Lera BPC (duration objective) on a loaded MAMUT TD instance.
 
@@ -223,6 +287,17 @@ def solve_duration(
     only ever stops on true duals). Default 0.0 (off): smoothing measured
     monotonically harmful with the pool-based pricing ladder — experimental
     knob only. When on, the result carries a ``stabilization`` record.
+
+    ``memory_limit_mb`` is the M13.2 memory self-guard: an RSS watermark the
+    prover polls at the same points as the time-limit deadline. When crossed,
+    the solve unwinds cleanly and returns ``exact_log.status ==
+    "MemoryLimitReached"`` with honest bounds (an OPEN verdict, never a
+    certificate) — instead of the OS OOM-killing the process with no result
+    (the full-horizon TDVRP label-accumulation pathology). ``None`` (default)
+    resolves the limit from the machine: own RSS + ~80% of currently
+    available memory, capped by the cgroup limit when one is set. ``0``
+    disables the guard. The result's ``memory`` record carries the resolved
+    limit, the peak RSS and whether the guard tripped.
     """
     try:
         from kayros import _lera
@@ -239,6 +314,9 @@ def solve_duration(
         "cut_limit": cut_limit,
         "solution_limit": solution_limit,
         "stab_alpha": float(stab_alpha),
+        "memory_limit_mb": (
+            _auto_memory_limit_mb() if memory_limit_mb is None else float(memory_limit_mb)
+        ),
     }
     if node_limit is not None:
         kwargs["node_limit"] = node_limit

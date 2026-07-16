@@ -127,6 +127,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     bcp.cut_limit = params.cut_limit;
     bcp.node_limit = params.node_limit;
 
+    // kayros (M13.2): arm the process-global RSS watermark for this solve
+    // (resets any sticky tripped state from a previous solve in-process).
+    MemoryMonitor::SetLimitBytes((int64_t)(params.memory_limit_mb * 1048576.0));
+
     // Warm start (M5.3): reprice each heuristic route with the checker-exact
     // fold (M5.6 stage A: the master's arithmetic) and add it as an initial
     // column. Checker-infeasible routes are skipped; the UB is only set when
@@ -218,6 +222,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         int added = 0;
         for (const auto& r : R) {
             if (bcp.deadline.Reached()) break;
+            if (MemoryMonitor::Exceeded()) break; // kayros (M13.2)
             // Lera's solution pool holds an empty-path INFTY placeholder for
             // merge candidates whose duration never resolved (Route({}, 0,
             // INFTY) in AddSolution); pool repricing can emit it. It is not a
@@ -263,6 +268,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     auto run_ladder_and_add = [&](const PricingProblem& pp, CGExecutionLog* lg) {
         int added = 0;
         while (!bcp.deadline.Reached()) {
+            if (MemoryMonitor::Exceeded()) break; // kayros (M13.2): don't climb levels on a doomed run
             added = add_columns(run_one_level(pp, lg));
             if (added > 0) break;
             if (heuristic_level + 1 >= levels.size()) {
@@ -326,6 +332,13 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         // node optimal".
         if (bcp.deadline.Reached())
             cg_execution_log->status = CGStatus::TimeLimitReached;
+        // kayros (M13.2): same argument for the memory watermark — a
+        // memory-truncated pricing pass must never read as node-optimal.
+        // Set last so memory takes precedence; colgen exits with this status
+        // when no new columns landed, and ProcessNode maps it to
+        // BCStatus::MemoryLimitReached (the existing CG->BC branch).
+        if (MemoryMonitor::Exceeded())
+            cg_execution_log->status = CGStatus::MemoryLimitReached;
     };
 
     VRPSolution solution(INFTY, {});
@@ -334,6 +347,12 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     nlohmann::json result;
     result["exact_log"] = log;
     result["checker_infeasible_columns"] = checker_infeasible_count;
+    // kayros (M13.2): guard observability — never used in control flow.
+    result["memory"] = {
+        {"limit_mb", params.memory_limit_mb},
+        {"peak_rss_mb", (double)MemoryMonitor::PeakRSSBytes() / 1048576.0},
+        {"limit_reached", MemoryMonitor::Exceeded()},
+    };
     result["incumbents"] = incumbents;
     if (!warm_log.is_null()) result["warm_start"] = warm_log;
     if (alpha > 0.0) result["stabilization"] = {{"alpha", alpha}, {"misprices", misprice_count}};

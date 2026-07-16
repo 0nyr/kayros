@@ -19,7 +19,8 @@
 namespace goc
 {
 // All the status that can result from a monodirectional labeling algorithm.
-enum class MLBStatus { DidNotStart, TimeLimitReached, ProcessLimitReached, Finished };
+// MemoryLimitReached: kayros (M13.2) graceful OOM self-rejection guard.
+enum class MLBStatus { DidNotStart, TimeLimitReached, ProcessLimitReached, MemoryLimitReached, Finished };
 
 // This class stores information about the execution of a MONODIRECTIONAL labeling algorithm.
 // We consider that a label in the labeling algorithm has to pass through the following stages:

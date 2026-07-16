@@ -110,6 +110,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		{
 			if (log.status == BCStatus::TimeLimitReached || log.status == BCStatus::MemoryLimitReached) break;
 			if (deadline.Reached()) { log.status = BCStatus::TimeLimitReached; break; } // (M5.2)
+			if (MemoryMonitor::Exceeded()) { log.status = BCStatus::MemoryLimitReached; break; } // kayros (M13.2)
 			if (log.nodes_closed >= node_limit) { log.status = BCStatus::NodeLimitReached; break; }
 			
 			// Pop node.
@@ -179,6 +180,7 @@ double BCP::EstimateBound(Node* node)
 	// (M5.2) An aborted probe must poison the run status: dropping both
 	// children of a node silently would let Run() claim optimality later.
 	if (lp_log.status == LPStatus::TimeLimitReached) log.status = BCStatus::TimeLimitReached;
+	if (lp_log.status == LPStatus::MemoryLimitReached) log.status = BCStatus::MemoryLimitReached; // kayros (M13.2)
 	return lp_log.status == LPStatus::Optimum ? *lp_log.incumbent_value : INFTY;
 }
 

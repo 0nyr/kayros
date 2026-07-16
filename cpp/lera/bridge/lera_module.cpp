@@ -29,7 +29,8 @@ PYBIND11_MODULE(_lera, m) {
         "solve_duration_json",
         [](const std::string& payload, double time_limit_s, int cut_limit, int node_limit,
            int solution_limit, py::object on_incumbent,
-           std::vector<std::vector<int>> initial_routes, double stab_alpha) {
+           std::vector<std::vector<int>> initial_routes, double stab_alpha,
+           double memory_limit_mb) {
             kayros::lera::SolveParams params;
             params.time_limit_s = time_limit_s;
             params.cut_limit = cut_limit;
@@ -37,6 +38,7 @@ PYBIND11_MODULE(_lera, m) {
             params.solution_limit = solution_limit;
             params.initial_routes = std::move(initial_routes);
             params.stab_alpha = stab_alpha;
+            params.memory_limit_mb = memory_limit_mb;
             // The py::object must be captured while the GIL is still held (the
             // copy increfs); the hook itself re-acquires the GIL per call.
             if (!on_incumbent.is_none()) {
@@ -52,7 +54,7 @@ PYBIND11_MODULE(_lera, m) {
         py::arg("node_limit") = INT_MAX, py::arg("solution_limit") = 3000,
         py::arg("on_incumbent") = py::none(),
         py::arg("initial_routes") = std::vector<std::vector<int>>{},
-        py::arg("stab_alpha") = 0.0);
+        py::arg("stab_alpha") = 0.0, py::arg("memory_limit_mb") = 0.0);
 
     // --- nyr NDCPWLF test surface (M5.9 exact stepwise labeling) -----------
     // Direct pytest access to the step-capable PWL primitives while they are

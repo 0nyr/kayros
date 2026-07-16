@@ -19,7 +19,8 @@
 namespace goc
 {
 // All the status that can result from a monodirectional labeling algorithm.
-enum class BLBStatus { DidNotStart, TimeLimitReached, SolutionLimitReached, Finished };
+// MemoryLimitReached: kayros (M13.2) graceful OOM self-rejection guard.
+enum class BLBStatus { DidNotStart, TimeLimitReached, SolutionLimitReached, MemoryLimitReached, Finished };
 
 // This class stores information about the execution of a BIDIRECTIONAL labeling algorithm.
 // It is compatible with the Kaleidoscope kd_type "blb".
