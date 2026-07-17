@@ -28,8 +28,6 @@ from typing import Any, Callable
 from mamut_routing_lib.td import LoadedTDInstance
 
 
-_JUMP_DELTA = 1e-3  # mollifier width, seconds; >> goc EPS (1e-6), dust vs any horizon
-
 _AUTO_MEMORY_FRACTION = 0.8  # M13.2: fraction of available memory the auto guard may use
 
 
@@ -94,68 +92,37 @@ def _auto_memory_limit_mb() -> float:
     return limit / 1048576.0
 
 
-def _continuize_breakpoints(xs: list[float], ys: list[float]) -> tuple[list[float], list[float]]:
-    """Collapse duplicate-x breakpoints (arrival jumps) into steep segments.
-
-    Rifki2020-style stepwise travel times encode a jump as two breakpoints at the
-    same x. Lera's goc PWL machinery (Max/RestrictImage/... in preprocessing)
-    assumes continuous functions and produces piece lists with interior gaps on
-    such input, which later fails ``PWLFunction::Value``. We hand Lera a
-    continuous under-approximation instead: each jump ``(x0,y_lo)->(x0,y_hi)``
-    becomes a segment from ``(x0,y_lo)`` to ``(x0+delta, line(x0+delta))`` on
-    the following piece. This matches the checker exactly at every breakpoint —
-    ``kayros::evaluate`` is left-continuous at duplicates (lower_bound returns
-    the FIRST y on an exact hit) — and sits at or below the checker curve on
-    the measure-delta sliver after each jump. Lera therefore never overestimates
-    arrivals: pricing/bounds stay valid and no wrong optimum can be certified;
-    costs are checker-exact anyway via the bridge's repricing of every column.
-    A jump at the domain end is dropped (its upper value is unreachable in
-    checker semantics: no departure evaluates to it).
-    """
-    out_x: list[float] = []
-    out_y: list[float] = []
-    k, m = 0, len(xs)
-    while k < m:
-        j = k
-        while j + 1 < m and xs[j + 1] == xs[k]:
-            j += 1
-        x0, y_lo, y_hi = xs[k], ys[k], ys[j]
-        out_x.append(x0)
-        out_y.append(y_lo)
-        if y_hi > y_lo and j + 1 < m:
-            x1, y1 = xs[j + 1], ys[j + 1]
-            d = min(_JUMP_DELTA, (x1 - x0) / 2.0)
-            t = d / (x1 - x0)
-            out_x.append(x0 + d)
-            out_y.append(y_hi + t * (y1 - y_hi))
-        k = j + 1
-    return out_x, out_y
-
-
 def _atf_to_travel_time_pieces(xs, ys) -> list[list[list[float]]]:
     """ATF breakpoints -> Lera PWL travel-time pieces tau(t) = f(t) - t.
 
     Each piece is ``[[x1, y1], [x2, y2]]`` (goc ``LinearFunction`` JSON).
-    Value jumps (duplicate-x breakpoints) are continuized into narrow steep
-    bridges first (see :func:`_continuize_breakpoints`); for jump-free ATFs this
-    is a no-op and the emitted floats are bit-identical to the raw breakpoints.
-    M5.9: the mollifier is load-bearing -- the prover's exact (true-vertical)
-    labeling is not sound (time-reversal / composition of a left-continuous step
-    is not left-continuous), whereas the mollified continuous path is sound once
-    the goc numerics are exact (non-decreasing Inverse via coordinate swap). The
-    residual 1e-3 arrival error is validated sound by the randomized differential
-    fuzzer (tests/test_prover_fuzz_soundness.py).
+    Breakpoints are emitted verbatim: duplicate-x pairs (value jumps of
+    stepwise ATFs) become genuine zero-width vertical pieces handled exactly
+    by the tagged-vertical labeling (M13.0; the exact value-jump path is the
+    production default on step-carrying instances — see
+    :func:`_has_stepwise_atfs` in :func:`solve_duration`). The M5.7 forward
+    mollifier (``_continuize_breakpoints``, a 1e-3 steep-bridge
+    under-approximation) was retired with M13.0: its sliver admitted
+    checker-infeasible priced columns (the 23 integrity-guard refusals) and
+    its bridges amplified epsilon comparisons into O(step) mispricing. For
+    jump-free ATFs this emission is bit-identical to what the mollifier
+    produced (it was a no-op without duplicate-x pairs).
     """
-    import os as _os
-    if _os.environ.get("KAYROS_STEP_EXACT"):  # M5.9 exact-jump path (13.2 tagged verticals)
-        xs = [float(x) for x in xs]
-        ys = [float(y) for y in ys]
-    else:
-        xs, ys = _continuize_breakpoints([float(x) for x in xs], [float(y) for y in ys])
+    xs = [float(x) for x in xs]
+    ys = [float(y) for y in ys]
     return [
         [[xs[k], ys[k] - xs[k]], [xs[k + 1], ys[k + 1] - xs[k + 1]]]
         for k in range(len(xs) - 1)
     ]
+
+
+def _has_stepwise_atfs(loaded: LoadedTDInstance) -> bool:
+    """True iff any arc ATF carries a value jump (duplicate-x breakpoints)."""
+    return any(
+        f.xs[k + 1] == f.xs[k]
+        for f in loaded.atfs.arcs.values()
+        for k in range(len(f.xs) - 1)
+    )
 
 
 def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
@@ -308,6 +275,21 @@ def solve_duration(
             "(HiGHS backend by default; see cpp/lera/NOTICE.md)."
         ) from exc
 
+    # M13.0 promotion: the exact value-jump labeling is the production path on
+    # step-carrying instances. The KAYROS_STEP_EXACT flag (formerly a dev
+    # toggle) is now set per solve from the instance data, BEFORE the payload
+    # is built and before the solver constructs its instance (both consult
+    # it): stepwise ATFs get true tagged verticals end to end; jump-free
+    # instances take the unchanged v1.0.0 arithmetic bit-identically (the
+    # reverse-side waiting bridging is a representation choice validated by
+    # the standing jump-free certificates, not a step mollifier).
+    import os as _os
+
+    if _has_stepwise_atfs(loaded):
+        _os.environ["KAYROS_STEP_EXACT"] = "1"
+    else:
+        _os.environ.pop("KAYROS_STEP_EXACT", None)
+
     payload = to_lera_payload(loaded)
     kwargs: dict[str, Any] = {
         "time_limit_s": time_limit_s,
@@ -363,12 +345,13 @@ def optimality_metadata(
 ) -> dict[str, Any] | None:
     """Build a structured optimality stamp from a :func:`solve_duration` result.
 
-    Returns ``None`` unless the solve terminated with status ``Optimum``, and
-    always ``None`` when the instance carries stepwise ATFs (the result's
-    ``stepwise_atfs`` flag): those certificates were refuted by counterexample
-    (see ``cpp/lera/NOTICE.md`` item 9) and must not be issued until the
-    labeling handles value jumps exactly.
-    Otherwise returns a plain dict in the shape mamut-routing-lib stores under
+    Returns ``None`` unless the solve terminated with status ``Optimum``.
+    Stepwise (value-jump) instances stamp like any other since M13.0: the
+    exact tagged-vertical labeling is their production path, validated by the
+    2026-07-17/18 full-family campaign (0 unsound, 0 poisoned, cross-platform
+    exact agreement; the former single-run refusal guarded the retired
+    mollified path, see ``cpp/lera/NOTICE.md`` item 9).
+    Returns a plain dict in the shape mamut-routing-lib stores under
     BKS ``metadata["optimality"]`` (``OptimalityMetadata``): the prover string
     names this kayros version and LP backend, ``certificate`` is
     :data:`CERTIFICATE`, ``proven_optimum`` is the solve's checker-exact
@@ -378,14 +361,6 @@ def optimality_metadata(
     """
     exact_log = result.get("exact_log") or {}
     if exact_log.get("status") != "Optimum":
-        return None
-    if result.get("stepwise_atfs"):
-        # Certificates on stepwise (duplicate-x jump) ATFs are refuted by
-        # counterexample (Rifki2020, 2026-07-08): pricing is incomplete on the
-        # mollified functions — the 1e-3 bridges over value jumps amplify the
-        # labeling's epsilon arithmetic into O(step-height) merge mispricing,
-        # so an "Optimum" status is warm-start-dependent and not a proof.
-        # See cpp/lera/NOTICE.md item 9. No stamp until value jumps are exact.
         return None
 
     from datetime import date as _date

@@ -64,17 +64,22 @@ RIFKI_10 = pick(family_instances("TDVRPTW", "Rifki2020", ["n=10"]), {"Rifki-1"})
 
 
 @pytest.mark.parametrize("instance_path", RIFKI_10, ids=lambda p: "Rifki-1")
-def test_no_optimality_stamp_on_stepwise_atfs(instance_path) -> None:
-    # Stepwise (duplicate-x jump) ATFs: certificates refuted by counterexample
-    # (Rifki2020 retraction, 2026-07-08; NOTICE item 9) — an "Optimum" status
-    # there is warm-start-dependent, so the stamp helper must refuse it.
+def test_stepwise_atfs_stamp_after_m130_promotion(instance_path) -> None:
+    # M13.0: stepwise (duplicate-x jump) ATFs solve on the exact
+    # tagged-vertical path by default (auto-detected per instance) and their
+    # certificates stamp like any other. The pre-M13.0 single-run refusal
+    # guarded the retired mollified path (2026-07-08 retraction, NOTICE item
+    # 9); the exact path was validated by the 2026-07-17/18 campaign
+    # (0 unsound, 0 poisoned, cross-platform agreement).
     from kayros.lera import optimality_metadata, solve_duration
 
     loaded = load_td_instance(instance_path)
     result = solve_duration(loaded, time_limit_s=120.0)
     assert result["stepwise_atfs"] is True
     assert result["exact_log"]["status"] == "Optimum"
-    assert optimality_metadata(result, wall_time_s=1.0, time_limit_s=120.0) is None
+    stamp = optimality_metadata(result, wall_time_s=1.0, time_limit_s=120.0)
+    assert stamp is not None and stamp["proven"] is True
+    assert stamp["proven_optimum"] == result["value"]
 
 
 @pytest.mark.parametrize("instance_path", C101_25, ids=lambda p: "C101")
