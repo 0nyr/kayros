@@ -350,13 +350,31 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
         if (epsilon_equal(g[j].slope, 0.0))
         {
             double y = min(img(g[j]));
-            
+
             // Find (unique) piece f[i] with img(g[j]) \subseteq dom(f[i]) if exists.
             while (i < f.PieceCount()-1 && epsilon_smaller(max(dom(f[i])), y)) ++i;
             while (i > 0 && epsilon_bigger(min(dom(f[i])), y)) --i;
-            
+
+            // M13.0: if a VERTICAL of f sits exactly at y, the first covering
+            // piece (the one ENDING at y) carries a one-sided limit, not the
+            // pointwise value: a jump attains only its intercept (13.1) and a
+            // choice vertical is set-valued with min semantics (21/n). Scan
+            // every piece at y and prefer the vertical's contribution. Only
+            // verticals divert from the legacy first-piece evaluation, so
+            // jump-free functions keep bit-identical arithmetic.
+            bool vertical_at_y = false;
+            double y_val = 0.0;
+            for (int k = max(0, i); k < f.PieceCount() && epsilon_smaller_equal(min(dom(f[k])), y); ++k)
+            {
+                if (!f[k].is_vertical() || !dom(f[k]).Includes(y)) continue;
+                double v = f[k].is_choice_vertical() ? min(f[k].image) : f[k].intercept;
+                if (!vertical_at_y || v < y_val) y_val = v;
+                vertical_at_y = true;
+            }
+            if (vertical_at_y)
+                fog.AddPiece(LinearFunction({min(dom(g[j])), y_val}, {max(dom(g[j])), y_val}));
             // If found f[i] such that dom(f[i]) \cap img(g[j]) \neq \emptyset, add the piece to fog.
-            if (i >= 0 && i < f.PieceCount() && dom(f[i]).Includes(y))
+            else if (i >= 0 && i < f.PieceCount() && dom(f[i]).Includes(y))
                 fog.AddPiece(LinearFunction({min(dom(g[j])), f[i](y)}, {max(dom(g[j])), f[i](y)}));
         }
         // If g[j] is increasing.

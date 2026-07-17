@@ -229,6 +229,47 @@ def test_symmetric_rifki14_k15_is_sound():
     assert res["value"] == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
 
 
+# --- M13.0: the 3 exact-arm incompleteness reproducers (session 24) ----------
+# Under KAYROS_STEP_EXACT=1 (mollifier-off, tagged-vertical path) the cold
+# solve certifies ABOVE the checker-valid optimum (drops a negative-reduced-
+# cost column), while warm-starting with the witness routes certifies the
+# truth: pure pricing incompleteness (the 13.7 signature). Strict-xfail until
+# the exact value-jump fix lands; then flip to hard gates (the established
+# pattern). Truths are the audited mollified four-run certificates (store BKS).
+M130_EXACT_CASES = {
+    "Rifki-2": ("n=20", 7378.0, 300.0),
+    "Rifki-18": ("n=20", 7127.0, 600.0),
+    "Rifki-17": ("n=50", 21319.0, 600.0),
+}
+
+
+def _exact_cold(name, monkeypatch):
+    require_benchmarks()
+    size, truth, tl = M130_EXACT_CASES[name]
+    src = benchmarks_root() / "TDVRPTW" / "Rifki2020" / size / f"{name}.vrp.json"
+    _need(src, f"{name} {size} TDVRPTW")
+    monkeypatch.setenv("KAYROS_STEP_EXACT", "1")
+    loaded = load_td_instance(src)
+    res = _cold(loaded, tl=tl)
+    assert res["exact_log"]["status"] == "Optimum"
+    assert res["value"] <= truth + 1e-6
+
+
+@pytest.mark.xfail(strict=True, reason="M13.0 exact-arm incompleteness (certifies 7451 > 7378)")
+def test_exact_path_rifki2_n20_is_sound(monkeypatch):
+    _exact_cold("Rifki-2", monkeypatch)
+
+
+@pytest.mark.xfail(strict=True, reason="M13.0 exact-arm incompleteness (TL-stalls / certifies above 7127)")
+def test_exact_path_rifki18_n20_is_sound(monkeypatch):
+    _exact_cold("Rifki-18", monkeypatch)
+
+
+@pytest.mark.xfail(strict=True, reason="M13.0 exact-arm incompleteness (certifies 21330 > 21319)")
+def test_exact_path_rifki17_n50_is_sound(monkeypatch):
+    _exact_cold("Rifki-17", monkeypatch)
+
+
 # Fuzzer-pinned jump-free guard (2026-07-10): the dominator-side choice-min
 # experiment over-certified this subset (7667.4 > 7526); it must stay at the
 # ILS-confirmed optimum. Fast (seconds).

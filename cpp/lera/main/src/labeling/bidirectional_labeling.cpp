@@ -11,6 +11,8 @@
 #include <climits>
 #include <cstdlib>
 
+#include "labeling/trace.h"
+
 using namespace std;
 using namespace goc;
 using namespace nyr;
@@ -319,6 +321,10 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		Route& r = V_r.second;
 		// Compute r actual duration (nyr::RouteDuration -> goc::Route).
 		auto best = vrp_.BestDurationRoute(r.path);
+		// M13.0 trace: fate of the merge target through the pool repricing.
+		if (trace::merge_on() && r.path == trace::merge_target())
+			fprintf(stderr, "TRC POOL-EXIT path_len=%zu pool_dur=%.6f best_dur=%.6f best_empty=%d\n",
+				r.path.size(), r.duration, best.value, (int) best.path.empty());
 		R->push_back(Route(best.path, best.t0, best.value));
 	}
 	
@@ -361,14 +367,42 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 		Label* l = ll.parent;
 		if (S.size() >= solution_limit) continue;
 		
+		// M13.0 trace: is this pop the merge target's frontier arc?
+		bool tr_arc = trace::merge_fwd_prefix(l);
+		if (tr_arc)
+			fprintf(stderr, "TRC LAM-POP l=%s v=%d l_min_cost=%.6f\n",
+				trace::path_str(l).c_str(), (int) ll.v, l->min_cost);
 		for (auto& entry: M[ll.parent->v][ll.v])
 		{
-			if (epsilon_bigger(entry.first + l->q - vrp_.q[l->v], vrp_.Q)) break;
+			// M13.0 trace: report the witness backward label's standing in this
+			// pool even when the sorted cost break would stop before reaching it.
+			if (tr_arc)
+				for (Label* m: entry.second)
+					if (trace::merge_bwd_suffix(m))
+						fprintf(stderr, "TRC LAM-WITNESS l=%s m=%s q_entry=%.1f m_min_cost=%.6f l_min_cost=%.6f P=%.6f sum=%.6f q_break=%d\n",
+							trace::path_str(l).c_str(), trace::path_str(m).c_str(),
+							entry.first, m->min_cost, l->min_cost, pp_.P[l->v],
+							m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost,
+							(int) epsilon_bigger(entry.first + l->q - vrp_.q[l->v], vrp_.Q));
+			if (epsilon_bigger(entry.first + l->q - vrp_.q[l->v], vrp_.Q))
+			{
+				if (tr_arc) fprintf(stderr, "TRC LAM-QBREAK l=%s v=%d q_entry=%.1f\n",
+					trace::path_str(l).c_str(), (int) ll.v, entry.first);
+				break;
+			}
 			if (S.size() >= solution_limit) break; // Do not exceed solution limit.
 			for (Label* m: entry.second)
 			{
 				if (S.size() >= solution_limit) break; // Do not exceed solution limit.
-				if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, 0.0)) break;
+				if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, 0.0))
+				{
+					if (tr_arc && trace::merge_bwd_suffix(m))
+						fprintf(stderr, "TRC LAM-CBREAK l=%s m=%s m_min_cost=%.6f l_min_cost=%.6f P=%.6f sum=%.6f\n",
+							trace::path_str(l).c_str(), trace::path_str(m).c_str(),
+							m->min_cost, l->min_cost, pp_.P[l->v],
+							m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost);
+					break;
+				}
 				Merge(l, m);
 			}
 		}
@@ -378,9 +412,21 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 void BidirectionalLabeling::Merge(Label* l, Label* m)
 {
 	TimeUnit T = vrp_.T;
-	
-	if (epsilon_bigger(min(l->rw), T-min(m->rw))) return;
-	if (intersection(l->S, m->S) != create_bitset<MAX_N>({l->v})) return;
+
+	// M13.0 trace: full arithmetic of the witness pair's merge attempt.
+	bool tr = trace::merge_matches(l, m);
+	if (epsilon_bigger(min(l->rw), T-min(m->rw)))
+	{
+		if (tr) fprintf(stderr, "TRC MERGE-RET l=%s m=%s reason=rw-disjoint l_rw_min=%.6f T-m_rw_min=%.6f\n",
+			trace::path_str(l).c_str(), trace::path_str(m).c_str(), min(l->rw), T-min(m->rw));
+		return;
+	}
+	if (intersection(l->S, m->S) != create_bitset<MAX_N>({l->v}))
+	{
+		if (tr) fprintf(stderr, "TRC MERGE-RET l=%s m=%s reason=S-overlap\n",
+			trace::path_str(l).c_str(), trace::path_str(m).c_str());
+		return;
+	}
 	
 	Route r;
 	// kayros (M5.7): rw and dom(duration) can disagree by mollifier dust
@@ -397,6 +443,10 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	if (epsilon_bigger_equal(T-max(m->rw), max(l->rw)))
 	{
 		r.duration = duration_at(l, max(l->rw)) + duration_at(m, max(m->rw)) + (T-max(m->rw)) - max(l->rw);
+		if (tr) fprintf(stderr, "TRC MERGE-WAIT l=%s m=%s l_at=%.6f m_at=%.6f wait=%.6f dur=%.6f\n",
+			trace::path_str(l).c_str(), trace::path_str(m).c_str(),
+			duration_at(l, max(l->rw)), duration_at(m, max(m->rw)),
+			(T-max(m->rw)) - max(l->rw), r.duration);
 	}
 	else
 	{
@@ -405,13 +455,25 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 		// breakpoint (platform-stable, no epsilon/PreValue arithmetic), and
 		// value jumps keep their attained endpoints through the reflection.
 		PWLFunction lm_duration = l->duration + m->duration.FlipTime(T);
-		if (lm_duration.Empty()) return;
+		if (lm_duration.Empty())
+		{
+			if (tr) fprintf(stderr, "TRC MERGE-RET l=%s m=%s reason=empty-overlap l_rw=[%.6f,%.6f] m_flip_rw=[%.6f,%.6f]\n",
+				trace::path_str(l).c_str(), trace::path_str(m).c_str(),
+				min(l->rw), max(l->rw), T-max(m->rw), T-min(m->rw));
+			return;
+		}
 		r.duration = min(img(lm_duration));
+		if (tr) fprintf(stderr, "TRC MERGE-OVERLAP l=%s m=%s dur=%.6f l_rw=[%.6f,%.6f] m_flip_rw=[%.6f,%.6f]\n",
+			trace::path_str(l).c_str(), trace::path_str(m).c_str(), r.duration,
+			min(l->rw), max(l->rw), T-max(m->rw), T-min(m->rw));
 	}
-	
+
 	double merge_cut_cost = 0.0;
 	for (int i = 0; i < pp_.S.size(); ++i) if (l->parent->cut_visited[i]+m->cut_visited[i] >= 2) merge_cut_cost += pp_.sigma[i];
 	double merge_cost = r.duration - l->p - m->p + pp_.P[l->v] - merge_cut_cost;
+	if (tr) fprintf(stderr, "TRC MERGE-COST l=%s m=%s dur=%.6f merge_cost=%.6f -> %s\n",
+		trace::path_str(l).c_str(), trace::path_str(m).c_str(), r.duration, merge_cost,
+		epsilon_bigger_equal(merge_cost, 0.0) ? "REJECT" : "ADD");
 	if (epsilon_bigger_equal(merge_cost, 0.0)) return;
 	
 	// Merge l and m paths.
@@ -427,6 +489,17 @@ void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_dura
 {
 	VertexSet V = create_bitset<MAX_N>(p);
 	if (!includes_key(S, V)) S[V] = Route({}, 0.0, INFTY);
+	// M13.0 trace: pool slot decisions for the merge target's VERTEX SET (the
+	// pool dedups by set, so a different ordering can shadow the target path).
+	if (trace::merge_on() && V == create_bitset<MAX_N>(trace::merge_target()))
+	{
+		std::string ps, ss;
+		for (auto v: p) ps += (ps.empty() ? "" : ",") + std::to_string(v);
+		for (auto v: S[V].path) ss += (ss.empty() ? "" : ",") + std::to_string(v);
+		fprintf(stderr, "TRC POOL-ADD cand=%s dur=%.6f slot=%s slot_dur=%.6f -> %s\n",
+			ps.c_str(), min_duration, ss.c_str(), S[V].duration,
+			S[V].duration > min_duration ? "REPLACE" : "KEEP");
+	}
 	if (S[V].duration > min_duration) S[V] = Route(p, 0.0, min_duration);
 }
 

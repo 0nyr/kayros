@@ -351,3 +351,79 @@ def test_scalar_ops_preserve_tags():
     neg2 = f.__mul__(-1.0)
     verts2 = [p for p in neg2.pieces() if p[4]]
     assert len(verts2) == 1 and verts2[0][5] == "jump"
+
+
+# --- M13.0 exact value-jump completeness fixes (session 24) -----------------
+# Root cause of the 3 exact-arm incompleteness reproducers: the labeling's
+# composed/added functions lost attained values and choice spans in three
+# spots, letting backward-label durations under-estimate mandatory waiting
+# (Rifki-2 dominator 21,4,2,10,3 claimed ~1959 where the checker-exact suffix
+# duration is ~12703; the witness column's label was then erased at the EXACT
+# level and the certificate closed 73 units above the optimum).
+
+
+def test_compose_plateau_inner_uses_attained_value_at_f_vertical():
+    """Constant-inner Compose must evaluate f at the ATTAINED side of a jump.
+
+    fr = FlipTime of an up-step: its vertical at x=3 attains 3 (13.1), while
+    the piece scanned first (ending at x=3) carries the unattained limit 9.
+    Composing with a plateau at value 3 must produce the constant 3, not 9.
+    """
+    f0 = PWL([0.0, 3.0, 3.0, 6.0], [0.0, 3.0, 9.0, 12.0])
+    fr = f0.flip_time(6.0)
+    assert fr.value(3.0) == pytest.approx(3.0)  # 13.1: attained preserved
+    g = PWL([0.0, 4.0], [3.0, 3.0])  # plateau at the vertical's abscissa
+    fog = fr.compose(g)
+    assert fog.value(0.0) == pytest.approx(3.0)
+    assert fog.value(2.0) == pytest.approx(3.0)
+    assert fog.value(4.0) == pytest.approx(3.0)
+
+
+def test_compose_plateau_inner_at_choice_vertical_takes_span_min():
+    """Constant-inner Compose at a CHOICE vertical of f: pointwise minimum.
+
+    Durations are set-valued at choice abscissae with min semantics
+    (MinValueAt, 21/n); a plateau inner pinning that abscissa must expose the
+    attainable minimum, not an arbitrary side.
+    """
+    arr = PWL([0.0, 10.0, 20.0], [5.0, 15.0, 15.0])
+    dep = arr.inverse()  # choice vertical at 15 spanning [10, 20], rep 20
+    g = PWL([0.0, 4.0], [15.0, 15.0])  # plateau at the choice abscissa
+    fog = dep.compose(g)
+    assert fog.value(2.0) == pytest.approx(10.0)  # span minimum, attainable
+
+
+def test_compose_increasing_inner_preserves_choice_vertical():
+    """A CHOICE vertical of f survives composition with an increasing g.
+
+    Collapsing it to the representative (the pre-M13.0 behavior) loses the
+    span minimum: downstream MinValueAt/domination then over-estimate the
+    label's duration and price columns out — the incompleteness class.
+    """
+    arr = PWL([0.0, 10.0, 20.0], [5.0, 15.0, 15.0])
+    dep = arr.inverse()  # choice vertical at 15 spanning [10, 20]
+    g = PWL([0.0, 60.0], [0.0, 30.0])  # slope 0.5: reaches y=15 at x=30
+    fog = dep.compose(g)
+    verts = [p for p in fog.pieces() if p[4]]
+    assert len(verts) == 1
+    dl, dr, il, ir, _, kind = verts[0]
+    assert kind == "choice"
+    assert dl == dr == pytest.approx(30.0)
+    assert (min(il, ir), max(il, ir)) == (pytest.approx(10.0), pytest.approx(20.0))
+    assert fog.value(30.0) == pytest.approx(20.0)  # representative kept
+
+
+def test_add_pairs_attained_endpoints_on_down_jump():
+    """operator+ must pair attained-with-attained (13.1), like operator*.
+
+    A down-jump attains its HIGH endpoint (9); adding a constant 1 must keep
+    the attained value 9+1=10. The lo/hi image pairing (pre-M13.0) mistagged
+    the sum's attained value as 3+1=4.
+    """
+    f = PWL([0.0, 3.0, 3.0, 6.0], [12.0, 9.0, 3.0, 0.0])
+    assert f.value(3.0) == pytest.approx(9.0)  # attained = incoming
+    one = PWL([0.0, 6.0], [1.0, 1.0])
+    s = f.__add__(one)
+    assert s.value(3.0) == pytest.approx(10.0)
+    verts = [p for p in s.pieces() if p[4]]
+    assert len(verts) == 1 and verts[0][5] == "jump"

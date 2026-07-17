@@ -9,6 +9,7 @@
 #include <climits>
 
 #include "labeling/pwl_domination_function.h"
+#include "labeling/trace.h"
 
 using namespace std;
 using namespace goc;
@@ -45,48 +46,8 @@ double duration_at(const Label* l, double t)
 // comma-separated vertex sequence (e.g. "0,8,9,7,13,3,1,16"); every label whose
 // path is a PREFIX of it gets its fate printed to stderr (extension, domination
 // verdict incl. the dominator, enumeration filters, queue events). Used to find
-// where cold pricing kills a witness column's label chain.
-namespace trace
-{
-inline const std::vector<goc::Vertex>& target()
-{
-	static std::vector<goc::Vertex> t = [] {
-		std::vector<goc::Vertex> v;
-		const char* env = std::getenv("KAYROS_TRACE_PATH");
-		if (env)
-		{
-			int cur = -1;
-			for (const char* c = env;; ++c)
-			{
-				if (*c >= '0' && *c <= '9') cur = (cur < 0 ? 0 : cur * 10) + (*c - '0');
-				else { if (cur >= 0) v.push_back(cur); cur = -1; if (!*c) break; }
-			}
-		}
-		return v;
-	}();
-	return t;
-}
-
-inline bool on() { return !target().empty(); }
-
-// Returns the label's path length if it is a prefix of the target, else -1.
-inline int prefix_len(const Label* l)
-{
-	if (!on()) return -1;
-	goc::GraphPath path = l->Path();
-	if (path.empty() || path.size() > target().size()) return -1;
-	for (size_t k = 0; k < path.size(); ++k)
-		if (path[k] != target()[k]) return -1;
-	return (int) path.size();
-}
-
-inline std::string path_str(const Label* l)
-{
-	std::string s;
-	for (auto v: l->Path()) s += (s.empty() ? "" : ",") + std::to_string(v);
-	return s;
-}
-} // namespace trace
+// where cold pricing kills a witness column's label chain. M13.0: the trace
+// namespace moved to labeling/trace.h so the bidirectional merge shares it.
 
 PWLFunction normalize_pwl(const PWLFunction& f)
 {
