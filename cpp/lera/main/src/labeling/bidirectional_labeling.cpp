@@ -243,7 +243,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			if (q[d].empty()) continue;
 			if (rolex.Peek() >= time_limit) { log.status = BLBStatus::TimeLimitReached; break; } // Check if TLim is reached.
 			if (S.size() >= solution_limit) { log.status = BLBStatus::SolutionLimitReached; break; } // Check if SLim is reached.
-			// kayros (M13.2): sticky memory watermark — also catches a
+			// kayros (M13.2): sticky memory watermark; also catches a
 			// monodirectional Run below that broke on MemoryLimitReached.
 			if (MemoryMonitor::Exceeded()) { log.status = BLBStatus::MemoryLimitReached; break; }
 			lbl_[d].time_limit = time_limit - rolex.Peek(); // Set time limit.
@@ -300,7 +300,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		if (run_deadline_.Reached()) log.status = BLBStatus::TimeLimitReached;
 	}
 	
-	// kayros (M13.2): MemoryLimitReached takes precedence — "Finished" or a
+	// kayros (M13.2): MemoryLimitReached takes precedence: "Finished" or a
 	// full pool would let the caller read a truncated pricing as exhaustive.
 	if (log.status != BLBStatus::MemoryLimitReached)
 	{

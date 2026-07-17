@@ -1,4 +1,4 @@
-// kayros (M13.2) — graceful OOM self-rejection guard. NOT upstream goc code.
+// kayros (M13.2): graceful OOM self-rejection guard. NOT upstream goc code.
 //
 // Process-global RSS watermark: the prover polls it at the same loop heads as
 // the M5.2 deadline and unwinds with MemoryLimitReached instead of being
@@ -58,7 +58,7 @@ public:
 	}
 
 	// Current resident set size in bytes (0 when unavailable, e.g. non-Linux:
-	// the guard then never trips — same as disabled, never a false verdict).
+	// the guard then never trips; same as disabled, never a false verdict).
 	static int64_t CurrentRSSBytes()
 	{
 #ifdef __linux__
@@ -75,7 +75,7 @@ public:
 	}
 
 	// Peak resident set size in bytes (VmHWM; 0 when unavailable). For result
-	// observability only — never used in control flow.
+	// observability only, never used in control flow.
 	static int64_t PeakRSSBytes()
 	{
 #ifdef __linux__
@@ -98,7 +98,7 @@ public:
 private:
 	// Full-horizon labels allocate MBs each, so the stride bounds the RSS
 	// overshoot past the watermark (measured ~3 MB/label on Vu2020 n=59:
-	// stride 64 keeps the overshoot in the low hundreds of MB — dust against
+	// stride 64 keeps the overshoot in the low hundreds of MB, dust against
 	// the headroom the auto limit leaves). One statm read costs ~2 us; label
 	// iterations are far heavier, so the amortized cost is negligible.
 	static constexpr int kPollStride = 64;

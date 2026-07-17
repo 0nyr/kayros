@@ -332,7 +332,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         // node optimal".
         if (bcp.deadline.Reached())
             cg_execution_log->status = CGStatus::TimeLimitReached;
-        // kayros (M13.2): same argument for the memory watermark — a
+        // kayros (M13.2): same argument for the memory watermark: a
         // memory-truncated pricing pass must never read as node-optimal.
         // Set last so memory takes precedence; colgen exits with this status
         // when no new columns landed, and ProcessNode maps it to
@@ -347,7 +347,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     nlohmann::json result;
     result["exact_log"] = log;
     result["checker_infeasible_columns"] = checker_infeasible_count;
-    // kayros (M13.2): guard observability — never used in control flow.
+    // kayros (M13.2): guard observability, never used in control flow.
     result["memory"] = {
         {"limit_mb", params.memory_limit_mb},
         {"peak_rss_mb", (double)MemoryMonitor::PeakRSSBytes() / 1048576.0},

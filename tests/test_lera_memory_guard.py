@@ -3,7 +3,7 @@
 The guard is an RSS watermark polled at the same loop heads as the time-limit
 deadline. Contract under test: (1) a crossed watermark yields a clean
 ``MemoryLimitReached`` status (never an OS OOM kill, never a stamp), (2) an
-armed-but-untripped guard perturbs nothing — values are bit-identical to a
+armed-but-untripped guard perturbs nothing: values are bit-identical to a
 guard-off run, (3) the trip fires inside the labeling on the real pathology
 class (full-horizon TDVRP label accumulation, the Vu2020 re-certification
 INCOMPLETE class).
@@ -64,7 +64,7 @@ def test_optimality_metadata_none_on_memory_limit() -> None:
 def test_memory_guard_trips_in_labeling(instance_path) -> None:
     # The real M13.2 pathology: full-horizon (trivial-TW) label accumulation.
     # A headroom watermark (current RSS + 512 MB) trips inside the labeling
-    # within seconds on Vu2020 TDVRP n=59 — the class whose unguarded runs
+    # within seconds on Vu2020 TDVRP n=59, the class whose unguarded runs
     # exceeded 96 GB and were OS-killed with no verdict in the 2026-07
     # re-certification campaign. The time limit is generous so a pass can
     # only come from the memory verdict.

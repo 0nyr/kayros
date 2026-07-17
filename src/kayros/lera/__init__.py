@@ -81,7 +81,7 @@ def _auto_memory_limit_mb() -> float:
     capped by the cgroup limit when one is set. On a quiet dedicated machine
     this approximates ~80% of RAM; on a shared node it never claims more than
     what is actually free at solve start. Returns 0.0 (guard disabled) when
-    the /proc interface is unavailable (non-Linux) — never a false verdict.
+    the /proc interface is unavailable (non-Linux); never a false verdict.
     """
     own_rss = _read_own_rss_bytes()
     available_kb = _read_meminfo_kb("MemAvailable")
@@ -292,7 +292,7 @@ def solve_duration(
     prover polls at the same points as the time-limit deadline. When crossed,
     the solve unwinds cleanly and returns ``exact_log.status ==
     "MemoryLimitReached"`` with honest bounds (an OPEN verdict, never a
-    certificate) — instead of the OS OOM-killing the process with no result
+    certificate), instead of the OS OOM-killing the process with no result
     (the full-horizon TDVRP label-accumulation pathology). ``None`` (default)
     resolves the limit from the machine: own RSS + ~80% of currently
     available memory, capped by the cgroup limit when one is set. ``0``
