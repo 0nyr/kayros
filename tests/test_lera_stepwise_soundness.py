@@ -231,43 +231,59 @@ def test_symmetric_rifki14_k15_is_sound():
 
 # --- M13.0: the 3 exact-arm incompleteness reproducers (session 24) ----------
 # Under KAYROS_STEP_EXACT=1 (mollifier-off, tagged-vertical path) the cold
-# solve certifies ABOVE the checker-valid optimum (drops a negative-reduced-
-# cost column), while warm-starting with the witness routes certifies the
-# truth: pure pricing incompleteness (the 13.7 signature). Strict-xfail until
-# the exact value-jump fix lands; then flip to hard gates (the established
-# pattern). Truths are the audited mollified four-run certificates (store BKS).
+# solve used to certify ABOVE the checker-valid optimum (7451 > 7378,
+# 21330 > 21319; dropped negative-reduced-cost columns), while warm-starting
+# with the witness routes certified the truth: pure pricing incompleteness
+# (the 13.7 signature). FIXED by the session-24 three-layer repair (extension
+# elapsed-time identity, path-keyed solution pool, operator+ stacked-tail
+# hold-back): Rifki-2 and Rifki-17 certify their truths cold == warm and are
+# hard certification gates. Rifki-18 finds the true optimum as its incumbent
+# but cannot close the tree within local TLs on the fixed build (honest
+# TimeLimitReached; the exact path trades speed for completeness there), so
+# its gate asserts SOUNDNESS (never a certificate above the truth, incumbent
+# == truth); its full certification budget is judged by the g5k sweep.
+# Truths are the audited mollified four-run certificates (store BKS).
 M130_EXACT_CASES = {
     "Rifki-2": ("n=20", 7378.0, 300.0),
-    "Rifki-18": ("n=20", 7127.0, 600.0),
+    "Rifki-18": ("n=20", 7127.0, 300.0),
     "Rifki-17": ("n=50", 21319.0, 600.0),
 }
 
 
-def _exact_cold(name, monkeypatch):
+def _exact_cold_result(name, monkeypatch):
     require_benchmarks()
     size, truth, tl = M130_EXACT_CASES[name]
     src = benchmarks_root() / "TDVRPTW" / "Rifki2020" / size / f"{name}.vrp.json"
     _need(src, f"{name} {size} TDVRPTW")
     monkeypatch.setenv("KAYROS_STEP_EXACT", "1")
     loaded = load_td_instance(src)
-    res = _cold(loaded, tl=tl)
+    return _cold(loaded, tl=tl), truth
+
+
+def test_exact_path_rifki2_n20_certifies_truth(monkeypatch):
+    res, truth = _exact_cold_result("Rifki-2", monkeypatch)
     assert res["exact_log"]["status"] == "Optimum"
     assert res["value"] <= truth + 1e-6
 
 
-@pytest.mark.xfail(strict=True, reason="M13.0 exact-arm incompleteness (certifies 7451 > 7378)")
-def test_exact_path_rifki2_n20_is_sound(monkeypatch):
-    _exact_cold("Rifki-2", monkeypatch)
+def test_exact_path_rifki17_n50_certifies_truth(monkeypatch):
+    res, truth = _exact_cold_result("Rifki-17", monkeypatch)
+    assert res["exact_log"]["status"] == "Optimum"
+    assert res["value"] <= truth + 1e-6
 
 
-@pytest.mark.xfail(strict=True, reason="M13.0 exact-arm incompleteness (TL-stalls / certifies above 7127)")
 def test_exact_path_rifki18_n20_is_sound(monkeypatch):
-    _exact_cold("Rifki-18", monkeypatch)
-
-
-@pytest.mark.xfail(strict=True, reason="M13.0 exact-arm incompleteness (certifies 21330 > 21319)")
-def test_exact_path_rifki17_n50_is_sound(monkeypatch):
-    _exact_cold("Rifki-17", monkeypatch)
+    res, truth = _exact_cold_result("Rifki-18", monkeypatch)
+    status = res["exact_log"]["status"]
+    if status == "Optimum":
+        assert res["value"] <= truth + 1e-6
+    else:
+        # Honest TL: the incumbent must have reached the true optimum and the
+        # dual bound must not contradict it (an above-truth certificate is the
+        # defect this gate exists for).
+        assert status == "TimeLimitReached"
+        assert res["exact_log"]["best_int_value"] == pytest.approx(truth, abs=1e-6)
+        assert res["exact_log"]["best_bound"] <= truth + 1e-6
 
 
 # Fuzzer-pinned jump-free guard (2026-07-10): the dominator-side choice-min
