@@ -49,6 +49,17 @@ double duration_at(const Label* l, double t)
 // where cold pricing kills a witness column's label chain. M13.0: the trace
 // namespace moved to labeling/trace.h so the bidirectional merge shares it.
 
+// M13.0: does the function carry any vertical (value-jump or choice) piece?
+// Cheap linear scan; selects the exact step-arc extension arithmetic. False on
+// every mollified or jump-free function, which keep the legacy formula
+// bit-identically.
+static bool has_vertical(const PWLFunction& f)
+{
+	for (int k = 0; k < f.PieceCount(); ++k)
+		if (f.Piece(k).is_vertical()) return true;
+	return false;
+}
+
 PWLFunction normalize_pwl(const PWLFunction& f)
 {
 	// Fast path: boundaries already monotone (the norm) — return untouched so
@@ -292,9 +303,40 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	lv->length = l->length + 1;
 	// If max(rw(l)) < min(img(dep_uv)) then no matter when we depart we reach v before its time window.
 	// Otherwise, we can do the classic extension D_lv(t) = D_l(\dep_uv(t)) + \tau_uv(\dep_uv(t)).
-	lv->duration = epsilon_smaller(max(l->rw), min(img(vrp_.dep[u][v])))
-		? PWLFunction::ConstantFunction(l->duration(max(l->rw)) + min(vrp_.tw[v]) - max(l->rw), {min(vrp_.tw[v]), min(vrp_.tw[v])})
-		: (l->duration + vrp_.tau[u][v]).Compose(vrp_.dep[u][v]);
+	// M13.0: on step-carrying arcs (any vertical in dep, tau or the label's own
+	// duration — only ever true on the exact value-jump path; mollified and
+	// jump-free arcs carry none and keep the bit-identical legacy arithmetic)
+	// the composite (D + tau) o dep is UNSOUND: a reversed waiting span appears
+	// as a plateau of dep at value tau0 while D + tau carries the same-arc
+	// vertical at tau0, and the plateau rule fills the whole span with one
+	// constant read from the vertical, erasing position-dependent mandatory
+	// waiting (Rifki-2 dominator 21,4,2,10,3 claimed ~1959 where the
+	// checker-exact suffix duration is ~12703: under-estimated dominators then
+	// erase witness labels at the Exact level). The elapsed-time identity
+	// D_lv(t) = D_l(dep(t)) + t - dep(t) = ((D - Id) o dep)(t) + t is
+	// algebraically equal wherever arr(dep(t)) = t, charges waiting spans
+	// exactly (slope-1 fill resolves the plateau/vertical correspondence for
+	// BOTH vertical kinds, which invert to indistinguishable dep plateaus) and
+	// over-estimates only unattained jump-gap abscissae (sound side). It also
+	// keeps tau out of the composed outer entirely.
+	const bool step_arc = has_vertical(vrp_.dep[u][v]) || has_vertical(vrp_.tau[u][v])
+		|| has_vertical(l->duration);
+	if (epsilon_smaller(max(l->rw), min(img(vrp_.dep[u][v]))))
+	{
+		// Departure-before-window branch: the label's minimal duration at its
+		// last ready time plus the forced wait. MinValueAt on the step path
+		// (durations are set-valued at choice abscissae, min semantics, 21/n);
+		// Value on the legacy path for bit-identity.
+		double d_at = step_arc ? l->duration.MinValueAt(max(l->rw)) : l->duration(max(l->rw));
+		lv->duration = PWLFunction::ConstantFunction(d_at + min(vrp_.tw[v]) - max(l->rw), {min(vrp_.tw[v]), min(vrp_.tw[v])});
+	}
+	else if (step_arc)
+	{
+		PWLFunction comp = (l->duration - PWLFunction::IdentityFunction(l->duration.Domain())).Compose(vrp_.dep[u][v]);
+		lv->duration = comp.Empty() ? comp : comp + PWLFunction::IdentityFunction(comp.Domain());
+	}
+	else
+		lv->duration = (l->duration + vrp_.tau[u][v]).Compose(vrp_.dep[u][v]);
 	if (limited_extension && !cross) lv->duration.RestrictDomain({0.0, t_m});
 	lv->duration = normalize_pwl(lv->duration); // kayros (M5.7): heal mollifier-dust piece misorder.
 	if (lv->duration.Empty())
@@ -332,6 +374,25 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	if (tr) fprintf(stderr, "TRC EXT path=%s rw=[%.3f,%.3f] dur_img=[%.3f,%.3f] min_cost=%.6f q=%.1f\n",
 		trace::path_str(lv).c_str(), lv->rw.left, lv->rw.right,
 		min(img(lv->duration)), max(img(lv->duration)), lv->min_cost, lv->q);
+	// M13.0: full piece dump of the witness label's duration function AND of
+	// its parent's CURRENT (possibly domination-shrunk) duration at extension
+	// time (dev tool; KAYROS_TRACE_DUMP=1 with the path trace on).
+	if (tr && std::getenv("KAYROS_TRACE_DUMP"))
+	{
+		auto dump = [&](const char* tag, const Label* lab) {
+			for (int k = 0; k < lab->duration.PieceCount(); ++k)
+			{
+				const LinearFunction& p = lab->duration.Piece(k);
+				fprintf(stderr, "TRC %s path=%s piece=%d dom=[%.6f,%.6f] img=[%.6f,%.6f] %s att=%.6f\n",
+					tag, trace::path_str(lab).c_str(), k, p.domain.left, p.domain.right,
+					p.image.left, p.image.right,
+					p.is_vertical() ? (p.is_choice_vertical() ? "C" : "J") : "-",
+					p.is_vertical() ? p.intercept : p.Value(p.domain.left));
+			}
+		};
+		dump("EXT-PARENT", l);
+		dump("EXT-DUMP", lv);
+	}
 	return lv;
 }
 

@@ -239,7 +239,8 @@ def test_compose_f_jump_through_increasing_g_keeps_span():
     """f jumps at y=10; g = 2x reaches it at x=5. fog jumps at 5, span kept.
 
     Implemented by the tagged-vertical Compose (13.2): JUMP verticals of f
-    emit their span; CHOICE verticals keep the generic representative collapse.
+    emit their span. Since M13.0, CHOICE verticals are preserved too (span +
+    kind + representative; see test_compose_increasing_inner_preserves_choice_vertical).
     """
     f = PWL([0.0, 10.0, 10.0, 20.0], [0.0, 10.0, 30.0, 40.0])
     g = PWL([0.0, 10.0], [0.0, 20.0])
@@ -427,3 +428,27 @@ def test_add_pairs_attained_endpoints_on_down_jump():
     assert s.value(3.0) == pytest.approx(10.0)
     verts = [p for p in s.pieces() if p[4]]
     assert len(verts) == 1 and verts[0][5] == "jump"
+
+
+def test_add_keeps_stacked_vertical_tail_at_operand_exhaustion():
+    """operator+ must not drop stacked verticals when the other operand ends.
+
+    The r6 (Rifki-17) mechanism: a swept composite carries STACKED choice
+    verticals at one abscissa; adding a function that ends exactly there
+    advanced both operands after the first vertical and silently dropped the
+    rest of the stack (the label kept one of eight departure choices and
+    over-estimated its duration by ~1100 units).
+    """
+    arr = PWL([9335.0, 11495.0], [11843.0, 11843.0])
+    dep = arr.inverse()  # choice vertical at 11843 spanning [9335, 11495]
+    f = PWL([9335.0, 10365.0, 11000.0, 11495.0], [732.0, 754.0, 500.0, 764.0])
+    comp = f.compose(dep)  # >= 3 stacked choice verticals at 11843
+    stacked = [p for p in comp.pieces() if p[4]]
+    assert len(stacked) >= 3
+    assert comp.min_image == pytest.approx(500.0)
+    g = PWL([11000.0, 11843.0], [0.0, 0.0])  # ends exactly at the stack
+    s = comp.__add__(g)
+    kept = [p for p in s.pieces() if p[4]]
+    assert len(kept) == len(stacked)  # the whole stack survives
+    assert s.min_image == pytest.approx(500.0)
+    assert s.max_image == pytest.approx(comp.max_image)

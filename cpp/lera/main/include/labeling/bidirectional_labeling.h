@@ -7,6 +7,7 @@
 #ifndef NETWORKS2019_BIDIRECTIONAL_LABELING_H
 #define NETWORKS2019_BIDIRECTIONAL_LABELING_H
 
+#include <map>
 #include <vector>
 #include <tuple>
 
@@ -91,6 +92,21 @@ private:
 	// Pool of negative reduced cost solutions found (indexed by their visited vertices).
 	// We only keep the best solution for each set of visited vertices.
 	std::unordered_map<nyr::VertexSet, goc::Route> S;
+	// M13.0: on step-carrying instances (any vertical in a forward tau, i.e.
+	// the exact value-jump path) the pool is instead keyed by PATH. The
+	// set-key kept one ordering per set ranked by the merge-time duration
+	// BOUND, but exact-path bounds carry search dust, so a truly-cheaper
+	// ordering could be shadowed by a bound-cheaper one forever (Rifki-17
+	// n=50: witness ordering checker-duration 2957 shadowed by a 2975
+	// ordering with a lower bound; the pool exit reprices only the stored
+	// path and the master never saw the witness column: certified
+	// 21331 > 21319). Path-keying lets every ordering reach the checker-exact
+	// repricing; the bridge dedups by path fingerprint anyway. Jump-free and
+	// mollified instances carry no verticals and keep the legacy pool
+	// (container, order and size semantics bit-identical).
+	bool step_pool_;
+	std::map<goc::GraphPath, goc::Route> S_paths;
+	size_t pool_size() const { return step_pool_ ? S_paths.size() : S.size(); }
 };
 } // namespace
 

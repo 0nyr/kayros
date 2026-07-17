@@ -387,12 +387,16 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
             // For each piece f[i] such that dom(f[i]) \cap img(g[j]) \neq \emptyset
             for (; i < f.PieceCount() && dom(f[i]).Intersects(img(g[j])); ++i)
             {
-                // M5.9 (13.2): a JUMP vertical of f at y0 = g(x0), reached by a
-                // strictly increasing g, becomes a jump of fog at x0 with f's
-                // span, attained endpoint first (the generic path would collapse
-                // it to a point at the attained value). A CHOICE vertical of f
-                // keeps the generic collapse to its representative.
-                if (f[i].is_jump_vertical())
+                // M5.9 (13.2) / M13.0: a vertical of f at y0 = g(x0), reached by
+                // a strictly increasing g, becomes the SAME vertical of fog at
+                // x0: span and kind preserved, attained/representative endpoint
+                // first so the intercept carries over. The generic path would
+                // collapse it to a point at one value; for a CHOICE vertical
+                // that loses the span minimum, and downstream MinValueAt and
+                // candidate-side domination then over-estimate the label's
+                // duration and price columns out (the M13.0 incompleteness
+                // class; the pre-M13.0 code preserved only JUMP verticals).
+                if (f[i].is_vertical())
                 {
                     double y0 = f[i].domain.left;
                     if (img(g[j]).Includes(y0))
@@ -400,7 +404,9 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
                         double x0 = g[j].PreValue(y0);
                         double v_att = f[i].intercept;
                         double v_other = (v_att == f[i].image.left) ? f[i].image.right : f[i].image.left;
-                        fog.AddPiece(LinearFunction(Point2D(x0, v_att), Point2D(x0, v_other)));
+                        LinearFunction v(Point2D(x0, v_att), Point2D(x0, v_other));
+                        if (f[i].is_choice_vertical() && v.is_vertical()) v = v.as_choice_vertical();
+                        fog.AddPiece(v);
                     }
                     continue;
                 }
@@ -806,14 +812,17 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
                 // M5.9: a value jump in either operand -> a value jump in the sum
                 // at the same abscissa x0 (== left == right). The sum's image is
                 // the jump's image shifted by the other (continuous) function's
-                // value there; if both jump, the two images add. Value() on a
-                // vertical returns only its lower endpoint, so we add the image
-                // endpoints directly to keep the jump.
-                double lo_f = pf.is_vertical() ? pf.image.left  : pf.Value(left);
-                double hi_f = pf.is_vertical() ? pf.image.right : pf.Value(left);
-                double lo_g = pg.is_vertical() ? pg.image.left  : pg.Value(left);
-                double hi_g = pg.is_vertical() ? pg.image.right : pg.Value(left);
-                LinearFunction v({left, lo_f + lo_g}, {left, hi_f + hi_g});
+                // value there; if both jump, the two images add. M13.0: pair
+                // attained-with-attained and limit-with-limit via sweep_endpoints
+                // (13.1), exactly as operator* does — the previous image-sorted
+                // lo/hi pairing mistagged the sum's attained value on verticals
+                // whose attained endpoint is the high one (down-jumps, flip
+                // products), corrupting Value/MinValueAt/domination downstream.
+                auto [f_in, f_out] = pf.is_vertical() ? pf.sweep_endpoints()
+                                                      : std::make_pair(pf.Value(left), pf.Value(left));
+                auto [g_in, g_out] = pg.is_vertical() ? pg.sweep_endpoints()
+                                                      : std::make_pair(pg.Value(left), pg.Value(left));
+                LinearFunction v({left, f_in + g_in}, {left, f_out + g_out});
                 bool jump = pf.is_jump_vertical() || pg.is_jump_vertical();
                 if (v.is_vertical() && !jump) v = v.as_choice_vertical();
                 h.AddPiece(v);
@@ -825,14 +834,24 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
         // a boundary VERTICAL next (a zero-width piece starting exactly there,
         // e.g. dep's trailing choice vertical), advancing both would skip it:
         // hold the other operand so the vertical still meets it.
-        bool f_vert_next = i + 1 < f.PieceCount() && f.Piece(i + 1).is_vertical()
-                        && epsilon_equal(f.Piece(i + 1).domain.left, pf.domain.right);
-        bool g_vert_next = j + 1 < g.PieceCount() && g.Piece(j + 1).is_vertical()
-                        && epsilon_equal(g.Piece(j + 1).domain.left, pg.domain.right);
+        // M5.9/M13.0: when both operands end at the same abscissa but one of
+        // them still has a STACKED piece there (a vertical or a zero-width
+        // point starting exactly at the boundary), advancing both would drop
+        // the whole remaining stack: hold the other operand so every stacked
+        // piece still meets it. The pre-M13.0 hold-back applied only when the
+        // CURRENT piece was non-vertical, so a stack of verticals lost its
+        // tail at operand exhaustion (the Rifki-17 witness label kept one of
+        // eight swept departure choices and over-estimated its duration).
+        bool f_stack_next = i + 1 < f.PieceCount()
+                        && epsilon_equal(f.Piece(i + 1).domain.left, pf.domain.right)
+                        && (f.Piece(i + 1).is_vertical() || f.Piece(i + 1).domain.IsPoint());
+        bool g_stack_next = j + 1 < g.PieceCount()
+                        && epsilon_equal(g.Piece(j + 1).domain.left, pg.domain.right)
+                        && (g.Piece(j + 1).is_vertical() || g.Piece(j + 1).domain.IsPoint());
         if (epsilon_equal(pf.domain.right, pg.domain.right))
         {
-            if (f_vert_next && !pf.is_vertical()) { ++i; }
-            else if (g_vert_next && !pg.is_vertical()) { ++j; }
+            if (f_stack_next) { ++i; }
+            else if (g_stack_next) { ++j; }
             else { ++i; ++j; }
         }
         else if (epsilon_smaller(pf.domain.right, pg.domain.right)) { ++i; }
@@ -877,14 +896,24 @@ PWLFunction operator*(const PWLFunction& f, const PWLFunction& g)
             else
                 h.AddPiece(LinearFunction({left, pf.Value(left)*pg.Value(left)}, {right, pf.Value(right)*pg.Value(right)}));
         }
-        bool f_vert_next = i + 1 < f.PieceCount() && f.Piece(i + 1).is_vertical()
-                        && epsilon_equal(f.Piece(i + 1).domain.left, pf.domain.right);
-        bool g_vert_next = j + 1 < g.PieceCount() && g.Piece(j + 1).is_vertical()
-                        && epsilon_equal(g.Piece(j + 1).domain.left, pg.domain.right);
+        // M5.9/M13.0: when both operands end at the same abscissa but one of
+        // them still has a STACKED piece there (a vertical or a zero-width
+        // point starting exactly at the boundary), advancing both would drop
+        // the whole remaining stack: hold the other operand so every stacked
+        // piece still meets it. The pre-M13.0 hold-back applied only when the
+        // CURRENT piece was non-vertical, so a stack of verticals lost its
+        // tail at operand exhaustion (the Rifki-17 witness label kept one of
+        // eight swept departure choices and over-estimated its duration).
+        bool f_stack_next = i + 1 < f.PieceCount()
+                        && epsilon_equal(f.Piece(i + 1).domain.left, pf.domain.right)
+                        && (f.Piece(i + 1).is_vertical() || f.Piece(i + 1).domain.IsPoint());
+        bool g_stack_next = j + 1 < g.PieceCount()
+                        && epsilon_equal(g.Piece(j + 1).domain.left, pg.domain.right)
+                        && (g.Piece(j + 1).is_vertical() || g.Piece(j + 1).domain.IsPoint());
         if (epsilon_equal(pf.domain.right, pg.domain.right))
         {
-            if (f_vert_next && !pf.is_vertical()) { ++i; }
-            else if (g_vert_next && !pg.is_vertical()) { ++j; }
+            if (f_stack_next) { ++i; }
+            else if (g_stack_next) { ++j; }
             else { ++i; ++j; }
         }
         else if (epsilon_smaller(pf.domain.right, pg.domain.right)) { ++i; }

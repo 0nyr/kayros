@@ -177,6 +177,52 @@ BidirectionalLabeling::BidirectionalLabeling(
 	// upstream Lera BPC config (false: asymmetric, t_m = T). Env toggle for
 	// the divergence experiment; TODO remove after the experiment concludes.
 	symmetric = std::getenv("KAYROS_LBL_SYMMETRIC") != nullptr;
+	// M13.0: path-keyed solution pool on the exact value-jump path only. The
+	// marker mirrors the continuize gate in reverse_instance above: with
+	// KAYROS_STEP_EXACT the reversed arrivals keep the verticals that the
+	// mollifier would bridge, which is exactly when merge-time duration
+	// bounds carry vertical-arithmetic dust (measured on Rifki-2: forward
+	// dep carries 5367 choice verticals; the reversed arr inherits them under
+	// the toggle and holds none when mollified). Every default/mollified run,
+	// jump-free or stepwise, keeps the legacy set-keyed pool bit-identically.
+	step_pool_ = false;
+	if (std::getenv("KAYROS_STEP_EXACT"))
+	{
+		for (Vertex u: vrp_.D.Vertices())
+		{
+			for (Vertex v: vrp_.D.Successors(u))
+			{
+				for (int k = 0; k < vrp_.dep[u][v].PieceCount(); ++k)
+					if (vrp_.dep[u][v].Piece(k).is_vertical()) { step_pool_ = true; break; }
+				if (step_pool_) break;
+			}
+			if (step_pool_) break;
+		}
+	}
+	if (trace::merge_on())
+	{
+		fprintf(stderr, "TRC CTOR step_pool=%d\n", (int) step_pool_);
+		// Dump arr/dep pieces of every arc along the merge target (dev tool).
+		const auto& t = trace::merge_target();
+		for (size_t k = 0; k + 1 < t.size(); ++k)
+		{
+			Vertex u = t[k], v = t[k + 1];
+			if (!vrp_.D.IncludesArc({u, v})) continue;
+			auto dump = [&](const char* name, const PWLFunction& f) {
+				for (int p = 0; p < f.PieceCount(); ++p)
+				{
+					const LinearFunction& pc = f.Piece(p);
+					fprintf(stderr, "TRC ARC %s[%d][%d] piece=%d dom=[%.6f,%.6f] img=[%.6f,%.6f] %s att=%.6f\n",
+						name, (int) u, (int) v, p, pc.domain.left, pc.domain.right,
+						pc.image.left, pc.image.right,
+						pc.is_vertical() ? (pc.is_choice_vertical() ? "C" : "J") : "-",
+						pc.is_vertical() ? pc.intercept : pc.Value(pc.domain.left));
+				}
+			};
+			dump("arr", vrp_.arr[u][v]);
+			dump("dep", vrp_.dep[u][v]);
+		}
+	}
 }
 
 BLBExecutionLog BidirectionalLabeling::Run(
@@ -186,6 +232,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 ) {
 	// Clean solution pool.
 	S.clear();
+	S_paths.clear(); // M13.0 path-keyed pool (step-carrying instances)
 	M[0] = M[1] = vector<MonodirectionalLabeling::DemandLevel>(vrp_.D.NbVertices());
 	
 	// Set pricing problem.
@@ -244,7 +291,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			
 			if (q[d].empty()) continue;
 			if (rolex.Peek() >= time_limit) { log.status = BLBStatus::TimeLimitReached; break; } // Check if TLim is reached.
-			if (S.size() >= solution_limit) { log.status = BLBStatus::SolutionLimitReached; break; } // Check if SLim is reached.
+			if (pool_size() >= solution_limit) { log.status = BLBStatus::SolutionLimitReached; break; } // Check if SLim is reached.
 			// kayros (M13.2): sticky memory watermark; also catches a
 			// monodirectional Run below that broke on MemoryLimitReached.
 			if (MemoryMonitor::Exceeded()) { log.status = BLBStatus::MemoryLimitReached; break; }
@@ -285,14 +332,14 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		if (tstream.RegisterAttempt() || !processed)
 		{
 			tstream.WriteRow({STR(rolex.Peek()), STR(mlb_log[0]->time), STR(mlb_log[1]->time),
-					 STR(mlb_log[0]->processed_count), STR(mlb_log[1]->processed_count), STR(S.size()),
+					 STR(mlb_log[0]->processed_count), STR(mlb_log[1]->processed_count), STR(pool_size()),
 					 STR(lbl_[0].t_m), STR(vrp_.T-lbl_[1].t_m), STR(q[0].size()), STR(q[1].size())});
 		}
 	}
 	
 	// Last-edge merge.
 	// kayros (M13.2): a memory-tripped run must not start the merge tail.
-	if (S.size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached)
+	if (pool_size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached)
 	{
 		merge_rolex.Reset().Resume();
 		LastArcMerge(q[0], lbl_[1].U);
@@ -306,19 +353,16 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	// full pool would let the caller read a truncated pricing as exhaustive.
 	if (log.status != BLBStatus::MemoryLimitReached)
 	{
-		if (S.size() >= solution_limit) log.status = BLBStatus::SolutionLimitReached;
+		if (pool_size() >= solution_limit) log.status = BLBStatus::SolutionLimitReached;
 		else if (log.status == BLBStatus::DidNotStart) log.status = BLBStatus::Finished;
 	}
 	*log.time += rolex.Pause();
 	
 	// Add solutions from the pool to the return vector R.
-	for (auto& V_r: S)
-	{
-		// (kayros M5.2) Repricing the pool (one DP per route) is post-deadline
-		// work on a doomed run once the TL fired — cut the tail. The routes
-		// lost here would never be used: the caller terminates on the TL.
-		if (run_deadline_.Reached()) break;
-		Route& r = V_r.second;
+	// (kayros M5.2) Repricing the pool (one DP per route) is post-deadline
+	// work on a doomed run once the TL fired — cut the tail. The routes
+	// lost here would never be used: the caller terminates on the TL.
+	auto reprice_into_R = [&](const Route& r) {
 		// Compute r actual duration (nyr::RouteDuration -> goc::Route).
 		auto best = vrp_.BestDurationRoute(r.path);
 		// M13.0 trace: fate of the merge target through the pool repricing.
@@ -326,6 +370,22 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			fprintf(stderr, "TRC POOL-EXIT path_len=%zu pool_dur=%.6f best_dur=%.6f best_empty=%d\n",
 				r.path.size(), r.duration, best.value, (int) best.path.empty());
 		R->push_back(Route(best.path, best.t0, best.value));
+	};
+	if (step_pool_)
+	{
+		for (auto& P_r: S_paths)
+		{
+			if (run_deadline_.Reached()) break;
+			reprice_into_R(P_r.second);
+		}
+	}
+	else
+	{
+		for (auto& V_r: S)
+		{
+			if (run_deadline_.Reached()) break;
+			reprice_into_R(V_r.second);
+		}
 	}
 	
 	return log;
@@ -337,11 +397,11 @@ void BidirectionalLabeling::IterativeMerge(Label* l, const MonodirectionalLabeli
 	for (auto& demand_entry : L[l->v])
 	{
 		if (run_deadline_.Reached()) break; // (kayros M5.2)
-		if (S.size() >= solution_limit) break; // Do not exceed solution limit.
+		if (pool_size() >= solution_limit) break; // Do not exceed solution limit.
 		if (epsilon_bigger(demand_entry.first+l->q-vrp_.q[l->v], vrp_.Q)) break;
 		for (auto& m: demand_entry.second)
 		{
-			if (S.size() >= solution_limit) break; // Do not exceed solution limit.
+			if (pool_size() >= solution_limit) break; // Do not exceed solution limit.
 			if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, 0.0)) break;
 			Merge(l, m);
 		}
@@ -365,7 +425,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 		LazyLabel ll = qf.top();
 		qf.pop();
 		Label* l = ll.parent;
-		if (S.size() >= solution_limit) continue;
+		if (pool_size() >= solution_limit) continue;
 		
 		// M13.0 trace: is this pop the merge target's frontier arc?
 		bool tr_arc = trace::merge_fwd_prefix(l);
@@ -390,10 +450,10 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 					trace::path_str(l).c_str(), (int) ll.v, entry.first);
 				break;
 			}
-			if (S.size() >= solution_limit) break; // Do not exceed solution limit.
+			if (pool_size() >= solution_limit) break; // Do not exceed solution limit.
 			for (Label* m: entry.second)
 			{
-				if (S.size() >= solution_limit) break; // Do not exceed solution limit.
+				if (pool_size() >= solution_limit) break; // Do not exceed solution limit.
 				if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, 0.0))
 				{
 					if (tr_arc && trace::merge_bwd_suffix(m))
@@ -487,19 +547,26 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 
 void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_duration)
 {
+	// M13.0 trace: pool decisions for orderings of the merge target's vertex set.
+	if (trace::merge_on()
+		&& create_bitset<MAX_N>(p) == create_bitset<MAX_N>(trace::merge_target()))
+	{
+		std::string ps;
+		for (auto v: p) ps += (ps.empty() ? "" : ",") + std::to_string(v);
+		fprintf(stderr, "TRC POOL-ADD cand=%s dur=%.6f pool=%s\n",
+			ps.c_str(), min_duration, step_pool_ ? "path" : "set");
+	}
+	if (step_pool_)
+	{
+		// M13.0: path-keyed pool (see the header comment): every distinct
+		// ordering survives to the checker-exact pool-exit repricing; the
+		// bound only dedups re-merges of the SAME path.
+		if (!includes_key(S_paths, p)) S_paths[p] = Route({}, 0.0, INFTY);
+		if (S_paths[p].duration > min_duration) S_paths[p] = Route(p, 0.0, min_duration);
+		return;
+	}
 	VertexSet V = create_bitset<MAX_N>(p);
 	if (!includes_key(S, V)) S[V] = Route({}, 0.0, INFTY);
-	// M13.0 trace: pool slot decisions for the merge target's VERTEX SET (the
-	// pool dedups by set, so a different ordering can shadow the target path).
-	if (trace::merge_on() && V == create_bitset<MAX_N>(trace::merge_target()))
-	{
-		std::string ps, ss;
-		for (auto v: p) ps += (ps.empty() ? "" : ",") + std::to_string(v);
-		for (auto v: S[V].path) ss += (ss.empty() ? "" : ",") + std::to_string(v);
-		fprintf(stderr, "TRC POOL-ADD cand=%s dur=%.6f slot=%s slot_dur=%.6f -> %s\n",
-			ps.c_str(), min_duration, ss.c_str(), S[V].duration,
-			S[V].duration > min_duration ? "REPLACE" : "KEEP");
-	}
 	if (S[V].duration > min_duration) S[V] = Route(p, 0.0, min_duration);
 }
 
