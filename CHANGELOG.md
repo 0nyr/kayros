@@ -2,6 +2,18 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.1.1] — 2026-07-18
+
+Documentation-only release. No code, no build, and no solver behavior changes: the wheels are functionally identical to 1.1.0.
+
+### Fixed
+
+- **Corrected the attribution of the vendored branch-price-and-cut solver.** `README.md` credited it in two places to "Lera-Romero, Rönnqvist & Ljungqvist (2020)". Rönnqvist and Ljungqvist are not authors of that work. The correct reference, as `cpp/lera/NOTICE.md` has always stated, is Gonzalo Lera-Romero, Juan J. Miranda Bront and Francisco J. Soulignac, *Linear edge costs and labeling algorithms: The case of the time-dependent vehicle routing problem with time windows*, Networks 76(1):24–53, 2020 ([doi:10.1002/net.21937](https://doi.org/10.1002/net.21937)). Since `README.md` is the PyPI long description, this release exists so that the corrected attribution reaches the package page. Apologies to the authors.
+
+### Added
+
+- A `References` section in `README.md` giving the full citations, with DOIs, for the three works the solver builds on (Lera-Romero et al. 2020, Visser & Spliet 2020, Blauth et al. 2024).
+
 ## [1.1.0] — 2026-07-18
 
 The theme is **exact stepwise pricing**: on stepwise (value-jump) travel-time functions the exact component now runs a mollifier-free labeling that carries the value jumps exactly, closing the last soundness caveat of the certification pipeline.
@@ -73,6 +85,9 @@ The theme of this release is **sound, audited optimality certificates** for the 
 
 - Initial public release: the NDCPWLF composition engine, a bit-identical C++ port of the reference checker's arithmetic, gated by an equivalence suite over the full benchmark set.
 
+[1.1.1]: https://github.com/0nyr/kayros/releases/tag/v1.1.1
+[1.1.0]: https://github.com/0nyr/kayros/releases/tag/v1.1.0
+[1.0.0]: https://github.com/0nyr/kayros/releases/tag/v1.0.0
 [0.5.0]: https://github.com/0nyr/kayros/releases/tag/v0.5.0
 [0.4.0]: https://github.com/0nyr/kayros/releases/tag/v0.4.0
 [0.3.0]: https://github.com/0nyr/kayros/releases/tag/v0.3.0
