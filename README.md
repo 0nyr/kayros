@@ -11,7 +11,7 @@ The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancie
 ## Install
 
 ```sh
-pip install kayros
+pip install kayros    # or: uv add kayros / uv pip install kayros
 ```
 
 This pulls everything, including the benchmark loaders and the reference checker ([`mamut-routing-lib`](https://pypi.org/project/mamut-routing-lib/)). For development:
@@ -95,6 +95,16 @@ KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as 
 
 ### References
 
-- Gonzalo Lera-Romero, Juan J. Miranda Bront, Francisco J. Soulignac. *Linear edge costs and labeling algorithms: The case of the time-dependent vehicle routing problem with time windows.* **Networks** 76(1):24–53, 2020. [doi:10.1002/net.21937](https://doi.org/10.1002/net.21937)
+- Gonzalo Lera-Romero, Juan J. Miranda Bront, Francisco J. Soulignac. *Linear edge costs and labeling algorithms: The case of the time-dependent vehicle routing problem with time windows.* **Networks** 76(1):24–53, 2020. [doi:10.1002/net.21937](https://doi.org/10.1002/net.21937). Companion code: [gleraromero/networks2020](https://github.com/gleraromero/networks2020) by [Gonzalo Lera-Romero](https://github.com/gleraromero), the solver vendored under `cpp/lera/`. As of 2026-07-18 its only GitHub star is [ours](https://github.com/0nyr): sadly little recognition for such an important project in the time-dependent routing world. Go give it a second one.
 - Thomas R. Visser, Remy Spliet. *Efficient move evaluations for time-dependent vehicle routing problems.* **Transportation Science** 54(4):1091–1112, 2020. [doi:10.1287/trsc.2019.0938](https://doi.org/10.1287/trsc.2019.0938)
 - Jannis Blauth, Stephan Held, Dirk Müller, Niklas Schlomberg, Vera Traub, Thorben Tröbst, Jens Vygen. *Vehicle routing with time-dependent travel times: Theory, practice, and benchmarks.* **Discrete Optimization** 53:100848, 2024. [doi:10.1016/j.disopt.2024.100848](https://doi.org/10.1016/j.disopt.2024.100848)
+
+## Acknowledgements
+
+- **Romain Billot, Christine Solnon and Lina Fahed**, who supervise the PhD this solver is built for.
+- **[Romain Fontaine](https://github.com/romainfontaine)**, for his help with Grid'5000, where every KAYROS validation and certification campaign runs. This PhD is a multi-vehicle follow-up to his TDTSPTW thesis and its dynamic-programming solver, [tdtsptw-ejor23](https://github.com/romainfontaine/tdtsptw-ejor23).
+- **[Gonzalo Lera-Romero](https://github.com/gleraromero)**, who made his branch-price-and-cut solver [open source](https://github.com/gleraromero/networks2020): a major milestone on the road to this thesis and the direct inspiration for KAYROS's exact component.
+
+## Funding
+
+This work is funded by the French National Research Agency (ANR) as part of the [MAMUT project](https://anr.fr/Projet-ANR-22-CE22-0016), ANR-22-CE22-0016 "Machine learning et matheuristiques pour le transport urbain" (Machine learning And Matheuristics algorithms for Urban Transportation).

@@ -2,6 +2,18 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.1.2] — 2026-07-18
+
+Documentation-only release. No code, no build, and no solver behavior changes: the wheels are functionally identical to 1.1.0.
+
+### Added
+
+- `uv` install commands alongside pip in `README.md`.
+- An `Acknowledgements` section in `README.md`: the PhD supervisors (Romain Billot, Christine Solnon, Lina Fahed); Romain Fontaine for his help with Grid'5000 and for the TDTSPTW lineage this PhD follows up on ([tdtsptw-ejor23](https://github.com/romainfontaine/tdtsptw-ejor23)); Gonzalo Lera-Romero for open-sourcing the branch-price-and-cut solver the exact component builds on.
+- A `Funding` section in `README.md`: ANR MAMUT project, ANR-22-CE22-0016.
+- The Lera-Romero et al. 2020 reference now links the companion repository ([gleraromero/networks2020](https://github.com/gleraromero/networks2020)) and the author's GitHub profile.
+- `date-released` in `CITATION.cff` and a `Changelog` project URL in the PyPI metadata.
+
 ## [1.1.1] — 2026-07-18
 
 Documentation-only release. No code, no build, and no solver behavior changes: the wheels are functionally identical to 1.1.0.
@@ -85,6 +97,7 @@ The theme of this release is **sound, audited optimality certificates** for the 
 
 - Initial public release: the NDCPWLF composition engine, a bit-identical C++ port of the reference checker's arithmetic, gated by an equivalence suite over the full benchmark set.
 
+[1.1.2]: https://github.com/0nyr/kayros/releases/tag/v1.1.2
 [1.1.1]: https://github.com/0nyr/kayros/releases/tag/v1.1.1
 [1.1.0]: https://github.com/0nyr/kayros/releases/tag/v1.1.0
 [1.0.0]: https://github.com/0nyr/kayros/releases/tag/v1.0.0
