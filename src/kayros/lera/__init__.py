@@ -99,7 +99,7 @@ def _atf_to_travel_time_pieces(xs, ys) -> list[list[list[float]]]:
     Breakpoints are emitted verbatim: duplicate-x pairs (value jumps of
     stepwise ATFs) become genuine zero-width vertical pieces handled exactly
     by the tagged-vertical labeling (M13.0; the exact value-jump path is the
-    production default on step-carrying instances — see
+    production default on step-carrying instances; see
     :func:`_has_stepwise_atfs` in :func:`solve_duration`). The M5.7 forward
     mollifier (``_continuize_breakpoints``, a 1e-3 steep-bridge
     under-approximation) was retired with M13.0: its sliver admitted
