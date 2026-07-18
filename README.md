@@ -91,7 +91,7 @@ Development happens on `main`. One long-lived branch is deliberately **not** mer
 
 ## Provenance
 
-KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as part of a PhD in operations research (IMT Atlantique / INSA Lyon), under the supervision of Romain Billot, Christine Solnon and Lina Fahed. The NDCPWLF composition engine follows Visser & Spliet (2020)'s move-evaluation theorems; the local-search move evaluation follows Blauth et al. (2024); the exact component vendors the branch-price-and-cut solver of Lera-Romero, Miranda Bront & Soulignac (2020, MIT-licensed; provenance and local modifications documented in `cpp/lera/NOTICE.md`); the TD-ACO is a rewrite of the author's heuristic layer originally built on that same solver. MIT license.
+KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as part of a [PhD in Informatics and Operations Research](https://theses.fr/s386454) (IMT Atlantique / INSA Lyon), under the supervision of Romain Billot, Christine Solnon and Lina Fahed. The NDCPWLF composition engine follows Visser & Spliet (2020)'s move-evaluation theorems; the local-search move evaluation follows Blauth et al. (2024); the exact component vendors the branch-price-and-cut solver of Lera-Romero, Miranda Bront & Soulignac (2020, MIT-licensed; provenance and local modifications documented in `cpp/lera/NOTICE.md`); the TD-ACO is a rewrite of the author's heuristic layer originally built on that same solver. MIT license.
 
 ### References
 
@@ -101,10 +101,10 @@ KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as 
 
 ## Acknowledgements
 
-- **Romain Billot, Christine Solnon and Lina Fahed**, who supervise the PhD this solver is built for.
-- **[Romain Fontaine](https://github.com/romainfontaine)**, for his help with Grid'5000, where every KAYROS validation and certification campaign runs. This PhD is a multi-vehicle follow-up to his TDTSPTW thesis and its dynamic-programming solver, [tdtsptw-ejor23](https://github.com/romainfontaine/tdtsptw-ejor23).
+- **[Romain Billot](https://www.imt-atlantique.fr/fr/personne/romain-billot), [Christine Solnon](http://perso.citi.insa-lyon.fr/csolnon/) and [Lina Fahed](https://www.imt-atlantique.fr/fr/personne/lina-fahed)**, who supervise the PhD this solver is built for.
+- **[Romain Fontaine](https://github.com/romainfontaine)**, for his help with Grid'5000, where every KAYROS validation and certification campaign runs. This PhD is a multi-vehicle follow-up to [his TDTSPTW thesis](https://hal.science/tel-04697323v1) and its dynamic-programming solver, [tdtsptw-ejor23](https://github.com/romainfontaine/tdtsptw-ejor23).
 - **[Gonzalo Lera-Romero](https://github.com/gleraromero)**, who made his branch-price-and-cut solver [open source](https://github.com/gleraromero/networks2020): a major milestone on the road to this thesis and the direct inspiration for KAYROS's exact component.
 
 ## Funding
 
-This work is funded by the French National Research Agency (ANR) as part of the [MAMUT project](https://anr.fr/Projet-ANR-22-CE22-0016), ANR-22-CE22-0016 "Machine learning et matheuristiques pour le transport urbain" (Machine learning And Matheuristics algorithms for Urban Transportation).
+This work is funded by the [French National Research Agency (ANR)](https://anr.fr) as part of the [MAMUT project](https://anr.fr/Projet-ANR-22-CE22-0016), ANR-22-CE22-0016 "Machine learning et matheuristiques pour le transport urbain" (Machine learning And Matheuristics algorithms for Urban Transportation).
