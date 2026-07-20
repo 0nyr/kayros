@@ -2,6 +2,19 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.1.3] — 2026-07-20
+
+Documentation-only release. No code, no build, and no solver behavior changes: the wheels are functionally identical to 1.1.0.
+
+### Added
+
+- **`AUTHORS.md`**, the authoritative statement of authorship, scientific supervision, funding context, vendored third-party code, and contributor policy. Required by the HAL / Software Heritage deposit process: the Inria open-archive moderation team asks that an archived source repository carry an `AUTHORS` file describing the software's authors, so the Software Heritage snapshot referenced from HAL can be validated.
+- An extended `Acknowledgements` section in `README.md`, now cross-linking `AUTHORS.md`: the ANR-MAMUT members (Adrien Pichon, Marc Sevaux, Alexandru-Liviu Olteanu), the PyVRP contributors (Leon Lan, Niels Wouda, Wouter Kool), and Thibaut Vidal.
+
+### Fixed
+
+- Two typos in the `README.md` acknowledgements (a missing preposition, and the spelling of Pénélope Aguiar Melgarejo).
+
 ## [1.1.2] — 2026-07-18
 
 Documentation-only release. No code, no build, and no solver behavior changes: the wheels are functionally identical to 1.1.0.
@@ -97,6 +110,7 @@ The theme of this release is **sound, audited optimality certificates** for the 
 
 - Initial public release: the NDCPWLF composition engine, a bit-identical C++ port of the reference checker's arithmetic, gated by an equivalence suite over the full benchmark set.
 
+[1.1.3]: https://github.com/0nyr/kayros/releases/tag/v1.1.3
 [1.1.2]: https://github.com/0nyr/kayros/releases/tag/v1.1.2
 [1.1.1]: https://github.com/0nyr/kayros/releases/tag/v1.1.1
 [1.1.0]: https://github.com/0nyr/kayros/releases/tag/v1.1.0
