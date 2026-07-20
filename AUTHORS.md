@@ -6,7 +6,7 @@ This file records the authorship, scientific supervision, funding context, and c
 
 KAYROS is written and maintained by:
 
-- **Florian Rascoussier** (Onyr), IMT Atlantique and INSA Lyon, France. [GitHub](https://github.com/0nyr) · [ORCID 0009-0005-3253-9814](https://orcid.org/0009-0005-3253-9814) · [LinkedIn](https://www.linkedin.com/in/florian-rascoussier-onyr/) · <rascoussier.florian@gmail.com>
+- **Florian Rascoussier** (Onyr), IMT Atlantique and INSA Lyon, France. [GitHub](https://github.com/0nyr) · [ORCID 0009-0005-3253-9814](https://orcid.org/0009-0005-3253-9814) · [LinkedIn](https://www.linkedin.com/in/florian-rascoussier-onyr/) · <onyr.maintainer@gmail.com>
 
 He is the sole author of the KAYROS codebase, with the exception of the vendored third-party component described below. Everything stays MIT-licensed.
 

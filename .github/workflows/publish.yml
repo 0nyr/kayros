@@ -27,7 +27,11 @@ jobs:
       - name: Build manylinux wheels
         uses: pypa/cibuildwheel@v4.1.0
         env:
-          CIBW_BUILD: "cp311-* cp312-* cp313-*"
+          # Keep in sync with `requires-python` in pyproject.toml and the CI
+          # matrix: every interpreter the metadata admits must get a wheel,
+          # otherwise resolvers silently fall back to a source build that
+          # needs CMake, Boost.Graph and a C++23 compiler.
+          CIBW_BUILD: "cp311-* cp312-* cp313-* cp314-*"
           CIBW_SKIP: "*-musllinux*"
           CIBW_ARCHS_LINUX: "x86_64"
           # M5.8: the lera BPC ships in wheels. HiGHS is fetched and built
