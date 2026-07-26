@@ -153,6 +153,9 @@ class Solution:
 
     instance_name: str
     routes: list[list[int]]
+    # TODO(2.0): rename to an objective-neutral `cost` (with a compat alias);
+    # under FleetCostDuration this already holds the full objective value
+    # including fleet_fixed_cost * num_routes (decided with Onyr, session 41).
     duration: float
     route_durations: list[float]
     route_departures: list[float]
