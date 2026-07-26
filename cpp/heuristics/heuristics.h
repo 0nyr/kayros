@@ -46,6 +46,9 @@ struct IlsParams {
     // Perturbation magnitude (M7.1).
     std::int32_t min_perturbations = 1;
     std::int32_t max_perturbations = 25;
+    // Route-dissolve kick share (M7 FleetCostDuration; see PerturbParams).
+    // Inert under Duration: only armed when the instance prices routes.
+    std::int32_t dissolve_pct = 25;
     // Late-acceptance hill climbing (Burke & Bykov 2017, both section-4.2
     // enhancements as in PyVRP).
     std::int32_t history_length = 300;
@@ -58,7 +61,7 @@ struct IlsParams {
 };
 
 struct Incumbent {
-    double value = 0.0;            // Duration (canonical-order, checker-exact)
+    double value = 0.0;            // solution_duration (canonical-order, checker-exact)
     double seconds = 0.0;          // wall time since solve start
     std::uint64_t iteration = 0;   // 0 = greedy seed
     std::int32_t origin = 0;       // 0 = greedy, 1 = aco, 2 = ils
@@ -73,7 +76,7 @@ enum class SolveStatus : std::int32_t {
 
 struct SolveResult {
     std::vector<std::vector<std::int32_t>> routes;  // best solution (customer ids, no depot)
-    double value = 0.0;                             // its Duration
+    double value = 0.0;                             // its solution_duration
     std::vector<Incumbent> incumbents;
     SolveStatus status = SolveStatus::Infeasible;
     std::uint64_t iterations_run = 0;
@@ -86,9 +89,12 @@ struct SolveResult {
 bool greedy_makespan(const Instance& inst,
                      std::vector<std::vector<std::int32_t>>& routes_out);
 
-// Duration of a full solution: canonical route order (sorted by first
-// customer), checker-exact per-route pricing; +inf when any route is
-// time-infeasible or the fleet bound is exceeded.
+// Objective value of a full solution: canonical route order (sorted by first
+// customer), checker-exact per-route pricing, plus the FleetCostDuration term
+// fixed_route_cost * K (K = non-empty routes; exact no-op at the default 0 =
+// Duration); +inf when any route is time-infeasible or the fleet bound is
+// exceeded. Every heuristic value in kayros flows through this fold, so ACO
+// and ILS inherit the objective unchanged.
 double solution_duration(const Instance& inst,
                          const std::vector<std::vector<std::int32_t>>& routes);
 

@@ -2,6 +2,22 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.2.0] — 2026-07-26
+
+### Added
+
+- **The FleetCostDuration objective in the heuristic stack** (ILS and ACO), selected with `Params(objective="fleet_cost_duration")`: minimizes the canonical duration fold plus `fleet_fixed_cost × num_routes`, with the fixed cost read from the instance (MAMUT TD instances carrying the normative `fleet_fixed_cost` field, first family: Blauth2024). The value contract is unchanged: the returned cost is priced by the reference checker under the selected objective and must match bitwise, never within an epsilon. Scoring needs `mamut-routing-lib` ≥ 0.9.0; Duration-only use keeps working against the older pins.
+- Fleet-aware local search: the commit accountant prices `fixed_route_cost` per non-empty route, so moves are accepted on duration + F·Δ(route count) and a relocate that empties a route is credited F (duration-increasing merges worth up to F are now tried, PyVRP-style).
+- **Route-dissolve perturbation kick** (`Params(dissolve_pct=...)`, default 25% of kicks): removes one smallest route whole so its clients repair into the remaining routes — the additive credit alone cannot cross the empty-a-route plateau (the paper6/PyVRP lesson). Armed only when the objective prices routes.
+- `Solution.objective`, and `to_benchmark_solution()` declares non-Duration objectives in the artifact metadata (feeds the per-objective BKS pipeline).
+- `Instance.fixed_route_cost` in the compiled core (default 0), `IlsParams.dissolve_pct`, and a `dissolved` flag in the `ls_perturb` outcome tuple.
+- Wheels for CPython 3.14. `requires-python` is now capped at `<3.15` so the admitted interpreters never outrun the wheel matrix (3.14 installs used to fall back silently to an sdist source build). Maintainer contact e-mail added to the packaging metadata.
+
+### Changed
+
+- Duration solves are bit-for-bit unchanged: at the default objective the fixed-cost term is an exact fold no-op, the dissolve kick consumes no rng draw, and 1.1.x trajectories reproduce bitwise (asserted by a regression test on instances that carry `fleet_fixed_cost`).
+- `_core.ls_perturb` returns a 7-tuple (the added `dissolved` flag) — `_core` is an internal module; the public `kayros.solve` API is backward compatible.
+
 ## [1.1.3] — 2026-07-20
 
 Documentation-only release. No code, no build, and no solver behavior changes: the wheels are functionally identical to 1.1.0.

@@ -14,21 +14,58 @@ from mamut_routing_lib.td import LoadedTDInstance, load_td_instance
 
 from kayros import _core
 
+# Canonical objective value strings (the lib enum's values), keyed by their
+# case/underscore-folded spellings. Kept as plain strings so kayros keeps
+# importing against mamut-routing-lib < 0.9.0 for Duration work.
+_OBJECTIVE_BY_KEY = {
+    "duration": "Duration",
+    "fleetcostduration": "FleetCostDuration",
+    "fleet_cost_duration": "FleetCostDuration",
+}
+
+
+def canonical_objective(objective_function: object) -> str:
+    """``"Duration"`` or ``"FleetCostDuration"`` from a lib
+    ``ObjectiveFunction`` member or a string (case/underscore tolerant).
+    Raises ``ValueError`` on anything else."""
+    key = str(getattr(objective_function, "value", objective_function))
+    key = key.replace("-", "_").casefold()
+    try:
+        return _OBJECTIVE_BY_KEY[key]
+    except KeyError:
+        raise ValueError(
+            f"unknown objective {objective_function!r}: kayros supports "
+            f"'duration' and 'fleet_cost_duration'"
+        ) from None
+
 
 def load_instance(path: str | Path) -> LoadedTDInstance:
     """Load a MAMUT TD instance (``.vrp.json``) together with its ATF sidecar."""
     return load_td_instance(path)
 
 
-def to_core(loaded: LoadedTDInstance) -> _core.Instance:
+def to_core(
+    loaded: LoadedTDInstance, objective_function: object = "Duration"
+) -> _core.Instance:
     """Build the compiled-core instance from a loaded MAMUT TD instance.
 
     Float coercions mirror the checker exactly (``_vertex_time_window`` and the
     ``service_time`` cast in ``compute_route_ready_time_function``), so core
     route pricing is bit-identical to ``check_td_solution``.
+
+    ``objective_function`` selects what the core's fold prices: under
+    ``Duration`` (the default) ``fixed_route_cost`` stays 0 even when the
+    instance carries a ``fleet_fixed_cost`` (objectives are orthogonal scoring
+    contracts; F is ignored, exactly like the checker). Under
+    ``FleetCostDuration`` it is read from ``instance.fleet_fixed_cost``
+    (``None`` → 0; ``solve()`` rejects the missing field before it gets here).
     """
     instance = loaded.instance
     atfs = loaded.atfs
+    objective = canonical_objective(objective_function)
+    fixed_route_cost = 0.0
+    if objective == "FleetCostDuration":
+        fixed_route_cost = float(getattr(instance, "fleet_fixed_cost", None) or 0.0)
     time_windows = getattr(instance, "time_windows", None)
     if time_windows is not None:
         time_windows = [(float(earliest), float(latest)) for earliest, latest in time_windows]
@@ -41,4 +78,5 @@ def to_core(loaded: LoadedTDInstance) -> _core.Instance:
         demands=list(instance.demands),
         service_times=[float(s) for s in instance.service_times],
         arcs=[(i, j, f.xs, f.ys) for (i, j), f in atfs.arcs.items()],
+        fixed_route_cost=fixed_route_cost,
     )

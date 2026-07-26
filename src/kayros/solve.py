@@ -6,11 +6,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from mamut_routing_lib.enums import ObjectiveFunction
 from mamut_routing_lib.models import BenchmarkSolution
 from mamut_routing_lib.td import LoadedTDInstance, check_td_solution
 
 from kayros import _core
-from kayros.io import load_instance, to_core
+from kayros.io import canonical_objective, load_instance, to_core
 
 
 class KayrosError(RuntimeError):
@@ -38,9 +39,18 @@ class Params:
     ms-class iterations). ``num_neighbours``/``weight_wait`` (granular
     candidate lists, M7.0) apply to the local search of EVERY strategy —
     default-on since 0.4.0; set ``num_neighbours=0`` for the pre-0.4.0
-    exhaustive scans."""
+    exhaustive scans.
+
+    ``objective`` picks the scored objective (1.2.0): ``"duration"`` (the
+    default, unchanged behavior) or ``"fleet_cost_duration"``
+    (FleetCostDuration: the same canonical duration fold plus
+    ``fleet_fixed_cost * num_routes``, read from the instance; the lib
+    ``ObjectiveFunction`` members are accepted too). Every strategy prices
+    it through the same core fold; requires mamut-routing-lib >= 0.9.0 and
+    an instance carrying ``fleet_fixed_cost``."""
 
     strategy: str = "ils"
+    objective: str = "duration"
     max_iterations: int = 3000
     max_no_improvement: int = 20
     nb_ants: int = 8
@@ -72,6 +82,11 @@ class Params:
     # (5 * restart_no_improvement iterations) so the default call stays finite.
     min_perturbations: int = 1
     max_perturbations: int = 25
+    # Route-dissolve kick share in percent (M7 FleetCostDuration): a dissolve
+    # kick removes one smallest route whole so its clients repair into the
+    # rest. Inert under Duration (only armed when the objective prices
+    # routes), so the default changes nothing for existing callers.
+    dissolve_pct: int = 25
     lahc_history: int = 300
     restart_no_improvement: int = 20_000
     exhaustive_on_best: bool = True
@@ -105,6 +120,7 @@ class Params:
         params.weight_wait = self.weight_wait
         params.min_perturbations = self.min_perturbations
         params.max_perturbations = self.max_perturbations
+        params.dissolve_pct = self.dissolve_pct
         params.history_length = self.lahc_history
         params.restart_no_improvement = self.restart_no_improvement
         params.exhaustive_on_best = self.exhaustive_on_best
@@ -130,7 +146,10 @@ IncumbentHook = Callable[[Incumbent, list[list[int]]], None]
 @dataclass
 class Solution:
     """A checker-validated solution: ``duration`` is always the value computed
-    by ``mamut_routing_lib.td.check_td_solution`` (the reference objective)."""
+    by ``mamut_routing_lib.td.check_td_solution`` for ``objective`` (the
+    reference objective). Under ``"FleetCostDuration"`` that value includes
+    the ``fleet_fixed_cost * num_routes`` term; ``route_durations`` stay pure
+    per-route durations under every objective."""
 
     instance_name: str
     routes: list[list[int]]
@@ -139,6 +158,7 @@ class Solution:
     route_departures: list[float]
     status: str  # "finished" | "converged" | "time_limit"
     iterations: int
+    objective: str = "Duration"  # canonical lib value: "Duration" | "FleetCostDuration"
     incumbents: list[Incumbent] = field(default_factory=list)
 
     @property
@@ -147,15 +167,18 @@ class Solution:
 
     def to_benchmark_solution(self) -> BenchmarkSolution:
         """MAMUT solution artifact (feeds the BKS pipeline)."""
+        metadata = {
+            "solver": "kayros",
+            "route_durations": self.route_durations,
+            "route_departure_times": self.route_departures,
+        }
+        if self.objective != "Duration":
+            metadata["objective_function"] = self.objective
         return BenchmarkSolution(
             instance_name=self.instance_name,
             routes=self.routes,
             cost=self.duration,
-            metadata={
-                "solver": "kayros",
-                "route_durations": self.route_durations,
-                "route_departure_times": self.route_departures,
-            },
+            metadata=metadata,
         )
 
 
@@ -174,12 +197,14 @@ def solve(
     seed: int = 0,
     on_incumbent: IncumbentHook | None = None,
 ) -> Solution:
-    """Solve a MAMUT TD instance (TDVRPTW or TDVRP, Duration minimization).
+    """Solve a MAMUT TD instance (TDVRPTW or TDVRP; Duration minimization by
+    default, FleetCostDuration via ``params.objective``).
 
     ``instance`` is a ``.vrp.json`` path or an already-loaded
     ``LoadedTDInstance``. The returned ``Solution.duration`` is priced by the
-    reference checker; an internal/checker disagreement raises (it would be a
-    kayros bug, never a rounding issue to tolerate).
+    reference checker under the selected objective; an internal/checker
+    disagreement raises (it would be a kayros bug, never a rounding issue to
+    tolerate).
 
     ``on_incumbent`` makes the solve anytime: it fires synchronously on every
     new incumbent (the greedy seed included) with the ``Incumbent`` record and
@@ -188,8 +213,25 @@ def solve(
     raised inside it aborts the solve and propagates.
     """
     loaded = instance if isinstance(instance, LoadedTDInstance) else load_instance(instance)
-    core = to_core(loaded)
     params = params or Params()
+    objective = canonical_objective(params.objective)
+    check_kwargs: dict = {}
+    if objective != "Duration":
+        # Contract guards up front (mirroring the checker's misuse guards):
+        # the objective needs the instance field and a lib that scores it.
+        if getattr(loaded.instance, "fleet_fixed_cost", None) is None:
+            raise KayrosError(
+                f"instance {loaded.instance.instance_name} carries no "
+                f"fleet_fixed_cost; the FleetCostDuration objective requires it"
+            )
+        try:
+            check_kwargs["objective_function"] = ObjectiveFunction(objective)
+        except ValueError:
+            raise KayrosError(
+                "objective 'fleet_cost_duration' requires mamut-routing-lib "
+                ">= 0.9.0"
+            ) from None
+    core = to_core(loaded, objective_function=objective)
     tl = 0.0 if time_limit is None else float(time_limit)
 
     if params.strategy not in ("aco", "ils", "aco+ils"):
@@ -256,6 +298,9 @@ def solve(
             f"{loaded.instance.instance_name}"
         )
 
+    # The declared cost makes this a bitwise objective-equality gate: the
+    # checker recomputes under `objective` and rejects any mismatch
+    # (OBJECTIVE_VALUE_MISMATCH), Duration and FleetCostDuration alike.
     check = check_td_solution(
         loaded,
         BenchmarkSolution(
@@ -263,6 +308,7 @@ def solve(
             routes=[list(route) for route in result.routes],
             cost=result.value,
         ),
+        **check_kwargs,
     )
     if not check.is_valid():
         raise KayrosError(
@@ -278,6 +324,7 @@ def solve(
         route_departures=[e.departure_time for e in check.route_evaluations],
         status=_STATUS_NAMES[result.status],
         iterations=result.iterations_run,
+        objective=objective,
         incumbents=extra_incumbents + [
             Incumbent(i.value, i.seconds + incumbent_offset, i.iteration,
                       _ORIGIN_NAMES[i.origin])

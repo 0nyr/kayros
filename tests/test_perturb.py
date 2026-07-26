@@ -59,9 +59,10 @@ def test_perturb_feasible_and_checker_valid(pick, seed) -> None:
     routes = greedy_routes(core)
     served = sorted(c for route in routes for c in route)
 
-    new_routes, value, applied, removed, redraws, new_r = _core.ls_perturb(
+    new_routes, value, applied, removed, redraws, new_r, dissolved = _core.ls_perturb(
         core, routes, seed
     )
+    assert dissolved is False  # unpriced core: the dissolve kick stays unarmed
     assert value != float("inf")
     assert sorted(c for route in new_routes for c in route) == served
     assert all(new_routes), "no empty route may survive"
@@ -160,7 +161,7 @@ def test_perturb_undo_restores_exactly() -> None:
     # beyond the bound are forbidden. Repair may still succeed via non-
     # singleton insertions; accept both outcomes but verify exactness when
     # undone.
-    new_routes, value, applied, removed, redraws, new_r = _core.ls_perturb(
+    new_routes, value, applied, removed, redraws, new_r, dissolved = _core.ls_perturb(
         core, routes, 5, min_removals=n, max_removals=n
     )
     if not applied:

@@ -39,11 +39,15 @@ kayros::Instance make_instance(
     std::int64_t vehicle_capacity, std::pair<double, double> horizon,
     std::optional<std::vector<std::pair<double, double>>> time_windows,
     std::vector<std::int64_t> demands, std::vector<double> service_times,
-    const std::vector<ArcSpec>& arcs) {
+    const std::vector<ArcSpec>& arcs, double fixed_route_cost) {
     kayros::Instance inst;
     inst.num_customers = num_customers;
     inst.num_vehicles = num_vehicles.value_or(-1);
     inst.vehicle_capacity = vehicle_capacity;
+    if (fixed_route_cost < 0.0) {
+        throw std::invalid_argument("fixed_route_cost must be >= 0");
+    }
+    inst.fixed_route_cost = fixed_route_cost;
     inst.horizon_start = horizon.first;
     inst.horizon_end = horizon.second;
     const std::int64_t nv = inst.num_vertices();
@@ -148,10 +152,12 @@ PYBIND11_MODULE(_core, m) {
         .def(py::init(&make_instance), py::arg("num_customers"),
              py::arg("num_vehicles"), py::arg("vehicle_capacity"),
              py::arg("horizon"), py::arg("time_windows"), py::arg("demands"),
-             py::arg("service_times"), py::arg("arcs"))
+             py::arg("service_times"), py::arg("arcs"),
+             py::arg("fixed_route_cost") = 0.0)
         .def_readonly("num_customers", &kayros::Instance::num_customers)
         .def_readonly("num_vehicles", &kayros::Instance::num_vehicles)
         .def_readonly("vehicle_capacity", &kayros::Instance::vehicle_capacity)
+        .def_readonly("fixed_route_cost", &kayros::Instance::fixed_route_cost)
         .def_readonly("has_time_windows", &kayros::Instance::has_time_windows)
         .def("evaluate_route",
              [](const kayros::Instance& inst,
@@ -198,6 +204,7 @@ PYBIND11_MODULE(_core, m) {
                        &kayros::IlsParams::min_perturbations)
         .def_readwrite("max_perturbations",
                        &kayros::IlsParams::max_perturbations)
+        .def_readwrite("dissolve_pct", &kayros::IlsParams::dissolve_pct)
         .def_readwrite("history_length", &kayros::IlsParams::history_length)
         .def_readwrite("restart_no_improvement",
                        &kayros::IlsParams::restart_no_improvement)
@@ -279,7 +286,8 @@ PYBIND11_MODULE(_core, m) {
         [](const kayros::Instance& inst,
            std::vector<std::vector<std::int32_t>> routes, std::uint64_t seed,
            std::int32_t min_removals, std::int32_t max_removals,
-           std::int32_t num_neighbours, double weight_wait) {
+           std::int32_t num_neighbours, double weight_wait,
+           std::int32_t dissolve_pct) {
             const kayros::NeighbourLists nb =
                 kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
             kayros::SearchState ss;
@@ -290,6 +298,7 @@ PYBIND11_MODULE(_core, m) {
             kayros::PerturbParams params;
             params.min_removals = min_removals;
             params.max_removals = max_removals;
+            params.dissolve_pct = dissolve_pct;
             const kayros::PerturbOutcome outcome =
                 kayros::perturb(inst, nb, ss, rng, params);
             routes.clear();
@@ -300,11 +309,12 @@ PYBIND11_MODULE(_core, m) {
             const double value = kayros::solution_duration(inst, routes);
             return py::make_tuple(std::move(routes), value, outcome.applied,
                                   outcome.removed, outcome.redraws,
-                                  outcome.new_routes);
+                                  outcome.new_routes, outcome.dissolved);
         },
         py::arg("instance"), py::arg("routes"), py::arg("seed"),
         py::arg("min_removals") = 1, py::arg("max_removals") = 25,
-        py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2);
+        py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2,
+        py::arg("dissolve_pct") = 25);
     m.def(
         "ls_evaluate_splice",
         [](const kayros::Instance& inst, const std::vector<std::int32_t>& route1,

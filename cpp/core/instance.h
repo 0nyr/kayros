@@ -14,6 +14,12 @@ struct Instance {
     std::int32_t num_customers = 0;   // n
     std::int32_t num_vehicles = -1;   // fleet upper bound; -1 = unbounded
     std::int64_t vehicle_capacity = 0;
+    // FleetCostDuration fixed cost F per used (non-empty) route, in the
+    // instance's time unit; 0 = plain Duration (every pre-M7 caller). The
+    // solution objective is then fold + F * K with K the route count, priced
+    // exactly like the checker: canonical duration fold first, one multiply,
+    // one add.
+    double fixed_route_cost = 0.0;
     double horizon_start = 0.0;
     double horizon_end = 0.0;
     bool has_time_windows = false;    // TDVRPTW when true, TDVRP otherwise

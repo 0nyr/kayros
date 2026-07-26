@@ -81,7 +81,7 @@ std::vector<InsertionCandidate> insertion_candidates(
 bool attempt(const Instance& inst, const NeighbourLists& nb,
              std::vector<RouteState>& states, std::mt19937_64& rng,
              std::int32_t target_removals, std::vector<std::int32_t>& removed,
-             std::int32_t* new_routes) {
+             std::int32_t* new_routes, bool dissolve) {
     const std::int32_t n = inst.num_customers;
 
     // Ruin: seeds in random order, each dragging its granular neighbours.
@@ -95,6 +95,22 @@ bool attempt(const Instance& inst, const NeighbourLists& nb,
         is_removed[static_cast<std::size_t>(c)] = 1;
         removed.push_back(c);
     };
+    // Route-dissolve seed (M7 FleetCostDuration): every client of one
+    // smallest route (random among ties) goes out first, whole; the normal
+    // seed walk then tops the kick up to target_removals if there is room.
+    if (dissolve) {
+        std::size_t min_size = states[0].vertices.size();
+        for (const RouteState& s : states) {
+            min_size = std::min(min_size, s.vertices.size());
+        }
+        std::vector<std::size_t> ties;
+        for (std::size_t k = 0; k < states.size(); ++k) {
+            if (states[k].vertices.size() == min_size) ties.push_back(k);
+        }
+        const std::size_t pick = ties[static_cast<std::size_t>(
+            draw(rng, static_cast<std::uint64_t>(ties.size())))];
+        for (const std::int32_t v : states[pick].vertices) remove_one(v);
+    }
     for (const std::int32_t u : order) {
         if (static_cast<std::int32_t>(removed.size()) >= target_removals) break;
         remove_one(u);
@@ -189,11 +205,20 @@ PerturbOutcome perturb(const Instance& inst, const NeighbourLists& nb,
             n, params.min_removals +
                    static_cast<std::int32_t>(draw(
                        rng, static_cast<std::uint64_t>(span > 0 ? span : 1))));
+        // Dissolve arming is gated on fixed_route_cost > 0 BEFORE any draw:
+        // under Duration the rng stream is bitwise the pre-M7 one.
+        const bool dissolve =
+            inst.fixed_route_cost > 0.0 && params.dissolve_pct > 0 &&
+            ss.states.size() >= 2 &&
+            draw(rng, 100) <
+                static_cast<std::uint64_t>(params.dissolve_pct);
         std::int32_t new_routes = 0;
-        if (attempt(inst, nb, ss.states, rng, target, removed, &new_routes)) {
+        if (attempt(inst, nb, ss.states, rng, target, removed, &new_routes,
+                    dissolve)) {
             outcome.applied = true;
             outcome.removed = static_cast<std::int32_t>(removed.size());
             outcome.new_routes = new_routes;
+            outcome.dissolved = dissolve;
             break;
         }
         // Undo: restore every route from the snapshot (deterministic rebuild).

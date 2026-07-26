@@ -123,6 +123,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     PerturbParams perturb_params;
     perturb_params.min_removals = params.min_perturbations;
     perturb_params.max_removals = params.max_perturbations;
+    perturb_params.dissolve_pct = params.dissolve_pct;
 
     // LAHC slots (Burke & Bykov 2017 with PyVRP's RingBuffer semantics: the
     // index advances every iteration; a slot is rewritten only when the

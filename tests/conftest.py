@@ -30,6 +30,23 @@ def family_instances(problem_type: str, family: str, size_dirs: list[str]) -> li
     return paths
 
 
+def blauth2024_instances(size_dir: str) -> list:
+    """Converted Blauth2024 instances (M7 FleetCostDuration gates).
+
+    The family is CC-BY-NC and not vendored with kayros: it resolves through
+    KAYROS_BLAUTH2024_DIR (a directory of ``Blauth-<city>.vrp.json`` + ATF
+    sidecars, e.g. a size dir of the converted preview tree) or, once the
+    satellite repo is mounted, through the standard benchmarks tree. Empty
+    when neither is reachable (tests skip).
+    """
+    env = os.environ.get("KAYROS_BLAUTH2024_DIR")
+    if env:
+        directory = Path(env)
+        if directory.is_dir():
+            return sorted(directory.glob("*.vrp.json"))
+    return family_instances("TDVRPTW", "Blauth2024", [size_dir])
+
+
 def require_benchmarks() -> None:
     if benchmarks_root() is None:
         pytest.skip(

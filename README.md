@@ -6,7 +6,7 @@
 
 The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime-**Y**ielding **R**outing **O**ptimization **S**olver.
 
-> Status: **beta**, developed as part of a PhD. Two solving modes on one exact time-dependent engine: an anytime time-dependent iterated local search that produced the large majority of the MAMUT store's best-known solutions, and an audited exact branch-price-and-cut component (`kayros.lera`) whose multi-gate certification protocol stands behind the store's **468** proven-optimal solutions, 170 of them checker-valid strict improvements. Every run ends with an honest verdict (optimum, time limit, or resource limit), never a silent kill.
+> Status: **beta**, developed as part of a PhD. Two solving modes on one exact time-dependent engine: an anytime time-dependent iterated local search that produced the large majority of the MAMUT store's best-known solutions (minimizing Duration or, since 1.2.0, FleetCostDuration — a fleet fixed cost plus duration, as priced by the Blauth2024 family), and an audited exact branch-price-and-cut component (`kayros.lera`) whose multi-gate certification protocol stands behind the store's **468** proven-optimal solutions, 170 of them checker-valid strict improvements. Every run ends with an honest verdict (optimum, time limit, or resource limit), never a silent kill.
 
 ## Install
 
@@ -43,6 +43,14 @@ solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumben
 ```
 
 The default strategy is `"ils"` (single-trajectory iterated local search), picked over the alternatives in a 20,808-run head-to-head across five TD families at n=10..1000, with the margin growing with instance size. A MAX-MIN TD ant colony remains available as `Params(strategy="aco")`, and `Params(num_neighbours=0)` restores exhaustive (non-granular) local-search enumeration; both are alternatives for experimentation, not defaults.
+
+Families that price vehicles (a normative `fleet_fixed_cost` field on the instance, e.g. [Blauth2024](https://github.com/ANR-MAMUT/MAMUT-routing)) can be solved under the **FleetCostDuration** objective: the same canonical duration fold plus `fleet_fixed_cost × num_routes`, priced bitwise by the reference checker. The fleet term is part of `solution.duration`; the local search then trades route dissolves against duration, helped by a route-dissolve perturbation kick.
+
+```python
+params = kayros.Params(objective="fleet_cost_duration")
+solution = kayros.solve(instance_path, params, time_limit=10.0, seed=42)
+print(solution.duration, solution.num_routes)  # cost includes the fleet term
+```
 
 Exact solve: branch-price-and-cut with checker-exact certificates, optionally warm-started from a known solution (the fast path when certifying near-optimal solutions, e.g. stored best-known ones):
 

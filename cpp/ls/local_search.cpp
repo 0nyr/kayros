@@ -19,7 +19,9 @@ enum Op : std::size_t { kRelocate = 0, kIntra = 1, kSwap = 2, kTwoOptStar = 3 };
 
 // Commit path (memo Decision 3): rebuild the changed routes from scratch —
 // leaves, tree and the sequential checker-fold repricing — and accept only if
-// the repriced sum of the touched routes strictly improves on their old sum.
+// the repriced sum of the touched routes strictly improves on their old sum,
+// FleetCostDuration-priced: each side carries fixed_route_cost per non-empty
+// route, so a move that empties a route is credited F (exact no-op at F = 0).
 // An empty vertex vector drops the route. Returns true when committed.
 // M7.0: a commit bumps the epoch, stamps both routes' last_modified and marks
 // every client of the post-move routes touched (moves preserve the client
@@ -30,6 +32,8 @@ bool commit_two(const Instance& inst, SearchState& ss, std::size_t a,
     std::vector<RouteState>& states = ss.states;
     const double old_sum =
         states[a].duration + (b == a ? 0.0 : states[b].duration);
+    const int old_routes = b == a ? 1 : 2;  // stored routes are never empty
+    int new_routes = 0;
     RouteState cand_a, cand_b;
     double new_sum = 0.0;
     if (!new_a.empty()) {
@@ -38,6 +42,7 @@ bool commit_two(const Instance& inst, SearchState& ss, std::size_t a,
             return false;
         }
         new_sum += cand_a.duration;
+        ++new_routes;
     }
     if (b != a) {
         if (!new_b.empty()) {
@@ -46,9 +51,12 @@ bool commit_two(const Instance& inst, SearchState& ss, std::size_t a,
                 return false;
             }
             new_sum += cand_b.duration;
+            ++new_routes;
         }
     }
-    if (!(new_sum < old_sum)) {  // the fold is the accountant, strictly
+    const double f = inst.fixed_route_cost;
+    // the fold is the accountant, strictly
+    if (!(new_sum + f * new_routes < old_sum + f * old_routes)) {
         if (stats) ++stats->reverted;
         return false;
     }
@@ -173,6 +181,13 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                 if (a == b) continue;
                 const std::int64_t ma =
                     static_cast<std::int64_t>(states[a].vertices.size());
+                // Emptying credit (M7 FleetCostDuration): relocating a
+                // singleton donor's only client drops a route, worth F on top
+                // of the duration gain — without it, any duration-increasing
+                // relocate is screened out and removals worth up to F are
+                // never tried. Exact no-op at F = 0.
+                const double empty_credit =
+                    ma == 1 ? inst.fixed_route_cost : 0.0;
                 for (std::int64_t i = 0; i < ma; ++i) {
                     const std::int32_t c =
                         states[a].vertices[static_cast<std::size_t>(i)];
@@ -188,7 +203,8 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                     const double gain =
                         states[a].duration -
                         states[a].del_dur[static_cast<std::size_t>(i)];
-                    if (!(gain > kScreenEps)) continue;  // also skips kInfeasible
+                    // also skips kInfeasible
+                    if (!(gain + empty_credit > kScreenEps)) continue;
                     // Insertion of c before position p, on the shared prefix.
                     const Pwlf in_bridge = bridge_leaf(inst, before, c);
                     if (in_bridge.xs.empty()) continue;
@@ -209,7 +225,8 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                     }
                     if (acc.xs.empty()) continue;
                     const MinShift s = min_shifted_image(view(acc));
-                    const double delta = (s.value - recv.duration) - gain;
+                    const double delta =
+                        (s.value - recv.duration) - gain - empty_credit;
                     if (delta < -kScreenEps) {
                         std::vector<std::int32_t> new_a = states[a].vertices;
                         new_a.erase(new_a.begin() + static_cast<std::ptrdiff_t>(i));

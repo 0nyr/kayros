@@ -65,7 +65,9 @@ double solution_duration(const Instance& inst,
     }
     std::vector<const std::vector<std::int32_t>*> order;
     order.reserve(routes.size());
-    for (const auto& route : routes) order.push_back(&route);
+    for (const auto& route : routes) {
+        if (!route.empty()) order.push_back(&route);
+    }
     std::sort(order.begin(), order.end(),
               [](const auto* a, const auto* b) { return a->front() < b->front(); });
     double total = 0.0;
@@ -75,7 +77,11 @@ double solution_duration(const Instance& inst,
         if (!eval.feasible) return kInfeasible;
         total += eval.duration;
     }
-    return total;
+    // FleetCostDuration term, checker order: the canonical fold first, then a
+    // single F * K multiply-add over the used (non-empty) routes. Exact no-op
+    // when fixed_route_cost is 0 (Duration).
+    return total +
+           inst.fixed_route_cost * static_cast<double>(order.size());
 }
 
 }  // namespace kayros
