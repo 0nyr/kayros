@@ -216,6 +216,9 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("fd_time_cap_seconds",
                        &kayros::IlsParams::fd_time_cap_seconds)
         .def_readwrite("fd_period", &kayros::IlsParams::fd_period)
+        .def_readwrite("fd_period_work", &kayros::IlsParams::fd_period_work)
+        .def_readwrite("restart_no_improvement_work",
+                       &kayros::IlsParams::restart_no_improvement_work)
         .def_readwrite("fd_route_choice", &kayros::IlsParams::fd_route_choice)
         .def_readwrite("fd_pop_order", &kayros::IlsParams::fd_pop_order);
 
@@ -282,7 +285,9 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("status", &kayros::SolveResult::status)
         .def_readonly("iterations_run", &kayros::SolveResult::iterations_run)
         .def_readonly("fleet_stats", &kayros::SolveResult::fleet_stats)
-        .def_readonly("fd_stats", &kayros::SolveResult::fd_stats);
+        .def_readonly("fd_stats", &kayros::SolveResult::fd_stats)
+        .def_readonly("work_units", &kayros::SolveResult::work_units)
+        .def_readonly("restarts", &kayros::SolveResult::restarts);
 
     m.def("greedy_makespan", [](const kayros::Instance& inst) {
         std::vector<std::vector<std::int32_t>> routes;

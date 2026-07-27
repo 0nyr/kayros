@@ -102,6 +102,15 @@ class Params:
     fd_period: int = 0
     fd_route_choice: int = 0  # 0 uniform random victim, 1 smallest
     fd_pop_order: int = 0  # 0 LIFO, 1 difficult-first
+    # Work-based triggers (session 44): thresholds in LS work units (candidate
+    # pricings, see Solution.work_units). Deterministic wall-time proxies that
+    # self-scale with instance size, where the flat iteration counts above fit
+    # one size class only (Blauth2024 iteration velocity spans ~1100/s at n=10
+    # to ~0.2/s at n=2000). 0 disables; each may be combined with its
+    # iteration-count counterpart (whichever fires first). fd_period_work only
+    # arms when the objective prices routes, like fd_period.
+    fd_period_work: int = 0
+    restart_no_improvement_work: int = 0
     ils_max_iterations: int = 0
     # "aco+ils": fraction of the time limit given to the ACO phase.
     aco_budget_fraction: float = 0.5
@@ -143,6 +152,8 @@ class Params:
         params.fd_period = self.fd_period
         params.fd_route_choice = self.fd_route_choice
         params.fd_pop_order = self.fd_pop_order
+        params.fd_period_work = self.fd_period_work
+        params.restart_no_improvement_work = self.restart_no_improvement_work
         return params
 
 
@@ -189,6 +200,12 @@ class Solution:
     # Plan-12 M4 fleet-descent phase diagnostics (core FdStats fields), same
     # contract: None under "Duration" (the phase is never armed there).
     fd_stats: dict[str, int] | None = None
+    # Work-trigger diagnostics (session 44, ILS only; 0 for pure ACO): total
+    # LS work units spent (candidate pricings; work_units / wall seconds is
+    # the machine's work rate, the calibration source for the *_work
+    # thresholds) and restart-to-best count.
+    work_units: int = 0
+    restarts: int = 0
 
     @property
     def num_routes(self) -> int:
@@ -394,6 +411,8 @@ def solve(
             name: getattr(result.fd_stats, name)
             for name in _FD_STATS_FIELDS
         },
+        work_units=result.work_units,
+        restarts=result.restarts,
         incumbents=extra_incumbents + [
             Incumbent(i.value, i.seconds + incumbent_offset, i.iteration,
                       _ORIGIN_NAMES[i.origin])

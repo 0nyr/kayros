@@ -70,6 +70,13 @@ RouteEval evaluate_intra_relocate(const Instance& inst, const RouteState& r,
 struct LsStats {
     std::int64_t applied = 0;   // committed moves (repriced improvements)
     std::int64_t reverted = 0;  // tree-ranked candidates the fold rejected
+    // Candidate pricings entered (one per move whose PWLF compose chain
+    // starts, counted after the cheap screens). The deterministic LS work
+    // unit: same seed => same count, and at a fixed instance the rate per
+    // wall second is near-constant, so work-based triggers (fd_period_work,
+    // restart_no_improvement_work) self-scale across instance sizes where
+    // flat iteration counts span orders of magnitude (session 44).
+    std::int64_t evaluated = 0;
 };
 
 // M7.0 promising-set / staleness state, persistent across descents (the ILS

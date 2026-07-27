@@ -205,6 +205,7 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                         states[a].del_dur[static_cast<std::size_t>(i)];
                     // also skips kInfeasible
                     if (!(gain + empty_credit > kScreenEps)) continue;
+                    if (stats) ++stats->evaluated;
                     // Insertion of c before position p, on the shared prefix.
                     const Pwlf in_bridge = bridge_leaf(inst, before, c);
                     if (in_bridge.xs.empty()) continue;
@@ -258,6 +259,7 @@ bool intra_pass(const Instance& inst, const NeighbourLists& nb, SearchState& ss,
             if (!retest[static_cast<std::size_t>(c)]) continue;
             for (std::int64_t p = 0; p <= m; ++p) {
                 if (p == i || p == i + 1) continue;
+                if (stats) ++stats->evaluated;
                 const RouteEval eval =
                     evaluate_intra_relocate(inst, states[a], i, p);
                 if (!eval.feasible) continue;
@@ -299,6 +301,7 @@ bool swap_pass(const Instance& inst, const NeighbourLists& nb, SearchState& ss,
                             inst.vehicle_capacity) {
                         continue;
                     }
+                    if (stats) ++stats->evaluated;
                     const RouteEval ea =
                         evaluate_splice(inst, states[a], i, i, states[b], j, j);
                     if (!ea.feasible) continue;
@@ -377,6 +380,7 @@ bool two_opt_star_pass(const Instance& inst, const NeighbourLists& nb,
                         head_b + (states[a].load - head_a) > inst.vehicle_capacity) {
                         continue;
                     }
+                    if (stats) ++stats->evaluated;
                     const RouteEval ea = evaluate_splice(
                         inst, states[a], i + 1, ma - 1, states[b], j + 1, mb - 1);
                     if (!ea.feasible) continue;

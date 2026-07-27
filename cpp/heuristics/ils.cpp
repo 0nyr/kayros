@@ -99,7 +99,11 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         result.status = SolveStatus::Infeasible;
         return result;
     }
-    double curr = ls_descend(inst, nb, ss, nullptr, deadline);
+    // Work-unit accounting (session 44): candidate pricings across every
+    // descent this solve runs. Integer increments only, so streams and priced
+    // values are byte-identical with or without the counter.
+    LsStats ls_stats;
+    double curr = ls_descend(inst, nb, ss, &ls_stats, deadline);
 
     double best = curr;
     result.routes = extract_routes(ss);
@@ -110,7 +114,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     // Exhaustive polish of the initial best (PyVRP's exhaustive_on_best).
     if (params.exhaustive_on_best && !past()) {
         mark_all_touched(ss);
-        curr = ls_descend(inst, exhaustive, ss, nullptr, deadline);
+        curr = ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
         if (curr < best) {
             best = curr;
             result.routes = extract_routes(ss);
@@ -155,6 +159,11 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     std::vector<std::int32_t> fd_pcount(
         static_cast<std::size_t>(inst.num_customers) + 1, 0);
     const bool fd_armed = inst.fixed_route_cost > 0.0 && params.fd_attempts > 0;
+    // Work-based trigger marks: window baselines in ls_stats.evaluated units,
+    // reset at loop entry, on every FD trigger (fd) and improvement/restart
+    // (improve). See IlsParams::fd_period_work / restart_no_improvement_work.
+    std::int64_t fd_work_mark = 0;
+    std::int64_t improve_work_mark = 0;
     // Up to fd_attempts dissolve attempts on the live state; on success the
     // K-1 solution gets the full basin treatment (granular descent +
     // exhaustive polish) and the repriced value is returned (NaN when no
@@ -176,12 +185,15 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 break;
             }
         }
-        if (!dropped) return std::numeric_limits<double>::quiet_NaN();
+        if (!dropped) {
+            fd_work_mark = ls_stats.evaluated;
+            return std::numeric_limits<double>::quiet_NaN();
+        }
         mark_all_touched(ss);
-        double cand = ls_descend(inst, nb, ss, nullptr, deadline);
+        double cand = ls_descend(inst, nb, ss, &ls_stats, deadline);
         if (params.exhaustive_on_best && !past()) {
             mark_all_touched(ss);
-            cand = ls_descend(inst, exhaustive, ss, nullptr, deadline);
+            cand = ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
         }
         if (cand < best) {
             best = cand;
@@ -190,17 +202,28 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             result.incumbents.push_back({best, elapsed(), iteration, 2});
             if (on_incumbent) on_incumbent(result.incumbents.back(), result.routes);
         }
+        // Reset AFTER the basin descents so the next fd_period_work window
+        // measures pure ILS work between triggers (mirrors fd_period, which
+        // counts iterations only).
+        fd_work_mark = ls_stats.evaluated;
         return cand;
     };
 
+    fd_work_mark = ls_stats.evaluated;
+    improve_work_mark = ls_stats.evaluated;
     for (; iteration < params.max_iterations; ++iteration) {
         if (past()) {
             status = SolveStatus::TimeLimit;
             break;
         }
-        if (no_improvement == params.restart_no_improvement) {
+        const bool work_restart =
+            params.restart_no_improvement_work > 0 &&
+            ls_stats.evaluated - improve_work_mark >=
+                params.restart_no_improvement_work;
+        if (no_improvement == params.restart_no_improvement || work_restart) {
             // Restart-to-best: fresh state, cleared history.
             if (!init_search_state(inst, result.routes, ss)) break;
+            ++result.restarts;
             curr = best;
             // Fleet-descent on the incumbent before the fresh window opens;
             // curr keeps pricing whatever state ss holds.
@@ -212,9 +235,16 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::numeric_limits<double>::quiet_NaN());
             history_idx = 0;
             no_improvement = 0;
+            improve_work_mark = ls_stats.evaluated;
         }
         if (fd_armed && params.fd_period > 0 && iteration > 0 &&
             iteration % static_cast<std::uint64_t>(params.fd_period) == 0 &&
+            !past()) {
+            const double fd_cand = run_fleet_descent();
+            if (!std::isnan(fd_cand)) curr = fd_cand;
+        }
+        if (fd_armed && params.fd_period_work > 0 &&
+            ls_stats.evaluated - fd_work_mark >= params.fd_period_work &&
             !past()) {
             const double fd_cand = run_fleet_descent();
             if (!std::isnan(fd_cand)) curr = fd_cand;
@@ -242,7 +272,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 ++fks.normal_kicks;
             }
         }
-        double cand = ls_descend(inst, nb, ss, nullptr, deadline);
+        double cand = ls_descend(inst, nb, ss, &ls_stats, deadline);
         if (outcome.applied && outcome.dissolved) {
             const std::size_t k_desc = ss.states.size();
             if (k_desc < k_before) ++fks.k_after_descent_lt;
@@ -253,9 +283,10 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         ++no_improvement;
         if (cand < best) {
             no_improvement = 0;
+            improve_work_mark = ls_stats.evaluated;
             if (params.exhaustive_on_best && !past()) {
                 mark_all_touched(ss);
-                cand = ls_descend(inst, exhaustive, ss, nullptr, deadline);
+                cand = ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
             }
             if (outcome.applied) {
                 if (outcome.dissolved) {
@@ -293,6 +324,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     }
 
     result.iterations_run = iteration;
+    result.work_units = ls_stats.evaluated;
     result.status = result.routes.empty() ? SolveStatus::Infeasible : status;
     return result;
 }

@@ -71,6 +71,15 @@ struct IlsParams {
     std::int64_t fd_period = 0;          // 0 = stagnation-trigger only
     std::int32_t fd_route_choice = 0;    // 0 random, 1 smallest
     std::int32_t fd_pop_order = 0;       // 0 LIFO, 1 difficult-first
+    // Work-based triggers (session 44): thresholds in LS work units
+    // (LsStats::evaluated, candidate pricings). Deterministic wall-time
+    // proxies that self-scale with instance size, unlike the flat iteration
+    // counts above (iteration velocity spans n=10 ~1100/s to n=2000 ~0.2/s
+    // on Blauth2024, so any flat count fits one size class only). 0 = off;
+    // both may be combined with their iteration-count counterparts
+    // (whichever fires first wins). fd_period_work is F-gated like fd_period.
+    std::int64_t fd_period_work = 0;
+    std::int64_t restart_no_improvement_work = 0;
 };
 
 struct Incumbent {
@@ -126,6 +135,11 @@ struct SolveResult {
     std::uint64_t iterations_run = 0;
     FleetKickStats fleet_stats;
     FdStats fd_stats;  // Plan-12 M4 fleet-descent phase diagnostics (ILS only)
+    // Work-trigger diagnostics (ILS only): total LS work units spent
+    // (calibration source for the *_work thresholds: work_units divided by
+    // wall seconds is the machine's work rate) and restart-to-best count.
+    std::int64_t work_units = 0;
+    std::int64_t restarts = 0;
 };
 
 // Deterministic greedy nearest-ready-time construction (GMH1 port): routes
