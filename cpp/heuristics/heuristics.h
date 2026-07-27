@@ -74,12 +74,44 @@ enum class SolveStatus : std::int32_t {
     Infeasible = 3,  // no feasible solution constructed
 };
 
+// Dissolve-kick lifecycle counters (Plan 12 M1; ILS only, ACO leaves them
+// zero). Captured in solve_ils with integer increments and route-count reads
+// only (no rng draw, no double fed back into the search), so Duration runs
+// stay bitwise pre-M1. Under Duration the dissolve is never armed, so every
+// dissolved_* counter is structurally zero there.
+struct FleetKickStats {
+    std::int64_t kicks_total = 0;      // perturb calls (one per ILS iteration)
+    std::int64_t kicks_applied = 0;    // outcomes with applied == true
+    std::int64_t redraws_sum = 0;      // failed ruin attempts, all kicks (arming re-rolls per attempt)
+    std::int64_t dissolved_armed = 0;  // applied kicks that seeded a whole route
+    std::int64_t dissolve_undone_in_kick = 0;  // dissolved kicks whose repair reopened singleton route(s)
+    std::int64_t normal_kicks = 0;     // applied kicks without a dissolve seed
+    // Route count right after a dissolved kick vs right before it.
+    std::int64_t k_after_kick_lt = 0;
+    std::int64_t k_after_kick_eq = 0;
+    std::int64_t k_after_kick_gt = 0;
+    // Route count after the granular descent vs before the dissolved kick.
+    // No LS move opens a route, so per kick K only falls during the descent:
+    // lt covers every kick-drop that reached the LAHC judgment, and gt means
+    // the kick's own singleton-fallback repair net-opened routes the descent
+    // kept (the only K-restoring mechanism; the descent cannot re-split).
+    std::int64_t k_after_descent_lt = 0;
+    std::int64_t k_after_descent_eq = 0;
+    std::int64_t k_after_descent_gt = 0;
+    std::int64_t dissolved_accepted_lahc = 0;
+    std::int64_t normal_accepted_lahc = 0;
+    std::int64_t dissolved_new_best = 0;
+    std::int64_t normal_new_best = 0;
+    std::int64_t dissolved_new_best_k_lt = 0;  // dissolved new best with fewer routes than the incumbent
+};
+
 struct SolveResult {
     std::vector<std::vector<std::int32_t>> routes;  // best solution (customer ids, no depot)
     double value = 0.0;                             // its solution_duration
     std::vector<Incumbent> incumbents;
     SolveStatus status = SolveStatus::Infeasible;
     std::uint64_t iterations_run = 0;
+    FleetKickStats fleet_stats;
 };
 
 // Deterministic greedy nearest-ready-time construction (GMH1 port): routes

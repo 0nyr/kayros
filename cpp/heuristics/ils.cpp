@@ -159,8 +159,34 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         }
 
         take_snapshot(ss, snapshot);
-        perturb(inst, nb, ss, rng, perturb_params);
+        // Kick lifecycle counters (Plan 12 M1): integer increments and
+        // states.size() reads only, so the rng stream and every priced value
+        // are byte-identical with or without them.
+        FleetKickStats& fks = result.fleet_stats;
+        const std::size_t k_before = ss.states.size();
+        const PerturbOutcome outcome = perturb(inst, nb, ss, rng, perturb_params);
+        ++fks.kicks_total;
+        fks.redraws_sum += outcome.redraws;
+        if (outcome.applied) {
+            ++fks.kicks_applied;
+            if (outcome.dissolved) {
+                ++fks.dissolved_armed;
+                if (outcome.new_routes > 0) ++fks.dissolve_undone_in_kick;
+                const std::size_t k_kick = ss.states.size();
+                if (k_kick < k_before) ++fks.k_after_kick_lt;
+                else if (k_kick == k_before) ++fks.k_after_kick_eq;
+                else ++fks.k_after_kick_gt;
+            } else {
+                ++fks.normal_kicks;
+            }
+        }
         double cand = ls_descend(inst, nb, ss, nullptr, deadline);
+        if (outcome.applied && outcome.dissolved) {
+            const std::size_t k_desc = ss.states.size();
+            if (k_desc < k_before) ++fks.k_after_descent_lt;
+            else if (k_desc == k_before) ++fks.k_after_descent_eq;
+            else ++fks.k_after_descent_gt;
+        }
 
         ++no_improvement;
         if (cand < best) {
@@ -168,6 +194,15 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             if (params.exhaustive_on_best && !past()) {
                 mark_all_touched(ss);
                 cand = ls_descend(inst, exhaustive, ss, nullptr, deadline);
+            }
+            if (outcome.applied) {
+                if (outcome.dissolved) {
+                    ++fks.dissolved_new_best;
+                    if (ss.states.size() < result.routes.size())
+                        ++fks.dissolved_new_best_k_lt;
+                } else {
+                    ++fks.normal_new_best;
+                }
             }
             best = cand;
             result.routes = extract_routes(ss);
@@ -183,6 +218,10 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         const double late = slot_empty ? init_cost : history[slot];
         if (cand < late || cand < curr) {
             curr = cand;
+            if (outcome.applied) {
+                if (outcome.dissolved) ++fks.dissolved_accepted_lahc;
+                else ++fks.normal_accepted_lahc;
+            }
         } else {
             restore_snapshot(inst, ss, snapshot);
         }

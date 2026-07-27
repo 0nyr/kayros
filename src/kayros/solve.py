@@ -163,6 +163,10 @@ class Solution:
     iterations: int
     objective: str = "Duration"  # canonical lib value: "Duration" | "FleetCostDuration"
     incumbents: list[Incumbent] = field(default_factory=list)
+    # Plan-12 M1 dissolve-kick lifecycle counters (ILS iterations only), as a
+    # plain dict of the core FleetKickStats fields. None under "Duration",
+    # where the dissolve is never armed and the counters carry no signal.
+    fleet_stats: dict[str, int] | None = None
 
     @property
     def num_routes(self) -> int:
@@ -190,6 +194,26 @@ _STATUS_NAMES = {
     _core.SolveStatus.Converged: "converged",
     _core.SolveStatus.TimeLimit: "time_limit",
 }
+
+_FLEET_STATS_FIELDS = (
+    "kicks_total",
+    "kicks_applied",
+    "redraws_sum",
+    "dissolved_armed",
+    "dissolve_undone_in_kick",
+    "normal_kicks",
+    "k_after_kick_lt",
+    "k_after_kick_eq",
+    "k_after_kick_gt",
+    "k_after_descent_lt",
+    "k_after_descent_eq",
+    "k_after_descent_gt",
+    "dissolved_accepted_lahc",
+    "normal_accepted_lahc",
+    "dissolved_new_best",
+    "normal_new_best",
+    "dissolved_new_best_k_lt",
+)
 
 
 def solve(
@@ -328,6 +352,10 @@ def solve(
         status=_STATUS_NAMES[result.status],
         iterations=result.iterations_run,
         objective=objective,
+        fleet_stats=None if objective == "Duration" else {
+            name: getattr(result.fleet_stats, name)
+            for name in _FLEET_STATS_FIELDS
+        },
         incumbents=extra_incumbents + [
             Incumbent(i.value, i.seconds + incumbent_offset, i.iteration,
                       _ORIGIN_NAMES[i.origin])

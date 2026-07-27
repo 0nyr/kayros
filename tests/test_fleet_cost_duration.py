@@ -17,6 +17,9 @@ These are the FleetCostDuration legs of the checker-equivalence and ILS gates:
   under Duration;
 - solve() API: objective selection, misuse guards, checker equality by
   construction;
+- fleet_stats counters (Plan 12 M1): dissolve-kick lifecycle diagnostics,
+  self-consistent identities on a priced solve, None under Duration,
+  deterministic per seed;
 - Blauth-berlin n=10 smoke (skipped unless the converted family is reachable):
   the 10 h fleet penalty must actually buy route dissolves.
 """
@@ -300,6 +303,68 @@ def test_duration_solve_unchanged_by_carried_field(instance_path) -> None:
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
     assert b.objective == "Duration"
     assert "objective_function" not in b.to_benchmark_solution().metadata
+
+
+# --- fleet_stats counters (Plan 12 M1) --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "instance_path", DABIA_25[:1], ids=lambda p: p.name.removesuffix(".vrp.json")
+)
+def test_fleet_stats_none_under_duration(instance_path) -> None:
+    """Under Duration the dissolve is never armed, so the counters carry no
+    signal and the Solution surface stays the pre-M1 one (None)."""
+    solution = kayros.solve(
+        load_td_instance(instance_path), kayros.Params(ils_max_iterations=50), seed=1
+    )
+    assert solution.fleet_stats is None
+
+
+@pytest.mark.parametrize(
+    "instance_path", DABIA_25[:1], ids=lambda p: p.name.removesuffix(".vrp.json")
+)
+def test_fleet_stats_self_consistent_on_priced_solve(instance_path) -> None:
+    """Counter identities that hold by construction: one perturb per ILS
+    iteration, every applied kick is dissolved xor normal, every dissolved
+    kick is classified exactly once at both capture points, a new best is
+    always LAHC-accepted, and the descent never raises K (so kick-drops
+    survive to the judgment and kick-raises can only shrink)."""
+    loaded = with_fleet_cost(load_td_instance(instance_path), BLAUTH_F)
+    params = kayros.Params(objective="fleet_cost_duration", ils_max_iterations=300)
+    solution = kayros.solve(loaded, params, seed=11)
+    fks = solution.fleet_stats
+    assert fks is not None
+    assert all(v >= 0 for v in fks.values())
+    assert fks["kicks_total"] == solution.iterations
+    assert fks["kicks_applied"] <= fks["kicks_total"]
+    assert fks["kicks_applied"] == fks["dissolved_armed"] + fks["normal_kicks"]
+    assert fks["dissolved_armed"] > 0  # dissolve_pct=50 across 300 iterations
+    assert fks["dissolved_armed"] == (
+        fks["k_after_kick_lt"] + fks["k_after_kick_eq"] + fks["k_after_kick_gt"]
+    )
+    assert fks["dissolved_armed"] == (
+        fks["k_after_descent_lt"]
+        + fks["k_after_descent_eq"]
+        + fks["k_after_descent_gt"]
+    )
+    assert fks["k_after_descent_lt"] >= fks["k_after_kick_lt"]
+    assert fks["k_after_descent_gt"] <= fks["k_after_kick_gt"]
+    assert fks["dissolved_accepted_lahc"] <= fks["dissolved_armed"]
+    assert fks["dissolved_new_best"] <= fks["dissolved_accepted_lahc"]
+    assert fks["dissolved_new_best_k_lt"] <= fks["dissolved_new_best"]
+    assert fks["normal_accepted_lahc"] <= fks["normal_kicks"]
+    assert fks["normal_new_best"] <= fks["normal_accepted_lahc"]
+
+
+@pytest.mark.parametrize(
+    "instance_path", DABIA_25[:1], ids=lambda p: p.name.removesuffix(".vrp.json")
+)
+def test_fleet_stats_deterministic(instance_path) -> None:
+    loaded = with_fleet_cost(load_td_instance(instance_path), BLAUTH_F)
+    params = kayros.Params(objective="fleet_cost_duration", ils_max_iterations=120)
+    a = kayros.solve(loaded, params, seed=4)
+    b = kayros.solve(loaded, params, seed=4)
+    assert a.fleet_stats == b.fleet_stats
 
 
 # --- Blauth-berlin n=10 smoke ----------------------------------------------------

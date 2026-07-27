@@ -223,12 +223,45 @@ PYBIND11_MODULE(_core, m) {
         .value("TimeLimit", kayros::SolveStatus::TimeLimit)
         .value("Infeasible", kayros::SolveStatus::Infeasible);
 
+    py::class_<kayros::FleetKickStats>(m, "FleetKickStats")
+        .def_readonly("kicks_total", &kayros::FleetKickStats::kicks_total)
+        .def_readonly("kicks_applied", &kayros::FleetKickStats::kicks_applied)
+        .def_readonly("redraws_sum", &kayros::FleetKickStats::redraws_sum)
+        .def_readonly("dissolved_armed",
+                      &kayros::FleetKickStats::dissolved_armed)
+        .def_readonly("dissolve_undone_in_kick",
+                      &kayros::FleetKickStats::dissolve_undone_in_kick)
+        .def_readonly("normal_kicks", &kayros::FleetKickStats::normal_kicks)
+        .def_readonly("k_after_kick_lt",
+                      &kayros::FleetKickStats::k_after_kick_lt)
+        .def_readonly("k_after_kick_eq",
+                      &kayros::FleetKickStats::k_after_kick_eq)
+        .def_readonly("k_after_kick_gt",
+                      &kayros::FleetKickStats::k_after_kick_gt)
+        .def_readonly("k_after_descent_lt",
+                      &kayros::FleetKickStats::k_after_descent_lt)
+        .def_readonly("k_after_descent_eq",
+                      &kayros::FleetKickStats::k_after_descent_eq)
+        .def_readonly("k_after_descent_gt",
+                      &kayros::FleetKickStats::k_after_descent_gt)
+        .def_readonly("dissolved_accepted_lahc",
+                      &kayros::FleetKickStats::dissolved_accepted_lahc)
+        .def_readonly("normal_accepted_lahc",
+                      &kayros::FleetKickStats::normal_accepted_lahc)
+        .def_readonly("dissolved_new_best",
+                      &kayros::FleetKickStats::dissolved_new_best)
+        .def_readonly("normal_new_best",
+                      &kayros::FleetKickStats::normal_new_best)
+        .def_readonly("dissolved_new_best_k_lt",
+                      &kayros::FleetKickStats::dissolved_new_best_k_lt);
+
     py::class_<kayros::SolveResult>(m, "SolveResult")
         .def_readonly("routes", &kayros::SolveResult::routes)
         .def_readonly("value", &kayros::SolveResult::value)
         .def_readonly("incumbents", &kayros::SolveResult::incumbents)
         .def_readonly("status", &kayros::SolveResult::status)
-        .def_readonly("iterations_run", &kayros::SolveResult::iterations_run);
+        .def_readonly("iterations_run", &kayros::SolveResult::iterations_run)
+        .def_readonly("fleet_stats", &kayros::SolveResult::fleet_stats);
 
     m.def("greedy_makespan", [](const kayros::Instance& inst) {
         std::vector<std::vector<std::int32_t>> routes;

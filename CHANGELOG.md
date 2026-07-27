@@ -2,6 +2,12 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [Unreleased] — 1.3.0.dev0
+
+### Added
+
+- **Dissolve-kick lifecycle counters** (`SolveResult.fleet_stats`, surfaced as `Solution.fleet_stats` under FleetCostDuration; `None` under Duration): per-solve ILS diagnostics of the route-dissolve kick (armed / applied / undone-by-singleton-reopen counts, route-count deltas after the kick and after the granular descent, LAHC acceptance and new-best counts split dissolved vs normal kicks). Instrumentation only: integer increments and route-count reads, no rng draw and no change to any priced value, so Duration and FleetCostDuration trajectories are bitwise those of 1.2.1. These counters feed the fleet-descent mechanism design (the first Blauth2024 campaign showed the fleet term is the entire competitive gap).
+
 ## [1.2.1] — 2026-07-27
 
 ### Changed
