@@ -314,7 +314,7 @@ PYBIND11_MODULE(_core, m) {
         py::arg("instance"), py::arg("routes"), py::arg("seed"),
         py::arg("min_removals") = 1, py::arg("max_removals") = 25,
         py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2,
-        py::arg("dissolve_pct") = 25);
+        py::arg("dissolve_pct") = 50);
     m.def(
         "ls_evaluate_splice",
         [](const kayros::Instance& inst, const std::vector<std::int32_t>& route1,

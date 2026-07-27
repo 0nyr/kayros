@@ -2,6 +2,12 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.2.1] — 2026-07-27
+
+### Changed
+
+- **`dissolve_pct` default raised from 25 to 50.** The first FleetCostDuration benchmarking campaign on the Blauth2024 family (Grid'5000, 586 runs) ran a `dissolve_pct × max_perturbations` tuning grid: 50% dissolve pressure ranked first at every tested setting, 25% mid-pack, and disabling the kick was decisively worst (about +6% mean cost). Duration solves are unaffected (the kick stays disarmed when the objective does not price routes); FleetCostDuration runs that want the previous behavior pass `Params(dissolve_pct=25)` explicitly.
+
 ## [1.2.0] — 2026-07-26
 
 ### Added

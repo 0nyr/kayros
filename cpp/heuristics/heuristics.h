@@ -48,7 +48,7 @@ struct IlsParams {
     std::int32_t max_perturbations = 25;
     // Route-dissolve kick share (M7 FleetCostDuration; see PerturbParams).
     // Inert under Duration: only armed when the instance prices routes.
-    std::int32_t dissolve_pct = 25;
+    std::int32_t dissolve_pct = 50;
     // Late-acceptance hill climbing (Burke & Bykov 2017, both section-4.2
     // enhancements as in PyVRP).
     std::int32_t history_length = 300;

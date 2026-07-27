@@ -86,7 +86,7 @@ class Params:
     # kick removes one smallest route whole so its clients repair into the
     # rest. Inert under Duration (only armed when the objective prices
     # routes), so the default changes nothing for existing callers.
-    dissolve_pct: int = 25
+    dissolve_pct: int = 50
     lahc_history: int = 300
     restart_no_improvement: int = 20_000
     exhaustive_on_best: bool = True

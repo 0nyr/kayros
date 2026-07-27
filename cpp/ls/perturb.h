@@ -43,7 +43,7 @@ struct PerturbParams {
     std::int32_t min_removals = 1;
     std::int32_t max_removals = 25;
     std::int32_t max_redraws = 3;
-    std::int32_t dissolve_pct = 25;  // % of kicks that dissolve a smallest route
+    std::int32_t dissolve_pct = 50;  // % of kicks that dissolve a smallest route
 };
 
 struct PerturbOutcome {
