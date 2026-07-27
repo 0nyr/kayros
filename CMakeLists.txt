@@ -26,8 +26,10 @@ pybind11_add_module(_core
     cpp/ls/lca_tree.cpp
     cpp/ls/leaves.cpp
     cpp/ls/neighbours.cpp
+    cpp/ls/insertion.cpp
     cpp/ls/perturb.cpp
     cpp/ls/splice.cpp
+    cpp/ls/fleet_descent.cpp
     cpp/ls/local_search.cpp
 )
 target_include_directories(_core PRIVATE cpp)

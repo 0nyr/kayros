@@ -209,7 +209,15 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("restart_no_improvement",
                        &kayros::IlsParams::restart_no_improvement)
         .def_readwrite("exhaustive_on_best",
-                       &kayros::IlsParams::exhaustive_on_best);
+                       &kayros::IlsParams::exhaustive_on_best)
+        .def_readwrite("fd_attempts", &kayros::IlsParams::fd_attempts)
+        .def_readwrite("fd_k_max", &kayros::IlsParams::fd_k_max)
+        .def_readwrite("fd_ep_budget", &kayros::IlsParams::fd_ep_budget)
+        .def_readwrite("fd_time_cap_seconds",
+                       &kayros::IlsParams::fd_time_cap_seconds)
+        .def_readwrite("fd_period", &kayros::IlsParams::fd_period)
+        .def_readwrite("fd_route_choice", &kayros::IlsParams::fd_route_choice)
+        .def_readwrite("fd_pop_order", &kayros::IlsParams::fd_pop_order);
 
     py::class_<kayros::Incumbent>(m, "Incumbent")
         .def_readonly("value", &kayros::Incumbent::value)
@@ -255,13 +263,26 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("dissolved_new_best_k_lt",
                       &kayros::FleetKickStats::dissolved_new_best_k_lt);
 
+    py::class_<kayros::FdStats>(m, "FdStats")
+        .def_readonly("triggers", &kayros::FdStats::triggers)
+        .def_readonly("attempts", &kayros::FdStats::attempts)
+        .def_readonly("successes", &kayros::FdStats::successes)
+        .def_readonly("pops", &kayros::FdStats::pops)
+        .def_readonly("step1_inserts", &kayros::FdStats::step1_inserts)
+        .def_readonly("ejections", &kayros::FdStats::ejections)
+        .def_readonly("rollbacks_deadend",
+                      &kayros::FdStats::rollbacks_deadend)
+        .def_readonly("rollbacks_budget", &kayros::FdStats::rollbacks_budget)
+        .def_readonly("rollbacks_time", &kayros::FdStats::rollbacks_time);
+
     py::class_<kayros::SolveResult>(m, "SolveResult")
         .def_readonly("routes", &kayros::SolveResult::routes)
         .def_readonly("value", &kayros::SolveResult::value)
         .def_readonly("incumbents", &kayros::SolveResult::incumbents)
         .def_readonly("status", &kayros::SolveResult::status)
         .def_readonly("iterations_run", &kayros::SolveResult::iterations_run)
-        .def_readonly("fleet_stats", &kayros::SolveResult::fleet_stats);
+        .def_readonly("fleet_stats", &kayros::SolveResult::fleet_stats)
+        .def_readonly("fd_stats", &kayros::SolveResult::fd_stats);
 
     m.def("greedy_makespan", [](const kayros::Instance& inst) {
         std::vector<std::vector<std::int32_t>> routes;
@@ -348,6 +369,45 @@ PYBIND11_MODULE(_core, m) {
         py::arg("min_removals") = 1, py::arg("max_removals") = 25,
         py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2,
         py::arg("dissolve_pct") = 50);
+    m.def(
+        "ls_fleet_descent",
+        [](const kayros::Instance& inst,
+           std::vector<std::vector<std::int32_t>> routes, std::uint64_t seed,
+           std::int32_t k_max, std::int64_t ep_budget,
+           std::int32_t route_choice, std::int32_t pop_order,
+           std::int32_t num_neighbours, double weight_wait) {
+            const kayros::NeighbourLists nb =
+                kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
+            kayros::SearchState ss;
+            if (!kayros::init_search_state(inst, routes, ss)) {
+                throw std::invalid_argument("input solution is infeasible");
+            }
+            std::mt19937_64 rng(seed);
+            kayros::FleetDescentParams params;
+            params.k_max = k_max;
+            params.ep_budget = ep_budget;
+            params.route_choice = route_choice;
+            params.pop_order = pop_order;
+            std::vector<std::int32_t> pcount(
+                static_cast<std::size_t>(inst.num_customers) + 1, 0);
+            kayros::FdStats stats;
+            const bool success = kayros::fleet_descent(
+                inst, nb, ss, rng, params, pcount, nullptr, &stats);
+            routes.clear();
+            routes.reserve(ss.states.size());
+            for (kayros::RouteState& s : ss.states) {
+                routes.push_back(std::move(s.vertices));
+            }
+            const double value = kayros::solution_duration(inst, routes);
+            return py::make_tuple(std::move(routes), value, success,
+                                  stats.pops, stats.step1_inserts,
+                                  stats.ejections, stats.rollbacks_deadend,
+                                  stats.rollbacks_budget);
+        },
+        py::arg("instance"), py::arg("routes"), py::arg("seed"),
+        py::arg("k_max") = 2, py::arg("ep_budget") = 2000,
+        py::arg("route_choice") = 0, py::arg("pop_order") = 0,
+        py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2);
     m.def(
         "ls_evaluate_splice",
         [](const kayros::Instance& inst, const std::vector<std::int32_t>& route1,

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "core/instance.h"
+#include "ls/fleet_descent.h"
 
 namespace kayros {
 
@@ -58,6 +59,18 @@ struct IlsParams {
     std::int64_t restart_no_improvement = 20000;
     // Exhaustive-VND polish on every new global best (PyVRP-consistent).
     bool exhaustive_on_best = true;
+    // Plan-12 M4 fleet-descent phase (NBRMH-lite ejection ladder), run on the
+    // incumbent at every restart-to-best trigger (and every fd_period
+    // iterations when fd_period > 0). Armed only when the instance prices
+    // routes (fixed_route_cost > 0): under Duration no draw is consumed and
+    // the branch is dead code, so 1.1.x streams stay bitwise.
+    std::int32_t fd_attempts = 3;        // attempts per trigger; 0 disables
+    std::int32_t fd_k_max = 2;           // max ejection-window size
+    std::int64_t fd_ep_budget = 2000;    // max pool pops per attempt
+    double fd_time_cap_seconds = 10.0;   // wall cap per trigger
+    std::int64_t fd_period = 0;          // 0 = stagnation-trigger only
+    std::int32_t fd_route_choice = 0;    // 0 random, 1 smallest
+    std::int32_t fd_pop_order = 0;       // 0 LIFO, 1 difficult-first
 };
 
 struct Incumbent {
@@ -112,6 +125,7 @@ struct SolveResult {
     SolveStatus status = SolveStatus::Infeasible;
     std::uint64_t iterations_run = 0;
     FleetKickStats fleet_stats;
+    FdStats fd_stats;  // Plan-12 M4 fleet-descent phase diagnostics (ILS only)
 };
 
 // Deterministic greedy nearest-ready-time construction (GMH1 port): routes

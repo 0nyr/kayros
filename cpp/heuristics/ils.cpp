@@ -6,6 +6,7 @@
 
 #include "core/queries.h"
 #include "heuristics/heuristics.h"
+#include "ls/fleet_descent.h"
 #include "ls/ls.h"
 #include "ls/perturb.h"
 
@@ -143,6 +144,55 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     std::uint64_t iteration = 0;
     std::int64_t no_improvement = 0;
 
+    // Plan-12 M4 fleet-descent phase. Armed only when routes are priced:
+    // under Duration the branch is dead code and no draw is consumed, so
+    // 1.1.x rng streams stay bitwise.
+    FleetDescentParams fd_params;
+    fd_params.k_max = params.fd_k_max;
+    fd_params.ep_budget = params.fd_ep_budget;
+    fd_params.route_choice = params.fd_route_choice;
+    fd_params.pop_order = params.fd_pop_order;
+    std::vector<std::int32_t> fd_pcount(
+        static_cast<std::size_t>(inst.num_customers) + 1, 0);
+    const bool fd_armed = inst.fixed_route_cost > 0.0 && params.fd_attempts > 0;
+    // Up to fd_attempts dissolve attempts on the live state; on success the
+    // K-1 solution gets the full basin treatment (granular descent +
+    // exhaustive polish) and the repriced value is returned (NaN when no
+    // attempt stuck; the state is then bitwise unperturbed).
+    const auto run_fleet_descent = [&]() -> double {
+        ++result.fd_stats.triggers;
+        Clock::time_point cap_point =
+            Clock::now() + std::chrono::duration_cast<Clock::duration>(
+                               std::chrono::duration<double>(
+                                   params.fd_time_cap_seconds));
+        const Clock::time_point* fd_deadline = &cap_point;
+        if (deadline != nullptr && *deadline < cap_point) fd_deadline = deadline;
+        bool dropped = false;
+        for (std::int32_t a = 0; a < params.fd_attempts; ++a) {
+            if (Clock::now() >= *fd_deadline) break;
+            if (fleet_descent(inst, nb, ss, rng, fd_params, fd_pcount,
+                              fd_deadline, &result.fd_stats)) {
+                dropped = true;
+                break;
+            }
+        }
+        if (!dropped) return std::numeric_limits<double>::quiet_NaN();
+        mark_all_touched(ss);
+        double cand = ls_descend(inst, nb, ss, nullptr, deadline);
+        if (params.exhaustive_on_best && !past()) {
+            mark_all_touched(ss);
+            cand = ls_descend(inst, exhaustive, ss, nullptr, deadline);
+        }
+        if (cand < best) {
+            best = cand;
+            result.routes = extract_routes(ss);
+            result.value = best;
+            result.incumbents.push_back({best, elapsed(), iteration, 2});
+            if (on_incumbent) on_incumbent(result.incumbents.back(), result.routes);
+        }
+        return cand;
+    };
+
     for (; iteration < params.max_iterations; ++iteration) {
         if (past()) {
             status = SolveStatus::TimeLimit;
@@ -152,10 +202,22 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             // Restart-to-best: fresh state, cleared history.
             if (!init_search_state(inst, result.routes, ss)) break;
             curr = best;
+            // Fleet-descent on the incumbent before the fresh window opens;
+            // curr keeps pricing whatever state ss holds.
+            if (fd_armed && !past()) {
+                const double fd_cand = run_fleet_descent();
+                if (!std::isnan(fd_cand)) curr = fd_cand;
+            }
             std::fill(history.begin(), history.end(),
                       std::numeric_limits<double>::quiet_NaN());
             history_idx = 0;
             no_improvement = 0;
+        }
+        if (fd_armed && params.fd_period > 0 && iteration > 0 &&
+            iteration % static_cast<std::uint64_t>(params.fd_period) == 0 &&
+            !past()) {
+            const double fd_cand = run_fleet_descent();
+            if (!std::isnan(fd_cand)) curr = fd_cand;
         }
 
         take_snapshot(ss, snapshot);

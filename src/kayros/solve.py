@@ -90,6 +90,18 @@ class Params:
     lahc_history: int = 300
     restart_no_improvement: int = 20_000
     exhaustive_on_best: bool = True
+    # Fleet-descent phase (Plan 12 M4, 1.3.0): an NBRMH-style ejection-ladder
+    # route elimination run on the incumbent at every restart-to-best trigger
+    # (and every fd_period iterations when fd_period > 0). Inert under
+    # Duration (only armed when the objective prices routes). fd_attempts=0
+    # disables it entirely (the pre-M4 behavior).
+    fd_attempts: int = 3
+    fd_k_max: int = 2
+    fd_ep_budget: int = 2000
+    fd_time_cap_seconds: float = 10.0
+    fd_period: int = 0
+    fd_route_choice: int = 0  # 0 uniform random victim, 1 smallest
+    fd_pop_order: int = 0  # 0 LIFO, 1 difficult-first
     ils_max_iterations: int = 0
     # "aco+ils": fraction of the time limit given to the ACO phase.
     aco_budget_fraction: float = 0.5
@@ -124,6 +136,13 @@ class Params:
         params.history_length = self.lahc_history
         params.restart_no_improvement = self.restart_no_improvement
         params.exhaustive_on_best = self.exhaustive_on_best
+        params.fd_attempts = self.fd_attempts
+        params.fd_k_max = self.fd_k_max
+        params.fd_ep_budget = self.fd_ep_budget
+        params.fd_time_cap_seconds = self.fd_time_cap_seconds
+        params.fd_period = self.fd_period
+        params.fd_route_choice = self.fd_route_choice
+        params.fd_pop_order = self.fd_pop_order
         return params
 
 
@@ -167,6 +186,9 @@ class Solution:
     # plain dict of the core FleetKickStats fields. None under "Duration",
     # where the dissolve is never armed and the counters carry no signal.
     fleet_stats: dict[str, int] | None = None
+    # Plan-12 M4 fleet-descent phase diagnostics (core FdStats fields), same
+    # contract: None under "Duration" (the phase is never armed there).
+    fd_stats: dict[str, int] | None = None
 
     @property
     def num_routes(self) -> int:
@@ -194,6 +216,18 @@ _STATUS_NAMES = {
     _core.SolveStatus.Converged: "converged",
     _core.SolveStatus.TimeLimit: "time_limit",
 }
+
+_FD_STATS_FIELDS = (
+    "triggers",
+    "attempts",
+    "successes",
+    "pops",
+    "step1_inserts",
+    "ejections",
+    "rollbacks_deadend",
+    "rollbacks_budget",
+    "rollbacks_time",
+)
 
 _FLEET_STATS_FIELDS = (
     "kicks_total",
@@ -355,6 +389,10 @@ def solve(
         fleet_stats=None if objective == "Duration" else {
             name: getattr(result.fleet_stats, name)
             for name in _FLEET_STATS_FIELDS
+        },
+        fd_stats=None if objective == "Duration" else {
+            name: getattr(result.fd_stats, name)
+            for name in _FD_STATS_FIELDS
         },
         incumbents=extra_incumbents + [
             Incumbent(i.value, i.seconds + incumbent_offset, i.iteration,
