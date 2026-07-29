@@ -79,7 +79,18 @@ struct IlsParams {
     // both may be combined with their iteration-count counterparts
     // (whichever fires first wins). fd_period_work is F-gated like fd_period.
     std::int64_t fd_period_work = 0;
-    std::int64_t restart_no_improvement_work = 0;
+    // BREAKING default in 1.3.0 (session 45): the flat restart threshold
+    // above effectively never fired at n >= 500 (dead code on realistic
+    // budgets), so the work-based restart is ON by default: ~a few hundred
+    // seconds of stall at the calibrated ~650k units/s single-core rate,
+    // at every instance size. Long Duration runs therefore diverge from
+    // 1.1.x AT DEFAULTS; set 0 to recover bitwise 1.1.x streams.
+    std::int64_t restart_no_improvement_work = 250'000'000;
+    // M5 n-scaling of the kick magnitude: when > 0, the perturbation's
+    // max_removals becomes max(max_perturbations, ceil(pct * n)). Any
+    // non-zero value shifts the removal-target draw span and thus the rng
+    // stream, so the default stays 0.0 (inert) and non-zero is opt-in.
+    double max_perturbation_pct = 0.0;
 };
 
 struct Incumbent {

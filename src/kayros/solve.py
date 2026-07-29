@@ -110,7 +110,16 @@ class Params:
     # iteration-count counterpart (whichever fires first). fd_period_work only
     # arms when the objective prices routes, like fd_period.
     fd_period_work: int = 0
-    restart_no_improvement_work: int = 0
+    # BREAKING default in 1.3.0: the work-based restart is ON by default
+    # (the flat restart_no_improvement=20000 above never fires on realistic
+    # budgets at n >= 500). Long Duration runs therefore diverge from 1.1.x
+    # AT DEFAULTS; pass restart_no_improvement_work=0 to recover bitwise
+    # 1.1.x streams.
+    restart_no_improvement_work: int = 250_000_000
+    # M5 n-scaling of the kick magnitude (opt-in): when > 0, max_removals
+    # becomes max(max_perturbations, ceil(pct * n)). Non-zero shifts the
+    # rng draw span, so the default stays 0.0 (inert).
+    max_perturbation_pct: float = 0.0
     ils_max_iterations: int = 0
     # "aco+ils": fraction of the time limit given to the ACO phase.
     aco_budget_fraction: float = 0.5
@@ -154,6 +163,7 @@ class Params:
         params.fd_pop_order = self.fd_pop_order
         params.fd_period_work = self.fd_period_work
         params.restart_no_improvement_work = self.restart_no_improvement_work
+        params.max_perturbation_pct = self.max_perturbation_pct
         return params
 
 
