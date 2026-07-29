@@ -219,8 +219,6 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("fd_period_work", &kayros::IlsParams::fd_period_work)
         .def_readwrite("restart_no_improvement_work",
                        &kayros::IlsParams::restart_no_improvement_work)
-        .def_readwrite("max_perturbation_pct",
-                       &kayros::IlsParams::max_perturbation_pct)
         .def_readwrite("fd_route_choice", &kayros::IlsParams::fd_route_choice)
         .def_readwrite("fd_pop_order", &kayros::IlsParams::fd_pop_order);
 

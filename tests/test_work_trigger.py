@@ -63,7 +63,7 @@ def test_fd_work_trigger_fires_on_priced_solve(instance_path) -> None:
     loaded = with_fleet_cost(load_td_instance(instance_path), BLAUTH_F)
     base = dict(objective="fleet_cost_duration", ils_max_iterations=300,
                 restart_no_improvement_work=0)
-    off = kayros.solve(loaded, kayros.Params(**base), seed=11)
+    off = kayros.solve(loaded, kayros.Params(**base, fd_period_work=0), seed=11)
     on = kayros.solve(
         loaded, kayros.Params(**base, fd_period_work=20_000), seed=11
     )
@@ -78,20 +78,19 @@ def test_fd_work_trigger_fires_on_priced_solve(instance_path) -> None:
 
 @parametrized
 def test_work_restart_default_active(instance_path) -> None:
-    """1.3.0 BREAKING default: restart_no_improvement_work = 250M is ON.
-    The 250M window is a deliberate wall-clock-scale stall (minutes on one
-    core), so a short suite run must NOT fire it: defaults are bitwise the
-    explicit-250M run, short runs stay restart-free at ANY size (n=25 at
-    4000 iterations accumulates ~12M units), and the mechanism itself is
-    proven by the small-threshold leg above. The at-scale firing behavior is
-    validated on Grid'5000 (plan 12 M7 daytime A/B), not here."""
-    assert kayros.Params().restart_no_improvement_work == 250_000_000
+    """1.3.0 BREAKING default: restart_no_improvement_work = 1G is ON.
+    The 1G window is a deliberate ~25-minute stall on one modern core (the
+    250M variant measurably hurt sub-half-hour budgets in the M7 daytime
+    A/B), so a short suite run must NOT fire it: defaults are bitwise the
+    explicit-1G run and short runs stay restart-free at any size. The
+    at-scale firing behavior is validated on Grid'5000, not here."""
+    assert kayros.Params().restart_no_improvement_work == 1_000_000_000
     loaded = load_td_instance(instance_path)
     on = kayros.solve(loaded, kayros.Params(ils_max_iterations=1500), seed=9)
     pinned = kayros.solve(
         loaded,
         kayros.Params(ils_max_iterations=1500,
-                      restart_no_improvement_work=250_000_000),
+                      restart_no_improvement_work=1_000_000_000),
         seed=9,
     )
     off = kayros.solve(
@@ -103,36 +102,6 @@ def test_work_restart_default_active(instance_path) -> None:
     assert on.work_units == pinned.work_units
     assert on.restarts == 0 and off.restarts == 0
     assert on.routes == off.routes and on.work_units == off.work_units
-
-
-def test_max_perturbation_pct_inert_at_zero_and_scales() -> None:
-    """M5 knob: the 0.0 default is bitwise-inert; a pct whose ceil(pct*n)
-    exceeds max_perturbations shifts the draw span (different deterministic
-    stream)."""
-    n100 = family_instances("TDVRPTW", "Dabia2013", ["n=100"])
-    if not n100:
-        pytest.skip("Dabia n=100 not present")
-    loaded = load_td_instance(n100[0])
-    base = kayros.solve(loaded, kayros.Params(ils_max_iterations=150), seed=4)
-    zero = kayros.solve(
-        loaded,
-        kayros.Params(ils_max_iterations=150, max_perturbation_pct=0.0),
-        seed=4,
-    )
-    assert base.routes == zero.routes and base.duration == zero.duration
-    assert base.work_units == zero.work_units
-    scaled = kayros.solve(
-        loaded,
-        kayros.Params(ils_max_iterations=150, max_perturbation_pct=0.5),
-        seed=4,
-    )
-    scaled2 = kayros.solve(
-        loaded,
-        kayros.Params(ils_max_iterations=150, max_perturbation_pct=0.5),
-        seed=4,
-    )
-    assert scaled.routes == scaled2.routes and scaled.duration == scaled2.duration
-    assert scaled.routes != base.routes or scaled.work_units != base.work_units
 
 
 @parametrized

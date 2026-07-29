@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <random>
@@ -129,16 +128,6 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     PerturbParams perturb_params;
     perturb_params.min_removals = params.min_perturbations;
     perturb_params.max_removals = params.max_perturbations;
-    // M5 n-scaling (opt-in): a fraction of the customer count as the removal
-    // ceiling, never below the flat knob. Only reached when the caller sets a
-    // non-zero pct, so the default draw span (and rng stream) is unchanged.
-    if (params.max_perturbation_pct > 0.0) {
-        perturb_params.max_removals = std::max(
-            params.max_perturbations,
-            static_cast<std::int32_t>(std::ceil(
-                params.max_perturbation_pct *
-                static_cast<double>(inst.num_customers))));
-    }
     perturb_params.dissolve_pct = params.dissolve_pct;
 
     // LAHC slots (Burke & Bykov 2017 with PyVRP's RingBuffer semantics: the
