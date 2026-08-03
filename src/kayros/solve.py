@@ -51,6 +51,12 @@ class Params:
 
     strategy: str = "ils"
     objective: str = "duration"
+    # ACO-only parameters (strategy="aco" / "aco+ils"): every field from
+    # max_iterations through ls_all_ants below is read by _to_core (the ACO
+    # loop) only. The default "ils" strategy reads NONE of them (see
+    # _to_ils_core); they are dormant in a default solve() and kept for the
+    # opt-in ACO strategies. Do not infer the running algorithm from their
+    # presence here.
     max_iterations: int = 3000
     max_no_improvement: int = 20
     nb_ants: int = 8
@@ -68,6 +74,7 @@ class Params:
     # LS scope (M3.5.4 round 2): apply TD-LS to every feasible ant instead of
     # the iteration-best only. More LS work per iteration, denser deposits.
     ls_all_ants: bool = False
+    # Shared by EVERY strategy from here on (ILS included), until noted.
     # Granular candidate lists (M7.0): per client, the num_neighbours nearest
     # others under a TD adaptation of the Vidal (2013) proximity (min ATF
     # travel duration + weight_wait * inevitable wait), restricting the LS
@@ -122,7 +129,8 @@ class Params:
     # recover bitwise 1.1.x streams.
     restart_no_improvement_work: int = 1_000_000_000
     ils_max_iterations: int = 0
-    # "aco+ils": fraction of the time limit given to the ACO phase.
+    # strategy="aco+ils" ONLY: fraction of the time limit given to the ACO
+    # phase. Unused by the default "ils" strategy and by pure "aco".
     aco_budget_fraction: float = 0.5
 
     def _to_core(self) -> _core.AcoParams:
@@ -288,6 +296,14 @@ def solve(
     """Solve a MAMUT TD instance (TDVRPTW or TDVRP; Duration minimization by
     default, FleetCostDuration via ``params.objective``).
 
+    The search strategy is ``params.strategy`` and the DEFAULT is ``"ils"``
+    (greedy seed, then single-trajectory TD-ILS; the default since 0.4.0,
+    picked by the ILS-vs-ACO head-to-head campaign, see ``Params``). A
+    default call (``params=None`` or ``Params()``) therefore involves no
+    ant, colony or pheromone machinery: ACO only runs when explicitly
+    requested via ``strategy="aco"`` or the experimental ``"aco+ils"``
+    split.
+
     ``instance`` is a ``.vrp.json`` path or an already-loaded
     ``LoadedTDInstance``. The returned ``Solution.duration`` is priced by the
     reference checker under the selected objective; an internal/checker
@@ -296,7 +312,7 @@ def solve(
 
     ``on_incumbent`` makes the solve anytime: it fires synchronously on every
     new incumbent (the greedy seed included) with the ``Incumbent`` record and
-    the routes, so callers can checkpoint solutions while the colony keeps
+    the routes, so callers can checkpoint solutions while the search keeps
     running. Keep the hook cheap — the solve loop blocks on it; an exception
     raised inside it aborts the solve and propagates.
     """
