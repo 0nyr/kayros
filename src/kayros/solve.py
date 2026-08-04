@@ -218,6 +218,12 @@ class Solution:
     # Plan-12 M4 fleet-descent phase diagnostics (core FdStats fields), same
     # contract: None under "Duration" (the phase is never armed there).
     fd_stats: dict[str, int] | None = None
+    # Route-count movement over the solve (core KStats fields). Unlike
+    # fleet_stats and fd_stats this is recorded under EVERY objective, because
+    # the route count moves under Duration too and used to be invisible there:
+    # every K counter the solver had lived inside the FleetCostDuration-gated
+    # dissolve branch. Always a dict for an ILS solve; empty for pure ACO.
+    k_stats: dict[str, int] = field(default_factory=dict)
     # Work-trigger diagnostics (session 44, ILS only; 0 for pure ACO): total
     # LS work units spent (candidate pricings; work_units / wall seconds is
     # the machine's work rate, the calibration source for the *_work
@@ -262,6 +268,23 @@ _FD_STATS_FIELDS = (
     "rollbacks_deadend",
     "rollbacks_budget",
     "rollbacks_time",
+)
+
+_K_STATS_FIELDS = (
+    "k_seed",
+    "k_final",
+    "k_best_min",
+    "k_best_max",
+    "singleton_opens",
+    "kicks_opening",
+    "k_up_after_kick",
+    "k_down_after_kick",
+    "k_up_after_descent",
+    "k_down_after_descent",
+    "accepted_k_up",
+    "accepted_k_down",
+    "new_best_k_up",
+    "new_best_k_down",
 )
 
 _FLEET_STATS_FIELDS = (
@@ -441,6 +464,9 @@ def solve(
         },
         work_units=result.work_units,
         restarts=result.restarts,
+        k_stats={
+            name: getattr(result.k_stats, name) for name in _K_STATS_FIELDS
+        },
         incumbents=extra_incumbents + [
             Incumbent(i.value, i.seconds + incumbent_offset, i.iteration,
                       _ORIGIN_NAMES[i.origin])

@@ -278,6 +278,22 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("rollbacks_budget", &kayros::FdStats::rollbacks_budget)
         .def_readonly("rollbacks_time", &kayros::FdStats::rollbacks_time);
 
+    py::class_<kayros::KStats>(m, "KStats")
+        .def_readonly("k_seed", &kayros::KStats::k_seed)
+        .def_readonly("k_final", &kayros::KStats::k_final)
+        .def_readonly("k_best_min", &kayros::KStats::k_best_min)
+        .def_readonly("k_best_max", &kayros::KStats::k_best_max)
+        .def_readonly("singleton_opens", &kayros::KStats::singleton_opens)
+        .def_readonly("kicks_opening", &kayros::KStats::kicks_opening)
+        .def_readonly("k_up_after_kick", &kayros::KStats::k_up_after_kick)
+        .def_readonly("k_down_after_kick", &kayros::KStats::k_down_after_kick)
+        .def_readonly("k_up_after_descent", &kayros::KStats::k_up_after_descent)
+        .def_readonly("k_down_after_descent", &kayros::KStats::k_down_after_descent)
+        .def_readonly("accepted_k_up", &kayros::KStats::accepted_k_up)
+        .def_readonly("accepted_k_down", &kayros::KStats::accepted_k_down)
+        .def_readonly("new_best_k_up", &kayros::KStats::new_best_k_up)
+        .def_readonly("new_best_k_down", &kayros::KStats::new_best_k_down);
+
     py::class_<kayros::SolveResult>(m, "SolveResult")
         .def_readonly("routes", &kayros::SolveResult::routes)
         .def_readonly("value", &kayros::SolveResult::value)
@@ -287,7 +303,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("fleet_stats", &kayros::SolveResult::fleet_stats)
         .def_readonly("fd_stats", &kayros::SolveResult::fd_stats)
         .def_readonly("work_units", &kayros::SolveResult::work_units)
-        .def_readonly("restarts", &kayros::SolveResult::restarts);
+        .def_readonly("restarts", &kayros::SolveResult::restarts)
+        .def_readonly("k_stats", &kayros::SolveResult::k_stats);
 
     m.def("greedy_makespan", [](const kayros::Instance& inst) {
         std::vector<std::vector<std::int32_t>> routes;

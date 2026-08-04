@@ -139,6 +139,39 @@ struct FleetKickStats {
     std::int64_t dissolved_new_best_k_lt = 0;  // dissolved new best with fewer routes than the incumbent
 };
 
+// Route-count movement over a solve, recorded under EVERY objective.
+//
+// FleetKickStats above answers the same question for FleetCostDuration only:
+// every one of its K counters lives inside the dissolve branch, which is
+// F-gated, so under Duration they are structurally zero. That made the
+// solver's K behavior unobservable exactly where it turned out to matter — a
+// Duration run's route count is set by the seed and then drifts down, and
+// nothing in the record said so. These counters are never gated.
+//
+// Same discipline as FleetKickStats: integer increments and route-count reads
+// only, no rng draw and no priced value, so streams stay bitwise with or
+// without them.
+struct KStats {
+    std::int64_t k_seed = 0;    // routes in the solution the search started from
+    std::int64_t k_final = 0;   // routes in the returned best
+    std::int64_t k_best_min = 0;  // extremes over the incumbents published
+    std::int64_t k_best_max = 0;
+    // Route openings by the repair's last-resort singleton fallback, the only
+    // in-loop mechanism that can raise K (see ls/perturb.cpp).
+    std::int64_t singleton_opens = 0;   // routes opened, summed over kicks
+    std::int64_t kicks_opening = 0;     // kicks whose repair opened at least one
+    // K across the kick, and across kick + granular descent, versus before it.
+    std::int64_t k_up_after_kick = 0;
+    std::int64_t k_down_after_kick = 0;
+    std::int64_t k_up_after_descent = 0;
+    std::int64_t k_down_after_descent = 0;
+    // Outcomes that actually survived: LAHC-accepted, and new global bests.
+    std::int64_t accepted_k_up = 0;
+    std::int64_t accepted_k_down = 0;
+    std::int64_t new_best_k_up = 0;
+    std::int64_t new_best_k_down = 0;
+};
+
 struct SolveResult {
     std::vector<std::vector<std::int32_t>> routes;  // best solution (customer ids, no depot)
     double value = 0.0;                             // its solution_duration
@@ -147,6 +180,7 @@ struct SolveResult {
     std::uint64_t iterations_run = 0;
     FleetKickStats fleet_stats;
     FdStats fd_stats;  // Plan-12 M4 fleet-descent phase diagnostics (ILS only)
+    KStats k_stats;    // route-count movement, recorded under every objective
     // Work-trigger diagnostics (ILS only): total LS work units spent
     // (calibration source for the *_work thresholds: work_units divided by
     // wall seconds is the machine's work rate) and restart-to-best count.
