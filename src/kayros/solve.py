@@ -311,10 +311,12 @@ def solve(
     tolerate).
 
     ``on_incumbent`` makes the solve anytime: it fires synchronously on every
-    new incumbent (the greedy seed included) with the ``Incumbent`` record and
-    the routes, so callers can checkpoint solutions while the search keeps
-    running. Keep the hook cheap — the solve loop blocks on it; an exception
-    raised inside it aborts the solve and propagates.
+    new incumbent with the ``Incumbent`` record and the routes, so callers can
+    checkpoint solutions while the search keeps running. The stream is strictly
+    improving and opens on the ``"greedy"`` seed within a fraction of a second
+    at every instance size (1.4.0), well before the first descent lands. Keep
+    the hook cheap — the solve loop blocks on it; an
+    exception raised inside it aborts the solve and propagates.
     """
     loaded = instance if isinstance(instance, LoadedTDInstance) else load_instance(instance)
     params = params or Params()

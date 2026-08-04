@@ -6,8 +6,21 @@
 
 namespace kayros {
 
-bool greedy_makespan(const Instance& inst,
-                     std::vector<std::vector<std::int32_t>>& routes_out) {
+namespace {
+
+// Shared route-building loop of the shipped construction and its historical
+// GMH1 reference. `lookahead` picks the selection rule among the free
+// customers directly reachable from the current position: with lookahead, the
+// one with the earliest multi-hop ready time (a TD Dijkstra over the free
+// customers); without it, the one with the earliest direct ready time.
+// Everything else — route opening at the earliest depot departure, the
+// capacity and depot-return guards, the smallest-id tie break, the stuck
+// detection — is identical, so the two differ exactly in the per-placement
+// Dijkstra: O(n) ready_next calls per placement instead of O(n^2), hence an
+// O(n^2) construction instead of an O(n^3) one.
+bool construct(const Instance& inst,
+               std::vector<std::vector<std::int32_t>>& routes_out,
+               bool lookahead) {
     const std::int32_t n = inst.num_customers;
     const std::int32_t nv = inst.num_vertices();
     std::vector<std::uint8_t> free_v(static_cast<std::size_t>(nv), 1);
@@ -23,18 +36,21 @@ bool greedy_makespan(const Instance& inst,
         double t = dep_lo;
         std::int64_t load = 0;
         while (true) {
-            detail::earliest_ready_times(inst, current, t, free_v, eat);
-            // Select the free customer with the earliest multi-hop ready time
-            // among those directly reachable (smallest id breaks ties).
+            if (lookahead) {
+                detail::earliest_ready_times(inst, current, t, free_v, eat);
+            }
+            // Select the free customer with the smallest selection key among
+            // those directly reachable (smallest id breaks ties).
             std::int32_t next = -1;
             double next_ready = kInfeasible;
-            double best_eat = kInfeasible;
+            double best_key = kInfeasible;
             for (std::int32_t v = 1; v < nv; ++v) {
                 if (!free_v[v]) continue;
                 const double ready = ready_next(inst, current, v, t);
                 if (ready == kInfeasible) continue;
-                if (eat[v] < best_eat) {
-                    best_eat = eat[v];
+                const double key = lookahead ? eat[v] : ready;
+                if (key < best_key) {
+                    best_key = key;
                     next = v;
                     next_ready = ready;
                 }
@@ -55,6 +71,19 @@ bool greedy_makespan(const Instance& inst,
         routes_out.push_back(std::move(path));
     }
     return true;
+}
+
+}  // namespace
+
+bool greedy_makespan(const Instance& inst,
+                     std::vector<std::vector<std::int32_t>>& routes_out) {
+    return construct(inst, routes_out, /*lookahead=*/false);
+}
+
+bool greedy_makespan_lookahead(
+    const Instance& inst,
+    std::vector<std::vector<std::int32_t>>& routes_out) {
+    return construct(inst, routes_out, /*lookahead=*/true);
 }
 
 double solution_duration(const Instance& inst,

@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <utility>
 #include <vector>
@@ -81,14 +82,38 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     SolveResult result;
 
+    // Single publication point for the anytime stream: records the incumbent,
+    // fires the hook, and keeps the stream strictly decreasing.
+    double published = std::numeric_limits<double>::infinity();
+    const auto publish =
+        [&](double value, std::uint64_t iteration, std::int32_t origin,
+            const std::vector<std::vector<std::int32_t>>& routes) {
+            if (!(value < published)) return;
+            published = value;
+            result.incumbents.push_back({value, elapsed(), iteration, origin});
+            if (on_incumbent) on_incumbent(result.incumbents.back(), routes);
+        };
+
     // Seed (warm-start routes when provided, greedy otherwise) + descent.
     std::vector<std::vector<std::int32_t>> seed_routes =
         std::move(initial_routes);
-    if (seed_routes.empty() &&
-        (!greedy_makespan(inst, seed_routes) ||
-         solution_duration(inst, seed_routes) == kInfeasible)) {
-        result.status = SolveStatus::Infeasible;
-        return result;
+    if (seed_routes.empty()) {
+        if (!greedy_makespan(inst, seed_routes)) {
+            result.status = SolveStatus::Infeasible;
+            return result;
+        }
+        const double seed_value = solution_duration(inst, seed_routes);
+        if (seed_value == kInfeasible) {
+            result.status = SolveStatus::Infeasible;
+            return result;
+        }
+        // Publish-early (1.4.0, plan 13 I1): the raw seed goes out the moment
+        // it is built, before the first descent, which is itself a minutes-long
+        // stretch of silence at scale. Together with the O(n^2) construction
+        // this opens the anytime stream in well under a second at every size,
+        // where 1.3.0 published nothing for ~100 s at n = 1000. Warm-started
+        // callers skip it: their solution is already the incumbent.
+        publish(seed_value, 0, 0, seed_routes);
     }
     const NeighbourLists nb =
         build_neighbour_lists(inst, params.num_neighbours, params.weight_wait);
@@ -108,8 +133,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     double best = curr;
     result.routes = extract_routes(ss);
     result.value = best;
-    result.incumbents.push_back({best, elapsed(), 0, 0});  // origin 0 = seed
-    if (on_incumbent) on_incumbent(result.incumbents.back(), result.routes);
+    publish(best, 0, 0, result.routes);  // origin 0 = seed
 
     // Exhaustive polish of the initial best (PyVRP's exhaustive_on_best).
     if (params.exhaustive_on_best && !past()) {
@@ -119,8 +143,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             best = curr;
             result.routes = extract_routes(ss);
             result.value = best;
-            result.incumbents.push_back({best, elapsed(), 0, 2});
-            if (on_incumbent) on_incumbent(result.incumbents.back(), result.routes);
+            publish(best, 0, 2, result.routes);
         }
     }
 
@@ -199,8 +222,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             best = cand;
             result.routes = extract_routes(ss);
             result.value = best;
-            result.incumbents.push_back({best, elapsed(), iteration, 2});
-            if (on_incumbent) on_incumbent(result.incumbents.back(), result.routes);
+            publish(best, iteration, 2, result.routes);
         }
         // Reset AFTER the basin descents so the next fd_period_work window
         // measures pure ILS work between triggers (mirrors fd_period, which
@@ -300,8 +322,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             best = cand;
             result.routes = extract_routes(ss);
             result.value = best;
-            result.incumbents.push_back({best, elapsed(), iteration + 1, 2});
-            if (on_incumbent) on_incumbent(result.incumbents.back(), result.routes);
+            publish(best, iteration + 1, 2, result.routes);
         }
 
         // LAHC acceptance (enhancement 1: accept on improving the current).

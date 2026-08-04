@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <utility>
 
@@ -176,12 +177,30 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
         ? build_neighbour_lists(inst, params.num_neighbours, params.weight_wait)
         : NeighbourLists{};
 
+    // Single publication point for the anytime stream, strictly decreasing
+    // (mirrors solve_ils).
+    double published = std::numeric_limits<double>::infinity();
+    const auto publish =
+        [&](double value, std::uint64_t iteration, std::int32_t origin,
+            const std::vector<std::vector<std::int32_t>>& routes) {
+            if (!(value < published)) return;
+            published = value;
+            result.incumbents.push_back({value, elapsed(), iteration, origin});
+            if (on_incumbent) on_incumbent(result.incumbents.back(), routes);
+        };
+
     // Greedy seed: the incumbent the colony must beat.
     double best_value = kInfeasible;
     {
         std::vector<std::vector<std::int32_t>> greedy_routes;
         if (greedy_makespan(inst, greedy_routes)) {
             double value = solution_duration(inst, greedy_routes);
+            if (value != kInfeasible) {
+                // Publish-early (1.4.0, plan 13 I1; see solve_ils): the raw
+                // seed goes out before its local search, which is itself a
+                // long stretch of silence at scale.
+                publish(value, 0, 0, greedy_routes);
+            }
             if (params.use_local_search && value != kInfeasible) {
                 value = local_search(inst, nb, greedy_routes);
             }
@@ -189,10 +208,7 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
                 best_value = value;
                 result.routes = std::move(greedy_routes);
                 result.value = value;
-                result.incumbents.push_back({value, elapsed(), 0, 0});
-                if (on_incumbent) {
-                    on_incumbent(result.incumbents.back(), result.routes);
-                }
+                publish(value, 0, 0, result.routes);
             }
         }
     }
@@ -274,10 +290,7 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
         if (found_new_best) {
             result.routes = ants[best_ant];
             result.value = best_value;
-            result.incumbents.push_back({best_value, elapsed(), iteration + 1, 1});
-            if (on_incumbent) {
-                on_incumbent(result.incumbents.back(), result.routes);
-            }
+            publish(best_value, iteration + 1, 1, result.routes);
         }
 
         // (d) convergence test on total pheromone mass

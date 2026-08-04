@@ -96,9 +96,30 @@ def test_ils_incumbents_monotone(pick) -> None:
     assert len(set(values)) == len(values), "incumbents must strictly improve"
     assert values[-1] == result.value
     assert events[-1][1] == [list(r) for r in result.routes]
-    # Origins: seed is 0, all later improvements are 2 (= ils).
+    # Origins: the seed is 0 both when it is published raw (1.4.0 publish-early,
+    # right after construction) and when the first descent improves on it; every
+    # later improvement is 2 (= ils).
     assert result.incumbents[0].origin == 0
-    assert all(inc.origin == 2 for inc in result.incumbents[1:])
+    assert all(inc.origin in (0, 2) for inc in result.incumbents[1:])
+    assert all(inc.origin == 2 for inc in result.incumbents[2:])
+
+
+def test_ils_publishes_the_raw_seed_first(pick) -> None:
+    """1.4.0 publish-early: the first incumbent is the greedy seed exactly as
+    built, before any descent has touched it."""
+    core = to_core(load_instance(pick))
+    ok, seed_routes = _core.greedy_makespan(core)
+    assert ok
+    seed_value = _core.solution_duration(core, seed_routes)
+
+    events = []
+    _core.solve_ils(
+        core, ils_params(max_iterations=50), 7, 0.0,
+        lambda inc, routes: events.append((inc.value, [list(r) for r in routes])),
+    )
+    assert events
+    assert events[0][0] == seed_value
+    assert events[0][1] == [list(r) for r in seed_routes]
 
 
 def test_ils_deterministic(pick) -> None:

@@ -294,6 +294,13 @@ PYBIND11_MODULE(_core, m) {
         const bool ok = kayros::greedy_makespan(inst, routes);
         return py::make_tuple(ok, std::move(routes));
     });
+    // The pre-1.4.0 lookahead construction, exposed for the equality test
+    // that keeps greedy_makespan honest against it.
+    m.def("greedy_makespan_lookahead", [](const kayros::Instance& inst) {
+        std::vector<std::vector<std::int32_t>> routes;
+        const bool ok = kayros::greedy_makespan_lookahead(inst, routes);
+        return py::make_tuple(ok, std::move(routes));
+    });
     m.def("solution_duration", &kayros::solution_duration);
     // The callback caster re-acquires the GIL for each invocation, so the
     // solve loop itself can keep running with the GIL released.

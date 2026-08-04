@@ -2,6 +2,16 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [Unreleased] (1.4.0.dev0)
+
+Development version, not published to PyPI. It carries the anytime-latency work that came out of the plan-13 contender campaign, where the single lost n = 1000 panel turned out to be a first-incumbent latency artifact rather than a search deficit.
+
+### Changed
+
+- **The greedy seed no longer runs its multi-hop lookahead, and is roughly two orders of magnitude faster.** Through 1.3.0 every placement ran a full time-dependent Dijkstra over the remaining free customers and selected on the earliest MULTI-HOP ready time; the selection is now the earliest DIRECT ready time. This is the same rule up to ties: Dijkstra's first settled node is by construction the free customer with the smallest direct ready time, so the multi-hop minimum equals the direct minimum and is attained at the same customer. The two rules can only part where a detour reaches a customer in exactly the same total time, which needs a time window binding hard enough for the wait to absorb the detour, and there the lookahead is a different tie break rather than a better choice. Verified: identical route sequences on all 232 instances of the plan-13 campaign instance set, and on the checkout's test families as a standing gate. The construction drops from O(n^3) to O(n^2): 0.03 s instead of 36 s at n = 1000, 3.5 s to 0.007 s at n = 500, about 60x at n = 100. The removed rule is retained as `_core.greedy_makespan_lookahead`, used only as the tests' reference oracle.
+- **The seed is published to `on_incumbent` the moment it is built**, before the first local-search descent instead of after it. Combined with the construction speedup, the anytime stream now opens in well under a second at every instance size, where 1.3.0 published nothing for about 100 s at n = 1000 (36 s seed plus ~65 s first descent). The stream stays strictly improving: the descended seed is published as a second `origin="greedy"` record only when it actually improves.
+- The two publication paths (ILS and ACO) now go through one internal publication point that owns the strictly-decreasing invariant, instead of repeating the push-and-fire at each site.
+
 ## [1.3.0] — 2026-07-29
 
 ### Added

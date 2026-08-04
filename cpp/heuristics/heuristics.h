@@ -155,11 +155,32 @@ struct SolveResult {
 };
 
 // Deterministic greedy nearest-ready-time construction (GMH1 port): routes
-// depart at the earliest feasible depot time; selection by earliest multi-hop
-// ready time over the remaining customers. Returns false when construction
-// gets stuck (a remaining customer cannot start a fresh route).
+// depart at the earliest feasible depot time; selection by earliest direct
+// ready time over the remaining free customers, smallest id breaking ties.
+// Returns false when construction gets stuck (a remaining customer cannot
+// start a fresh route).
+//
+// Through 1.3.0 the selection ran a full TD Dijkstra over the free customers
+// at every placement and picked the earliest MULTI-HOP ready time. That
+// lookahead is almost entirely redundant: Dijkstra's first settled node is by
+// construction the one with the smallest direct ready time, so the multi-hop
+// minimum equals the direct minimum and is attained at the same customer. The
+// two rules can only part on ties — a customer reachable in the same total
+// time through a detour, which needs a time window binding hard enough for
+// the wait to absorb the detour — and there the lookahead is a different tie
+// break, not a better choice. Dropping it (1.4.0) turns an O(n^3) construction
+// into an O(n^2) one: 0.03 s instead of 36 s at n = 1000, which is what makes
+// the anytime stream open in well under a second at every scale. The removed
+// rule is kept below as the test oracle.
 bool greedy_makespan(const Instance& inst,
                      std::vector<std::vector<std::int32_t>>& routes_out);
+
+// The pre-1.4.0 multi-hop-lookahead construction, kept as the reference oracle
+// for greedy_makespan: not used by any solver path, exercised by the
+// equality tests and available to experiments that want to re-measure the
+// lookahead's effect. Same loop, O(n^3) selection.
+bool greedy_makespan_lookahead(
+    const Instance& inst, std::vector<std::vector<std::int32_t>>& routes_out);
 
 // Objective value of a full solution: canonical route order (sorted by first
 // customer), checker-exact per-route pricing, plus the FleetCostDuration term
