@@ -86,6 +86,64 @@ bool greedy_makespan_lookahead(
     return construct(inst, routes_out, /*lookahead=*/true);
 }
 
+bool split_to_k(const Instance& inst,
+                std::vector<std::vector<std::int32_t>>& routes,
+                std::int32_t target_k) {
+    if (target_k <= static_cast<std::int32_t>(routes.size())) return false;
+
+    const auto route_duration = [&inst](const std::vector<std::int32_t>& r) {
+        const RouteEval e = evaluate_route(inst, r.data(),
+                                           static_cast<std::int64_t>(r.size()));
+        return e.feasible ? e.duration : kInfeasible;
+    };
+    // Per-route durations, kept in step with `routes` so a candidate costs two
+    // route evaluations instead of a whole-solution fold.
+    std::vector<double> durations;
+    durations.reserve(routes.size());
+    for (const auto& r : routes) durations.push_back(route_duration(r));
+
+    bool split_any = false;
+    std::vector<std::int32_t> head;
+    std::vector<std::int32_t> tail;
+    while (static_cast<std::int32_t>(routes.size()) < target_k) {
+        // Cheapest feasible split over every (route, position). The objective
+        // is a sum of per-route durations, so the delta of splitting route r at
+        // p is exactly (head + tail - r): no other route is touched.
+        double best_delta = kInfeasible;
+        std::size_t best_route = 0;
+        std::size_t best_pos = 0;
+        for (std::size_t r = 0; r < routes.size(); ++r) {
+            const std::vector<std::int32_t>& route = routes[r];
+            if (route.size() < 2 || durations[r] == kInfeasible) continue;
+            for (std::size_t p = 1; p < route.size(); ++p) {
+                head.assign(route.begin(), route.begin() + static_cast<std::ptrdiff_t>(p));
+                tail.assign(route.begin() + static_cast<std::ptrdiff_t>(p), route.end());
+                const double dh = route_duration(head);
+                if (dh == kInfeasible) continue;
+                const double dt = route_duration(tail);
+                if (dt == kInfeasible) continue;
+                const double delta = dh + dt - durations[r];
+                if (delta < best_delta) {
+                    best_delta = delta;
+                    best_route = r;
+                    best_pos = p;
+                }
+            }
+        }
+        if (best_delta == kInfeasible) break;  // nothing admits a feasible split
+
+        const std::vector<std::int32_t> victim = routes[best_route];
+        head.assign(victim.begin(), victim.begin() + static_cast<std::ptrdiff_t>(best_pos));
+        tail.assign(victim.begin() + static_cast<std::ptrdiff_t>(best_pos), victim.end());
+        routes[best_route] = head;
+        durations[best_route] = route_duration(head);
+        routes.push_back(tail);
+        durations.push_back(route_duration(tail));
+        split_any = true;
+    }
+    return split_any;
+}
+
 double solution_duration(const Instance& inst,
                          const std::vector<std::vector<std::int32_t>>& routes) {
     if (inst.num_vehicles >= 0 &&

@@ -96,12 +96,17 @@ def test_ils_incumbents_monotone(pick) -> None:
     assert len(set(values)) == len(values), "incumbents must strictly improve"
     assert values[-1] == result.value
     assert events[-1][1] == [list(r) for r in result.routes]
-    # Origins: the seed is 0 both when it is published raw (1.4.0 publish-early,
-    # right after construction) and when the first descent improves on it; every
-    # later improvement is 2 (= ils).
-    assert result.incumbents[0].origin == 0
-    assert all(inc.origin in (0, 2) for inc in result.incumbents[1:])
-    assert all(inc.origin == 2 for inc in result.incumbents[2:])
+    # Origins: the seed phase publishes 0 and can do so more than once — the raw
+    # construction (1.4.0 publish-early), the K-diverse split when it improves
+    # (1.5.0 seed_k_factor), then the first descent. Everything the search finds
+    # afterwards is 2 (= ils), and the phases never interleave, so the origin
+    # sequence is a non-empty prefix of 0s followed by all 2s.
+    origins = [inc.origin for inc in result.incumbents]
+    assert set(origins) <= {0, 2}
+    assert origins[0] == 0
+    first_ils = next((i for i, o in enumerate(origins) if o == 2), len(origins))
+    assert all(o == 0 for o in origins[:first_ils])
+    assert all(o == 2 for o in origins[first_ils:])
 
 
 def test_ils_publishes_the_raw_seed_first(pick) -> None:

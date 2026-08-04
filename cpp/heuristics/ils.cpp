@@ -90,6 +90,14 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             const std::vector<std::vector<std::int32_t>>& routes) {
             if (!(value < published)) return;
             published = value;
+            const std::int64_t k = static_cast<std::int64_t>(routes.size());
+            if (result.incumbents.empty()) {
+                result.k_stats.k_best_min = k;
+                result.k_stats.k_best_max = k;
+            } else {
+                if (k < result.k_stats.k_best_min) result.k_stats.k_best_min = k;
+                if (k > result.k_stats.k_best_max) result.k_stats.k_best_max = k;
+            }
             result.incumbents.push_back({value, elapsed(), iteration, origin});
             if (on_incumbent) on_incumbent(result.incumbents.back(), routes);
         };
@@ -114,6 +122,28 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         // where 1.3.0 published nothing for ~100 s at n = 1000. Warm-started
         // callers skip it: their solution is already the incumbent.
         publish(seed_value, 0, 0, seed_routes);
+
+        // K-diverse seeding (1.5.0, plan 13 I2). The search sheds routes
+        // freely and effectively never adds one, so the seed's route count
+        // decides the final one; starting above the constructed count and
+        // letting the search descend is what buys the fleet-starved
+        // instances. Duration only: under FleetCostDuration every extra route
+        // is priced and this would be actively harmful.
+        if (inst.fixed_route_cost == 0.0 && params.seed_k_factor > 1.0) {
+            const std::int32_t target = static_cast<std::int32_t>(
+                params.seed_k_factor * static_cast<double>(seed_routes.size()));
+            std::vector<std::vector<std::int32_t>> split_routes = seed_routes;
+            if (split_to_k(inst, split_routes, target)) {
+                const double split_value = solution_duration(inst, split_routes);
+                if (split_value != kInfeasible) {
+                    seed_routes = std::move(split_routes);
+                    // Publish only if it is actually better: splitting usually
+                    // costs duration up front and pays off through the search,
+                    // and the stream must stay strictly decreasing.
+                    publish(split_value, 0, 0, seed_routes);
+                }
+            }
+        }
     }
     const NeighbourLists nb =
         build_neighbour_lists(inst, params.num_neighbours, params.weight_wait);
@@ -128,6 +158,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     // descent this solve runs. Integer increments only, so streams and priced
     // values are byte-identical with or without the counter.
     LsStats ls_stats;
+    result.k_stats.k_seed = static_cast<std::int64_t>(seed_routes.size());
     double curr = ls_descend(inst, nb, ss, &ls_stats, deadline);
 
     double best = curr;
@@ -294,12 +325,28 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 ++fks.normal_kicks;
             }
         }
+        // Ungated K movement across the kick (see KStats: the counters above
+        // are all inside the F-gated dissolve branch, so under Duration they
+        // say nothing).
+        KStats& ks = result.k_stats;
+        if (outcome.applied) {
+            ks.singleton_opens += outcome.new_routes;
+            if (outcome.new_routes > 0) ++ks.kicks_opening;
+            const std::size_t k_kick = ss.states.size();
+            if (k_kick > k_before) ++ks.k_up_after_kick;
+            else if (k_kick < k_before) ++ks.k_down_after_kick;
+        }
         double cand = ls_descend(inst, nb, ss, &ls_stats, deadline);
         if (outcome.applied && outcome.dissolved) {
             const std::size_t k_desc = ss.states.size();
             if (k_desc < k_before) ++fks.k_after_descent_lt;
             else if (k_desc == k_before) ++fks.k_after_descent_eq;
             else ++fks.k_after_descent_gt;
+        }
+        const std::size_t k_after = ss.states.size();
+        if (outcome.applied) {
+            if (k_after > k_before) ++ks.k_up_after_descent;
+            else if (k_after < k_before) ++ks.k_down_after_descent;
         }
 
         ++no_improvement;
@@ -319,6 +366,8 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                     ++fks.normal_new_best;
                 }
             }
+            if (k_after > k_before) ++ks.new_best_k_up;
+            else if (k_after < k_before) ++ks.new_best_k_down;
             best = cand;
             result.routes = extract_routes(ss);
             result.value = best;
@@ -335,6 +384,8 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             if (outcome.applied) {
                 if (outcome.dissolved) ++fks.dissolved_accepted_lahc;
                 else ++fks.normal_accepted_lahc;
+                if (k_after > k_before) ++ks.accepted_k_up;
+                else if (k_after < k_before) ++ks.accepted_k_down;
             }
         } else {
             restore_snapshot(inst, ss, snapshot);
@@ -346,6 +397,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     result.iterations_run = iteration;
     result.work_units = ls_stats.evaluated;
+    result.k_stats.k_final = static_cast<std::int64_t>(result.routes.size());
     result.status = result.routes.empty() ? SolveStatus::Infeasible : status;
     return result;
 }

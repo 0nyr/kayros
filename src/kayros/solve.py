@@ -128,6 +128,21 @@ class Params:
     # diverge from 1.1.x AT DEFAULTS; pass restart_no_improvement_work=0 to
     # recover bitwise 1.1.x streams.
     restart_no_improvement_work: int = 1_000_000_000
+    # K-diverse seeding (plan 13 I2, 1.5.0): split the greedy seed's routes
+    # until the route count reaches seed_k_factor times the constructed one,
+    # then search from there. 1.0 disables it and restores the 1.4.x seed
+    # exactly. Under Duration the search sheds routes freely and effectively
+    # never adds one, so the seed's route count decides the final one; on
+    # fleet-starved instances starting higher and letting the search descend is
+    # worth a great deal, and elsewhere it is inside seed noise. Armed under
+    # Duration ONLY — under FleetCostDuration every extra route is priced, so
+    # the core ignores this knob there whatever its value.
+    # BREAKING default in 1.5.0: 2.0. Measured gain on fleet-starved instances
+    # is -3.3/-4.2/-5.2/-5.4/-5.4 percent at 1.25/1.5/2/3/4, and flat noise
+    # elsewhere; 2.0 takes 96 percent of it at the lowest route count, and is
+    # the setting a full non-regression sweep covered. Duration trajectories
+    # move at defaults versus 1.4.x; pass seed_k_factor=1.0 to recover them.
+    seed_k_factor: float = 2.0
     ils_max_iterations: int = 0
     # strategy="aco+ils" ONLY: fraction of the time limit given to the ACO
     # phase. Unused by the default "ils" strategy and by pure "aco".
@@ -172,6 +187,7 @@ class Params:
         params.fd_pop_order = self.fd_pop_order
         params.fd_period_work = self.fd_period_work
         params.restart_no_improvement_work = self.restart_no_improvement_work
+        params.seed_k_factor = self.seed_k_factor
         return params
 
 
@@ -218,6 +234,12 @@ class Solution:
     # Plan-12 M4 fleet-descent phase diagnostics (core FdStats fields), same
     # contract: None under "Duration" (the phase is never armed there).
     fd_stats: dict[str, int] | None = None
+    # Route-count movement over the solve (core KStats fields). Unlike
+    # fleet_stats and fd_stats this is recorded under EVERY objective, because
+    # the route count moves under Duration too and used to be invisible there:
+    # every K counter the solver had lived inside the FleetCostDuration-gated
+    # dissolve branch. Always a dict for an ILS solve; empty for pure ACO.
+    k_stats: dict[str, int] = field(default_factory=dict)
     # Work-trigger diagnostics (session 44, ILS only; 0 for pure ACO): total
     # LS work units spent (candidate pricings; work_units / wall seconds is
     # the machine's work rate, the calibration source for the *_work
@@ -262,6 +284,23 @@ _FD_STATS_FIELDS = (
     "rollbacks_deadend",
     "rollbacks_budget",
     "rollbacks_time",
+)
+
+_K_STATS_FIELDS = (
+    "k_seed",
+    "k_final",
+    "k_best_min",
+    "k_best_max",
+    "singleton_opens",
+    "kicks_opening",
+    "k_up_after_kick",
+    "k_down_after_kick",
+    "k_up_after_descent",
+    "k_down_after_descent",
+    "accepted_k_up",
+    "accepted_k_down",
+    "new_best_k_up",
+    "new_best_k_down",
 )
 
 _FLEET_STATS_FIELDS = (
@@ -441,6 +480,9 @@ def solve(
         },
         work_units=result.work_units,
         restarts=result.restarts,
+        k_stats={
+            name: getattr(result.k_stats, name) for name in _K_STATS_FIELDS
+        },
         incumbents=extra_incumbents + [
             Incumbent(i.value, i.seconds + incumbent_offset, i.iteration,
                       _ORIGIN_NAMES[i.origin])

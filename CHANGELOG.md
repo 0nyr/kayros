@@ -2,6 +2,20 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.5.0] — 2026-08-04
+
+A fleet-sizing release, and a **deliberate change of default behaviour**: Duration results move versus 1.4.x. Under the Duration objective the search sheds routes freely and effectively never adds one, so the route count it finishes with is essentially the one the seed handed it. On instances where waiting dominates, the constructed seed lands near half the duration-optimal fleet and the search cannot climb out. 1.5.0 seeds above the constructed count and lets the search descend to its own.
+
+### Added
+
+- **`Params.seed_k_factor` (default 2.0): K-diverse seeding.** Before the search starts, the greedy seed's routes are split until the route count reaches `seed_k_factor` times the constructed one, each step taking the cheapest feasible split. Because the objective is a sum of per-route durations, a candidate costs two route evaluations rather than a whole-solution refold, so the whole construction is 0.36 s at n = 1000 and 0.10 s at n = 500 next to a 0.04 s seed. Set `seed_k_factor=1.0` to recover 1.4.x trajectories bit for bit.
+
+  **Armed under Duration only.** Under FleetCostDuration every extra route is priced, so splitting is the wrong direction there; the core ignores the knob whatever its value when the instance prices routes.
+
+  Measured, at a fixed time limit so the extra per-iteration cost of more routes is already paid for in the numbers: on a dense, tight-time-window family the gain runs -3.3, -4.2, -5.2, -5.4 and -5.4 percent for multipliers 1.25, 1.5, 2, 3 and 4, with individual instances reaching -27 percent. Across every other family the effect is flat noise inside a tenth of a percent with no trend in the multiplier (215-run two-arm sweep over 43 instances spanning five families and n = 10 to 200, five seeds each: non-affected families +0.014 percent mean, median exactly zero). 2.0 takes 96 percent of the available gain at the lowest route count, and is the setting that sweep covers.
+
+- **`Solution.k_stats`: route-count movement, recorded under every objective.** Seed and final route counts, the range the incumbents spanned, the repair's singleton route openings, and how the count moved across each perturbation, across perturbation plus descent, and among the candidates that were accepted or became new bests. The existing `fleet_stats` counters answer the same question for FleetCostDuration only — every one of them sits inside a branch gated on routes being priced — so under Duration the route count used to be invisible in the record. Instrumentation only: integer increments and route-count reads, no rng draw and no priced value.
+
 ## [1.4.0] — 2026-08-04
 
 An anytime-latency release. At scale KAYROS used to spend its first minutes silent — building a seed nobody could see — and both halves of that are gone: the seed construction is two orders of magnitude faster, and it is published the moment it exists. Final solutions are unchanged.

@@ -82,6 +82,25 @@ struct IlsParams {
     // default (the campaign-winning ~150 s cadence on one modern core) only
     // changes FleetCostDuration runs.
     std::int64_t fd_period_work = 100'000'000;
+    // K-diverse seeding (plan 13 I2, 1.5.0): before the search starts, split
+    // the greedy seed's routes until the route count reaches seed_k_factor
+    // times the constructed one. <= 1.0 disables it and restores the 1.4.x
+    // seed exactly. Armed under Duration ONLY: under FleetCostDuration every
+    // extra route is priced and this would be actively harmful, so solve_ils
+    // gates it on fixed_route_cost == 0.
+    //
+    // BREAKING default in 1.5.0: 2.0, i.e. seed at twice the constructed route
+    // count. The search sheds routes freely under Duration and effectively
+    // never adds one, so the seed's count decides the final one; on
+    // fleet-starved instances the greedy seed lands near half the
+    // duration-optimal fleet and the search cannot climb out. A multiplier
+    // sweep put the gain at -3.3 / -4.2 / -5.2 / -5.4 / -5.4 percent for
+    // 1.25 / 1.5 / 2 / 3 / 4 on that family, and flat noise (within 0.1
+    // percent, no trend) everywhere else. 2.0 takes 96 percent of the
+    // available gain, keeps the extra route count and its per-iteration cost
+    // down, and is the only setting with a full non-regression sweep behind
+    // it. Set 1.0 to recover bitwise 1.4.x trajectories.
+    double seed_k_factor = 2.0;
     // BREAKING default in 1.3.0 (session 45): the flat restart threshold
     // above effectively never fired at n >= 500 (dead code on realistic
     // budgets, stalled searches never restarted), so the work-based restart
@@ -139,6 +158,39 @@ struct FleetKickStats {
     std::int64_t dissolved_new_best_k_lt = 0;  // dissolved new best with fewer routes than the incumbent
 };
 
+// Route-count movement over a solve, recorded under EVERY objective.
+//
+// FleetKickStats above answers the same question for FleetCostDuration only:
+// every one of its K counters lives inside the dissolve branch, which is
+// F-gated, so under Duration they are structurally zero. That made the
+// solver's K behavior unobservable exactly where it turned out to matter — a
+// Duration run's route count is set by the seed and then drifts down, and
+// nothing in the record said so. These counters are never gated.
+//
+// Same discipline as FleetKickStats: integer increments and route-count reads
+// only, no rng draw and no priced value, so streams stay bitwise with or
+// without them.
+struct KStats {
+    std::int64_t k_seed = 0;    // routes in the solution the search started from
+    std::int64_t k_final = 0;   // routes in the returned best
+    std::int64_t k_best_min = 0;  // extremes over the incumbents published
+    std::int64_t k_best_max = 0;
+    // Route openings by the repair's last-resort singleton fallback, the only
+    // in-loop mechanism that can raise K (see ls/perturb.cpp).
+    std::int64_t singleton_opens = 0;   // routes opened, summed over kicks
+    std::int64_t kicks_opening = 0;     // kicks whose repair opened at least one
+    // K across the kick, and across kick + granular descent, versus before it.
+    std::int64_t k_up_after_kick = 0;
+    std::int64_t k_down_after_kick = 0;
+    std::int64_t k_up_after_descent = 0;
+    std::int64_t k_down_after_descent = 0;
+    // Outcomes that actually survived: LAHC-accepted, and new global bests.
+    std::int64_t accepted_k_up = 0;
+    std::int64_t accepted_k_down = 0;
+    std::int64_t new_best_k_up = 0;
+    std::int64_t new_best_k_down = 0;
+};
+
 struct SolveResult {
     std::vector<std::vector<std::int32_t>> routes;  // best solution (customer ids, no depot)
     double value = 0.0;                             // its solution_duration
@@ -147,6 +199,7 @@ struct SolveResult {
     std::uint64_t iterations_run = 0;
     FleetKickStats fleet_stats;
     FdStats fd_stats;  // Plan-12 M4 fleet-descent phase diagnostics (ILS only)
+    KStats k_stats;    // route-count movement, recorded under every objective
     // Work-trigger diagnostics (ILS only): total LS work units spent
     // (calibration source for the *_work thresholds: work_units divided by
     // wall seconds is the machine's work rate) and restart-to-best count.
@@ -181,6 +234,23 @@ bool greedy_makespan(const Instance& inst,
 // lookahead's effect. Same loop, O(n^3) selection.
 bool greedy_makespan_lookahead(
     const Instance& inst, std::vector<std::vector<std::int32_t>>& routes_out);
+
+// Split routes of a feasible solution until it holds target_k of them, each
+// step taking the cheapest feasible split under the canonical fold. The
+// objective is a sum of per-route durations, so a candidate costs two route
+// evaluations rather than a whole-solution refold. Stops early when no route
+// admits a feasible split. Returns whether anything was split.
+//
+// This is the K-diverse seeding of plan 13 I2 (1.5.0). Under Duration the
+// search sheds routes freely and effectively never adds one, so the seed's
+// route count decides the final one, and on fleet-starved instances that
+// costs a great deal; starting above the greedy count and letting the search
+// descend is worth up to -27 percent there and is inside noise elsewhere.
+// It is NEVER right under FleetCostDuration, where every extra route is
+// priced: callers must gate on the objective.
+bool split_to_k(const Instance& inst,
+                std::vector<std::vector<std::int32_t>>& routes,
+                std::int32_t target_k);
 
 // Objective value of a full solution: canonical route order (sorted by first
 // customer), checker-exact per-route pricing, plus the FleetCostDuration term
