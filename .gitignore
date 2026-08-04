@@ -34,3 +34,7 @@ uv.lock
 # cibuildwheel output (local wheel builds, e.g. the plan-13 M9 vNext arm).
 # Published wheels come from CI, never from a working tree.
 wheelhouse/
+
+# Experiment output trees are workspace data, not library source: the plan-13
+# probes are run from here and their records belong in the workspace.
+outputs/
