@@ -88,7 +88,19 @@ struct IlsParams {
     // seed exactly. Armed under Duration ONLY: under FleetCostDuration every
     // extra route is priced and this would be actively harmful, so solve_ils
     // gates it on fixed_route_cost == 0.
-    double seed_k_factor = 1.0;
+    //
+    // BREAKING default in 1.5.0: 2.0, i.e. seed at twice the constructed route
+    // count. The search sheds routes freely under Duration and effectively
+    // never adds one, so the seed's count decides the final one; on
+    // fleet-starved instances the greedy seed lands near half the
+    // duration-optimal fleet and the search cannot climb out. A multiplier
+    // sweep put the gain at -3.3 / -4.2 / -5.2 / -5.4 / -5.4 percent for
+    // 1.25 / 1.5 / 2 / 3 / 4 on that family, and flat noise (within 0.1
+    // percent, no trend) everywhere else. 2.0 takes 96 percent of the
+    // available gain, keeps the extra route count and its per-iteration cost
+    // down, and is the only setting with a full non-regression sweep behind
+    // it. Set 1.0 to recover bitwise 1.4.x trajectories.
+    double seed_k_factor = 2.0;
     // BREAKING default in 1.3.0 (session 45): the flat restart threshold
     // above effectively never fired at n >= 500 (dead code on realistic
     // budgets, stalled searches never restarted), so the work-based restart

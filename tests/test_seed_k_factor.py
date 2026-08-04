@@ -7,7 +7,8 @@ has to hold:
   every route feasible, priced by the reference fold);
 - it is reachable: the search starts from it, so `k_stats["k_seed"]` reports the
   split count rather than the constructed one;
-- the default is off, and off is bit-for-bit the pre-1.5.0 seed;
+- the default is the calibrated multiplier, and disabling it is bit-for-bit
+  the pre-1.5.0 seed;
 - it is never armed under FleetCostDuration, where every extra route is priced
   and splitting would be actively harmful.
 """
@@ -71,22 +72,37 @@ def test_split_is_a_no_op_below_the_current_count() -> None:
     assert [list(r) for r in routes] == seed
 
 
-def test_seeding_off_by_default_and_bitwise_when_disabled() -> None:
+def test_default_is_the_calibrated_multiplier() -> None:
+    """1.5.0 ships seeding ON at 2.0. Pinned here because it is a deliberate
+    default behaviour change: Duration trajectories move versus 1.4.x, and the
+    value is the one the multiplier sweep and the non-regression sweep both
+    cover."""
+    assert _core.IlsParams().seed_k_factor == 2.0
+
+    from kayros import Params
+
+    assert Params().seed_k_factor == 2.0
+
+
+def test_disabling_recovers_the_pre_1_5_seed_bitwise() -> None:
     require_benchmarks()
     path = a_duration_instance()
     if path is None:
         pytest.skip("no Duration instance available")
     core = to_core(load_instance(path))
     params = _core.IlsParams()
-    assert params.seed_k_factor == 1.0, "the default must not change trajectories"
     params.max_iterations = 120
+    params.seed_k_factor = 1.0
 
     a = _core.solve_ils(core, params, 13, 0.0)
-    params.seed_k_factor = 1.0
     b = _core.solve_ils(core, params, 13, 0.0)
     assert a.value == b.value
     assert [list(r) for r in a.routes] == [list(r) for r in b.routes]
     assert a.work_units == b.work_units
+
+    ok, seed = _core.greedy_makespan(core)
+    assert ok
+    assert a.k_stats.k_seed == len(seed), "disabled must start from the raw seed"
 
 
 def test_seeding_starts_the_search_from_the_split_solution() -> None:
