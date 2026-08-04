@@ -30,3 +30,7 @@ result-*
 
 # uv (lockfile not tracked: kayros is a library, deps are resolved by pyproject)
 uv.lock
+
+# cibuildwheel output (local wheel builds, e.g. the plan-13 M9 vNext arm).
+# Published wheels come from CI, never from a working tree.
+wheelhouse/
