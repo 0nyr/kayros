@@ -122,6 +122,28 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         // where 1.3.0 published nothing for ~100 s at n = 1000. Warm-started
         // callers skip it: their solution is already the incumbent.
         publish(seed_value, 0, 0, seed_routes);
+
+        // K-diverse seeding (1.5.0, plan 13 I2). The search sheds routes
+        // freely and effectively never adds one, so the seed's route count
+        // decides the final one; starting above the constructed count and
+        // letting the search descend is what buys the fleet-starved
+        // instances. Duration only: under FleetCostDuration every extra route
+        // is priced and this would be actively harmful.
+        if (inst.fixed_route_cost == 0.0 && params.seed_k_factor > 1.0) {
+            const std::int32_t target = static_cast<std::int32_t>(
+                params.seed_k_factor * static_cast<double>(seed_routes.size()));
+            std::vector<std::vector<std::int32_t>> split_routes = seed_routes;
+            if (split_to_k(inst, split_routes, target)) {
+                const double split_value = solution_duration(inst, split_routes);
+                if (split_value != kInfeasible) {
+                    seed_routes = std::move(split_routes);
+                    // Publish only if it is actually better: splitting usually
+                    // costs duration up front and pays off through the search,
+                    // and the stream must stay strictly decreasing.
+                    publish(split_value, 0, 0, seed_routes);
+                }
+            }
+        }
     }
     const NeighbourLists nb =
         build_neighbour_lists(inst, params.num_neighbours, params.weight_wait);

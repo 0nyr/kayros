@@ -82,6 +82,13 @@ struct IlsParams {
     // default (the campaign-winning ~150 s cadence on one modern core) only
     // changes FleetCostDuration runs.
     std::int64_t fd_period_work = 100'000'000;
+    // K-diverse seeding (plan 13 I2, 1.5.0): before the search starts, split
+    // the greedy seed's routes until the route count reaches seed_k_factor
+    // times the constructed one. <= 1.0 disables it and restores the 1.4.x
+    // seed exactly. Armed under Duration ONLY: under FleetCostDuration every
+    // extra route is priced and this would be actively harmful, so solve_ils
+    // gates it on fixed_route_cost == 0.
+    double seed_k_factor = 1.0;
     // BREAKING default in 1.3.0 (session 45): the flat restart threshold
     // above effectively never fired at n >= 500 (dead code on realistic
     // budgets, stalled searches never restarted), so the work-based restart
@@ -215,6 +222,23 @@ bool greedy_makespan(const Instance& inst,
 // lookahead's effect. Same loop, O(n^3) selection.
 bool greedy_makespan_lookahead(
     const Instance& inst, std::vector<std::vector<std::int32_t>>& routes_out);
+
+// Split routes of a feasible solution until it holds target_k of them, each
+// step taking the cheapest feasible split under the canonical fold. The
+// objective is a sum of per-route durations, so a candidate costs two route
+// evaluations rather than a whole-solution refold. Stops early when no route
+// admits a feasible split. Returns whether anything was split.
+//
+// This is the K-diverse seeding of plan 13 I2 (1.5.0). Under Duration the
+// search sheds routes freely and effectively never adds one, so the seed's
+// route count decides the final one, and on fleet-starved instances that
+// costs a great deal; starting above the greedy count and letting the search
+// descend is worth up to -27 percent there and is inside noise elsewhere.
+// It is NEVER right under FleetCostDuration, where every extra route is
+// priced: callers must gate on the objective.
+bool split_to_k(const Instance& inst,
+                std::vector<std::vector<std::int32_t>>& routes,
+                std::int32_t target_k);
 
 // Objective value of a full solution: canonical route order (sorted by first
 // customer), checker-exact per-route pricing, plus the FleetCostDuration term

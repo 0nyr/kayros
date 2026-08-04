@@ -128,6 +128,16 @@ class Params:
     # diverge from 1.1.x AT DEFAULTS; pass restart_no_improvement_work=0 to
     # recover bitwise 1.1.x streams.
     restart_no_improvement_work: int = 1_000_000_000
+    # K-diverse seeding (plan 13 I2, 1.5.0): split the greedy seed's routes
+    # until the route count reaches seed_k_factor times the constructed one,
+    # then search from there. 1.0 disables it and restores the 1.4.x seed
+    # exactly. Under Duration the search sheds routes freely and effectively
+    # never adds one, so the seed's route count decides the final one; on
+    # fleet-starved instances starting higher and letting the search descend is
+    # worth a great deal, and elsewhere it is inside seed noise. Armed under
+    # Duration ONLY — under FleetCostDuration every extra route is priced, so
+    # the core ignores this knob there whatever its value.
+    seed_k_factor: float = 1.0
     ils_max_iterations: int = 0
     # strategy="aco+ils" ONLY: fraction of the time limit given to the ACO
     # phase. Unused by the default "ils" strategy and by pure "aco".
@@ -172,6 +182,7 @@ class Params:
         params.fd_pop_order = self.fd_pop_order
         params.fd_period_work = self.fd_period_work
         params.restart_no_improvement_work = self.restart_no_improvement_work
+        params.seed_k_factor = self.seed_k_factor
         return params
 
 

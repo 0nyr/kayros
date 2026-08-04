@@ -217,6 +217,7 @@ PYBIND11_MODULE(_core, m) {
                        &kayros::IlsParams::fd_time_cap_seconds)
         .def_readwrite("fd_period", &kayros::IlsParams::fd_period)
         .def_readwrite("fd_period_work", &kayros::IlsParams::fd_period_work)
+        .def_readwrite("seed_k_factor", &kayros::IlsParams::seed_k_factor)
         .def_readwrite("restart_no_improvement_work",
                        &kayros::IlsParams::restart_no_improvement_work)
         .def_readwrite("fd_route_choice", &kayros::IlsParams::fd_route_choice)
