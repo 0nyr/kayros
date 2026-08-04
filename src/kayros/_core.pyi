@@ -83,6 +83,9 @@ class SolveResult:
 
 def greedy_makespan(instance: Instance) -> tuple[bool, list[list[int]]]: ...
 def greedy_makespan_lookahead(instance: Instance) -> tuple[bool, list[list[int]]]: ...
+def split_to_k(
+    instance: Instance, routes: list[list[int]], target_k: int
+) -> tuple[bool, list[list[int]]]: ...
 def ls_local_search(
     instance: Instance,
     routes: list[list[int]],

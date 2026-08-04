@@ -320,6 +320,14 @@ PYBIND11_MODULE(_core, m) {
         return py::make_tuple(ok, std::move(routes));
     });
     m.def("solution_duration", &kayros::solution_duration);
+    // Exposed for the I2 seeding tests and for measuring what the split costs
+    // at scale; solve_ils calls it internally when seed_k_factor > 1.
+    m.def("split_to_k", [](const kayros::Instance& inst,
+                           std::vector<std::vector<std::int32_t>> routes,
+                           std::int32_t target_k) {
+        const bool ok = kayros::split_to_k(inst, routes, target_k);
+        return py::make_tuple(ok, std::move(routes));
+    });
     // The callback caster re-acquires the GIL for each invocation, so the
     // solve loop itself can keep running with the GIL released.
     m.def("solve_aco", &kayros::solve_aco, py::arg("instance"),
