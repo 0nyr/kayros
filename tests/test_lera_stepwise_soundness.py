@@ -306,6 +306,54 @@ def test_jumpfree_c102_k7_guard():
     assert res["value"] == pytest.approx(C102_K7_TRUE, abs=1e-9)
 
 
+# --- M13.3: the jump-free over-certification the M13.0 gating premise caused --
+# M13.0 selected its new step-arc extension arithmetic (and the goc vertical
+# rules) on "does any operand carry a vertical", asserting that jump-free
+# instances carry none. That premise is FALSE: CHOICE verticals (Inverse of a
+# departure plateau) and set-valued label durations are ubiquitous on jump-free
+# instances (probe on this very instance: 6560 step-arc extensions vs 1387
+# legacy, zero of them at a JUMP vertical). The exact-path arithmetic is sound
+# only against exact-path semantics, so on jump-free data it certified optima
+# strictly ABOVE checker-valid solutions on at least six Vu2020 instances
+# (+0.29 to +9.88). M13.3 gates both layers on the solve being step-carrying
+# (KAYROS_STEP_EXACT), restoring the audited kayros 1.0.0 arithmetic here.
+#
+# This is the largest of the six (+4.27 at M13.0..1.5.0) and the fastest to
+# close (~10-25 s cold). The truth is the stored MAMUT certificate, which the
+# pre-M13.0 build reproduces bit-exactly and which an independent checker-valid
+# solution attains.
+VU_A5PA_D90_W40 = ("Vu2020", "n=59", "Vu-A5-pA-d90-w40")
+VU_A5PA_D90_W40_TRUE = 2760.1098340282865
+
+
+def test_jumpfree_vu2020_certificate_is_not_above_the_truth():
+    """A jump-free cold certificate must not exceed the known optimum.
+
+    Hard soundness gate. M13.0 through 1.5.0 certified ``Optimum
+    2764.379834028286`` here, 4.27 above a checker-valid solution: a live
+    over-certification, not a bound-quality issue. Also checks the returned
+    solution prices at the certified value under the reference checker, so a
+    "sound" value backed by an infeasible route cannot pass.
+    """
+    require_benchmarks()
+    fam, size, name = VU_A5PA_D90_W40
+    src = benchmarks_root() / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    _need(src, f"{name} {size} TDVRPTW")
+    loaded = load_td_instance(src)
+    res = _cold(loaded, tl=600.0)
+    assert res["stepwise_atfs"] is False  # the premise this gate is about
+    assert res["exact_log"]["status"] == "Optimum"
+    assert res["value"] <= VU_A5PA_D90_W40_TRUE + 1e-6
+    from kayros.lera import routes_to_mamut
+
+    routes = [
+        r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
+    ]
+    assert res["value"] == pytest.approx(
+        compute_solution_cost(loaded.instance, loaded.atfs, routes), abs=1e-6
+    )
+
+
 # --- Regression guards: jump-free family proofs must stay correct/stable -----
 
 

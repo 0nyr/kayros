@@ -319,8 +319,19 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	// BOTH vertical kinds, which invert to indistinguishable dep plateaus) and
 	// over-estimates only unattained jump-gap abscissae (sound side). It also
 	// keeps tau out of the composed outer entirely.
-	const bool step_arc = has_vertical(vrp_.dep[u][v]) || has_vertical(vrp_.tau[u][v])
-		|| has_vertical(l->duration);
+	// M13.3: gated on the solve being step-carrying. The M13.0 premise that
+	// "mollified and jump-free arcs carry none" is FALSE. CHOICE verticals
+	// (Inverse of a departure plateau) and set-valued label durations are
+	// ubiquitous on jump-free instances too, so on those the predicate fired
+	// on most extensions and replaced the audited v1.0.0 extension arithmetic
+	// with the elapsed-time identity, whose jump-gap over-estimation is sound
+	// only against the exact-path semantics: cold solves certified optima
+	// strictly above checker-valid solutions (Vu2020 n=59 Vu-A5-pA-d90-w40,
+	// 2764.380 against the true 2760.110). Jump-free solves keep the legacy
+	// composite; step-carrying solves keep M13.0 unchanged.
+	const bool step_arc = goc::step_exact_arithmetic()
+		&& (has_vertical(vrp_.dep[u][v]) || has_vertical(vrp_.tau[u][v])
+			|| has_vertical(l->duration));
 	if (epsilon_smaller(max(l->rw), min(img(vrp_.dep[u][v]))))
 	{
 		// Departure-before-window branch: the label's minimal duration at its
