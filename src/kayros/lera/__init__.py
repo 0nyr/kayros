@@ -106,7 +106,12 @@ def _atf_to_travel_time_pieces(xs, ys) -> list[list[list[float]]]:
     checker-infeasible priced columns (the 23 integrity-guard refusals) and
     its bridges amplified epsilon comparisons into O(step) mispricing. For
     jump-free ATFs this emission is bit-identical to what the mollifier
-    produced (it was a no-op without duplicate-x pairs).
+    produced (it was a no-op without duplicate-x pairs). Its reverse-side
+    counterpart in the labeling (``continuize_value_jumps``) is a different
+    animal and is RETAINED: it flattens the choice verticals that the
+    reflection leaves in the reverse arrival, which the legacy jump-free
+    arithmetic depends on (2026-08-05 removal attempt refused; see
+    ``cpp/lera/NOTICE.md`` item 9, amendment 7).
     """
     xs = [float(x) for x in xs]
     ys = [float(y) for y in ys]
@@ -280,9 +285,12 @@ def solve_duration(
     # toggle) is now set per solve from the instance data, BEFORE the payload
     # is built and before the solver constructs its instance (both consult
     # it): stepwise ATFs get true tagged verticals end to end; jump-free
-    # instances take the unchanged v1.0.0 arithmetic bit-identically (the
-    # reverse-side waiting bridging is a representation choice validated by
-    # the standing jump-free certificates, not a step mollifier).
+    # instances take the unchanged v1.0.0 arithmetic bit-identically. M13.3
+    # made this flag the decisive gate for the exact vertical arithmetic inside
+    # the solver too (goc::step_exact_arithmetic). It also gates the
+    # reverse-side normalizer, which the jump-free path genuinely needs: it is
+    # not a step mollifier but the pass that keeps the reflected reverse
+    # arrival vertical-free for the legacy arithmetic.
     import os as _os
 
     if _has_stepwise_atfs(loaded):

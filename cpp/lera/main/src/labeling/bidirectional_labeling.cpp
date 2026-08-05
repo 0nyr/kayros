@@ -21,17 +21,37 @@ namespace solver
 {
 namespace
 {
-// kayros (M5.7): bridge upward value jumps of a monotone PWL function with
-// steep segments so that Inverse() yields gap-free departure functions.
-// Interior plateaus of the forward arrival function (Rifki-style stepwise
-// travel times encode tau down-steps as slope -1 arrival segments) become
-// value jumps in dep and hence in the reverse arrival below; inverting a
-// jump produces an interior domain gap and DepartureTime()/Value() then
-// fails. The bridged function never exceeds the original (the steep segment
-// stays below the following piece), so reverse arrivals are under-estimated
-// on a measure-delta sliver per jump: pricing/bounds stay valid lower bounds
-// and no wrong optimum can be certified (costs are checker-exact via the
-// stage-A repricing in the kayros bridge).
+// kayros (M5.7): normalize a monotone PWL function so that no zero-width
+// vertical survives and every coincident-abscissa breakpoint pair is bridged
+// by a steep segment (width <= 1e-3, staying below the following piece), so
+// Inverse() yields gap-free departure functions. Originally added for the
+// stepwise (Rifki-style) value jumps that interior arrival plateaus produce.
+//
+// DO NOT DELETE AS MOLLIFIER RESIDUE: this is LOAD-BEARING on the default
+// (jump-free) path. Two ordinary features of continuous instances reach it,
+// and it does not distinguish either from a genuine value jump:
+//  - CHOICE verticals. PWLFunction::Inverse turns every departure-function
+//    plateau into one, and FlipTime/FlipValue carry them into the reflected
+//    reverse arrival. Value() returns the attained endpoint at both domain
+//    endpoints of a vertical, so a vertical contributes a single breakpoint
+//    and its other endpoint reappears as a duplicate-x against the next piece.
+//  - Coincident abscissae between ordinary pieces: pieces store slope and
+//    intercept, so Value(domain.left) need not round-trip bit-exactly to the
+//    y that constructed the piece.
+// Instrumented counts (2026-08-05, df05a37): Vu2020 n=59 Vu-A5-pA-d90-w40,
+// 314 reverse arcs, 229 rewritten, 158 choice verticals flattened, 128
+// bridges; TDVRP Dabia2013 n=25 C101, 650 arcs, 590 rewritten, 566 bridges
+// with no vertical present at all. Zero JUMP verticals on either.
+//
+// Flattening those verticals is exactly the invariant the audited kayros 1.0.0
+// reverse arithmetic needs: a jump-free solve runs with
+// goc::step_exact_arithmetic() == false (M13.3), so goc applies its LEGACY
+// vertical handling, and verticals surviving into the reverse arr/tau/dep/
+// pretau make it over-certify. Removal was tried on 2026-08-05 and REFUSED:
+// cold TL-600 certificates rose deterministically above checker-valid stored
+// solutions on Vu2020 n=59 Vu-A2-pB-d98-w60 (1278.262 vs 1275.832, +2.43) and
+// Vu-A2-pB-d98-w100 (1852.944 vs 1846.807, +6.14). See NOTICE.md item 9,
+// amendment 7; the gates live in tests/test_lera_stepwise_soundness.py.
 PWLFunction continuize_value_jumps(const PWLFunction& f)
 {
 	const double delta = 1e-3; // >> goc EPS (1e-6), dust vs any horizon
@@ -110,13 +130,15 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 				for (auto& p: r.arr[v][u].Pieces()) padded.AddPiece(p);
 				r.arr[v][u] = padded;
 			}
-			// M5.9: the reverse mollifier is load-bearing and unconditional.
+			// The reverse-side normalizer is load-bearing and unconditional here.
 			// Time-reversal turns a left-continuous forward step function into a
 			// right-continuous reverse one; the labeling assumes uniform
-			// left-continuity, so exact reverse verticals misprice at jumps. The
-			// mollified continuous path is sound (validated by the randomized
-			// differential fuzzer). continuize_value_jumps is a no-op on
-			// jump-free arcs.
+			// left-continuity, so exact reverse verticals misprice at jumps. It is
+			// NOT a no-op on jump-free arcs either: it flattens the CHOICE
+			// verticals that Inverse/FlipTime leave in the reflected arrival, which
+			// is the invariant the legacy (non-exact) arithmetic requires. Only the
+			// exact value-jump path skips it, and that path carries verticals on
+			// purpose. See the helper's header before touching this.
 			if (!std::getenv("KAYROS_STEP_EXACT")) // M5.9 exact-jump path (13.2 tagged verticals)
 				r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
 			r.tau[v][u] = r.arr[v][u] - PWLFunction::IdentityFunction({0.0, vrp.T});
@@ -180,11 +202,12 @@ BidirectionalLabeling::BidirectionalLabeling(
 	// M13.0: path-keyed solution pool on the exact value-jump path only. The
 	// marker mirrors the continuize gate in reverse_instance above: with
 	// KAYROS_STEP_EXACT the reversed arrivals keep the verticals that the
-	// mollifier would bridge, which is exactly when merge-time duration
-	// bounds carry vertical-arithmetic dust (measured on Rifki-2: forward
-	// dep carries 5367 choice verticals; the reversed arr inherits them under
-	// the toggle and holds none when mollified). Every default/mollified run,
-	// jump-free or stepwise, keeps the legacy set-keyed pool bit-identically.
+	// normalizer would otherwise flatten, which is exactly when merge-time
+	// duration bounds carry vertical-arithmetic dust (measured on Rifki-2:
+	// forward dep carries 5367 choice verticals; the reversed arr inherits them
+	// under the toggle and holds none when the normalizer runs). Every default
+	// run, jump-free or stepwise, keeps the legacy set-keyed pool
+	// bit-identically.
 	step_pool_ = false;
 	if (std::getenv("KAYROS_STEP_EXACT"))
 	{
@@ -489,10 +512,15 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	}
 	
 	Route r;
-	// kayros (M5.7): rw and dom(duration) can disagree by mollifier dust
-	// (continuize_value_jumps nudges reverse-arrival domain boundaries by
-	// <= 1e-3, beyond goc EPS); clamp boundary evaluations into the domain.
-	// Search arithmetic only — columns are repriced checker-exactly (stage A).
+	// kayros (M5.7): rw and dom(duration) are maintained separately and can
+	// disagree by epsilon (goc's piece arithmetic is epsilon-tolerant, and the
+	// reverse-side normalizer can nudge reverse-arrival domain boundaries),
+	// while Value() throws outside the domain; clamp boundary evaluations into
+	// the domain. Search arithmetic only: columns are repriced checker-exactly
+	// (stage A). Instrumented on 2026-08-05 over six jump-free and stepwise
+	// solves: 47552 calls, never once out of domain. Kept as a guard, because
+	// nothing enforces rw within dom(duration) and the alternative to clamping
+	// is a thrown exception, not a better value.
 	auto duration_at = [](const Label* x, double t) {
 		t = std::max(min(dom(x->duration)), std::min(t, max(dom(x->duration))));
 		// M5.9 (21/n): minimum over the departure-choice set (see

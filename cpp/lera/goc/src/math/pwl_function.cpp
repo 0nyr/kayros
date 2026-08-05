@@ -476,7 +476,7 @@ PWLFunction PWLFunction::Inverse() const
     // The inverse of a NON-DECREASING PWL is the exact coordinate swap
     // (xs <-> ys): both vectors are non-decreasing, a value jump (duplicate x)
     // becomes a plateau (duplicate y) and vice versa, with no numerical error.
-    // This is the operation the 1e-3 mollifier existed to avoid; arrival /
+    // This is the operation the 1e-3 bridging existed to avoid; arrival /
     // departure functions (the only callers) are non-decreasing. For a
     // non-monotone function we fall back to goc's max{x : f(x)=y} behavior.
     bool non_decreasing = true;
