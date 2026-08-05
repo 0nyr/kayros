@@ -41,16 +41,32 @@ struct FdStats {
     std::int64_t ejections = 0;  // clients ejected back into the pool
     std::int64_t rollbacks_deadend = 0;
     std::int64_t rollbacks_budget = 0;
+    // Global time limit fired mid-drain (end-of-run only since the wall-clock
+    // per-trigger cap was removed for fd_work_cap, plan 15 M0.2; the counter
+    // keeps its name so stored fd_stats stay comparable across versions).
     std::int64_t rollbacks_time = 0;
+    // Work-cap rollback (fd_work_cap exhausted mid-drain), and the drain's
+    // work counter: candidate pricings (ranked insertion candidates, splice
+    // evaluations, fold-commit rebuilds; one route pricing each). The
+    // caller-side basin descents after a successful drop are measured
+    // separately (FdStats::basin_evaluated, in LsStats::evaluated units).
+    std::int64_t rollbacks_work = 0;
+    std::int64_t evaluated = 0;
+    std::int64_t basin_evaluated = 0;  // caller-side (ils.cpp), not this file
 };
 
 // One attempt; true iff the route count strictly decreased (by exactly one).
 // `pcount` (size num_customers + 1) persists across attempts at the caller.
+// `work_budget` (nullable = uncapped) is decremented by every candidate
+// pricing; when it runs out mid-drain the attempt rolls back all-or-nothing
+// (FdStats::rollbacks_work). `deadline` is the GLOBAL time limit only: it
+// aborts a drain at end-of-run (FdStats::rollbacks_time) and takes no other
+// decision (plan 15 M0.2: no wall-clock in any decision path).
 bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
                    SearchState& ss, std::mt19937_64& rng,
                    const FleetDescentParams& params,
                    std::vector<std::int32_t>& pcount,
                    const std::chrono::steady_clock::time_point* deadline,
-                   FdStats* stats);
+                   std::int64_t* work_budget, FdStats* stats);
 
 }  // namespace kayros

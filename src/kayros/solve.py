@@ -105,7 +105,17 @@ class Params:
     fd_attempts: int = 3
     fd_k_max: int = 2
     fd_ep_budget: int = 2000
-    fd_time_cap_seconds: float = 10.0
+    # Per-trigger drain work cap in candidate pricings (fd_stats "evaluated"
+    # units; 0 = uncapped). BREAKING in 1.6: replaces fd_time_cap_seconds
+    # (10.0 s wall per trigger, removed outright, plan 15 D9/M0.2), the one
+    # wall-clock decision path the solver had: it made FCD trajectories
+    # machine-dependent (76.3 % of the plan-12 weekend cells had time-based
+    # drain rollbacks, fully explaining the grvingt-vs-grappe divergence).
+    # The default matches the removed cap's intent at the calibrated ~650k
+    # pricings/s single-core rate (10 s = 6.5M). FCD trajectories differ
+    # from 1.3.0-1.5.0; Duration streams are untouched (the branch is F-gated
+    # dead code there).
+    fd_work_cap: int = 6_500_000
     fd_period: int = 0
     fd_route_choice: int = 0  # 0 uniform random victim, 1 smallest
     fd_pop_order: int = 0  # 0 LIFO, 1 difficult-first
@@ -181,7 +191,7 @@ class Params:
         params.fd_attempts = self.fd_attempts
         params.fd_k_max = self.fd_k_max
         params.fd_ep_budget = self.fd_ep_budget
-        params.fd_time_cap_seconds = self.fd_time_cap_seconds
+        params.fd_work_cap = self.fd_work_cap
         params.fd_period = self.fd_period
         params.fd_route_choice = self.fd_route_choice
         params.fd_pop_order = self.fd_pop_order
@@ -284,6 +294,9 @@ _FD_STATS_FIELDS = (
     "rollbacks_deadend",
     "rollbacks_budget",
     "rollbacks_time",
+    "rollbacks_work",
+    "evaluated",
+    "basin_evaluated",
 )
 
 _K_STATS_FIELDS = (

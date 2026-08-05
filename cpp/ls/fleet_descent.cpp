@@ -29,11 +29,17 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
                    const FleetDescentParams& params,
                    std::vector<std::int32_t>& pcount,
                    const std::chrono::steady_clock::time_point* deadline,
-                   FdStats* stats) {
+                   std::int64_t* work_budget, FdStats* stats) {
     using Clock = std::chrono::steady_clock;
     const std::size_t K = ss.states.size();
     if (K < 2) return false;
     if (stats) ++stats->attempts;
+    // One route pricing = one unit of drain work, charged against the
+    // per-trigger fd_work_cap budget and recorded in FdStats::evaluated.
+    const auto charge = [&](std::int64_t units) {
+        if (stats) stats->evaluated += units;
+        if (work_budget != nullptr) *work_budget -= units;
+    };
 
     std::vector<std::vector<std::int32_t>> snapshot;
     snapshot.reserve(K);
@@ -66,6 +72,11 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
     std::int64_t budget = params.ep_budget;
 
     while (!pool.empty()) {
+        if (work_budget != nullptr && *work_budget <= 0) {
+            if (stats) ++stats->rollbacks_work;
+            restore_states(inst, ss.states, snapshot);
+            return false;
+        }
         if (deadline != nullptr && Clock::now() >= *deadline) {
             if (stats) ++stats->rollbacks_time;
             restore_states(inst, ss.states, snapshot);
@@ -94,12 +105,15 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
         // next-best on a fold disagreement). NO singleton fallback: reopening
         // a route is exactly the failure mode this phase exists to remove.
         bool placed = false;
-        for (const InsertionCandidate& cand :
-             insertion_candidates(inst, ss.states, c, dep)) {
+        const std::vector<InsertionCandidate> cands =
+            insertion_candidates(inst, ss.states, c, dep);
+        charge(static_cast<std::int64_t>(cands.size()));
+        for (const InsertionCandidate& cand : cands) {
             std::vector<std::int32_t> next = ss.states[cand.route].vertices;
             next.insert(next.begin() + static_cast<std::ptrdiff_t>(cand.position),
                         c);
             RouteState rebuilt;
+            charge(1);
             if (build_route_state(inst, std::move(next), rebuilt)) {
                 ss.states[cand.route] = std::move(rebuilt);
                 placed = true;
@@ -116,6 +130,7 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
         // splice-ranked delta, then (route, i). The commit reprices through
         // the checker fold; ejected clients return to the pool.
         RouteState c_single;
+        charge(1);
         if (!build_route_state(inst, {c}, c_single)) {
             // Unreachable for clients of a previously feasible route (a
             // subsequence of a feasible route is feasible); guarded anyway.
@@ -155,6 +170,7 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
                         inst.vehicle_capacity) {
                         continue;  // more ejection (larger j) can still fit
                     }
+                    charge(1);
                     const RouteEval e =
                         evaluate_splice(inst, recv, i, j, c_single, 0, 0);
                     if (!e.feasible) continue;
@@ -200,6 +216,7 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
                     recv.vertices.begin() + static_cast<std::ptrdiff_t>(best.j + 1),
                     recv.vertices.end());
         RouteState rebuilt;
+        charge(1);
         if (!build_route_state(inst, std::move(next), rebuilt)) {
             // Tree-ranked feasible but fold-rejected: rare; V0 treats it as a
             // dead end rather than re-scanning for the next-best window.

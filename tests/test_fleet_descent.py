@@ -57,7 +57,7 @@ START = [[1, 2], [3, 5], [4]]
 def test_fleet_descent_drops_a_route() -> None:
     core = _ladder_core()
     assert _core.solution_duration(core, START) != float("inf")
-    routes, value, success, pops, step1, ejections, dead, budget = (
+    routes, value, success, pops, step1, ejections, dead, budget, work_rb, evaluated = (
         _core.ls_fleet_descent(core, START, 0, route_choice=1, num_neighbours=0)
     )
     assert success
@@ -65,8 +65,9 @@ def test_fleet_descent_drops_a_route() -> None:
     assert sorted(c for r in routes for c in r) == [1, 2, 3, 4, 5]
     assert value == _core.solution_duration(core, routes)
     assert step1 >= 1 and ejections >= 1  # both ladder rungs fired
-    assert dead == 0 and budget == 0
+    assert dead == 0 and budget == 0 and work_rb == 0
     assert pops >= 2
+    assert evaluated >= pops  # every pop prices at least one candidate set
 
 
 def test_fleet_descent_all_or_nothing_on_impossible() -> None:
@@ -74,7 +75,7 @@ def test_fleet_descent_all_or_nothing_on_impossible() -> None:
     the attempt must end in a rollback and restore the input exactly."""
     core = _ladder_core()
     start = [[1, 2], [4]]
-    routes, value, success, _pops, _s1, _ej, dead, budget = (
+    routes, value, success, _pops, _s1, _ej, dead, budget, _wrb, _ev = (
         _core.ls_fleet_descent(
             core, start, 0, route_choice=1, ep_budget=25, num_neighbours=0
         )
@@ -90,6 +91,22 @@ def test_fleet_descent_deterministic() -> None:
     a = _core.ls_fleet_descent(core, START, 7, num_neighbours=0)
     b = _core.ls_fleet_descent(core, START, 7, num_neighbours=0)
     assert a == b
+
+
+def test_fleet_descent_work_cap_rolls_back() -> None:
+    """A tiny work cap must end the attempt in an all-or-nothing rollback
+    (plan 15 M0.2: the drain is capped by work, never by wall clock)."""
+    core = _ladder_core()
+    routes, value, success, _pops, _s1, _ej, dead, budget, work_rb, evaluated = (
+        _core.ls_fleet_descent(
+            core, START, 0, route_choice=1, num_neighbours=0, work_cap=1
+        )
+    )
+    assert not success
+    assert routes == START  # exact restore, route order preserved
+    assert value == _core.solution_duration(core, START)
+    assert work_rb == 1 and dead == 0 and budget == 0
+    assert evaluated >= 1  # the cap is checked between pops, after charging
 
 
 @pytest.mark.parametrize(

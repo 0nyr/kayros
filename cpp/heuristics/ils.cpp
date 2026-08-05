@@ -224,22 +224,25 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     // attempt stuck; the state is then bitwise unperturbed).
     const auto run_fleet_descent = [&]() -> double {
         ++result.fd_stats.triggers;
-        Clock::time_point cap_point =
-            Clock::now() + std::chrono::duration_cast<Clock::duration>(
-                               std::chrono::duration<double>(
-                                   params.fd_time_cap_seconds));
-        const Clock::time_point* fd_deadline = &cap_point;
-        if (deadline != nullptr && *deadline < cap_point) fd_deadline = deadline;
+        // Per-trigger drain budget in candidate pricings (plan 15 M0.2: the
+        // wall-clock fd_time_cap_seconds is gone, the drain is capped by
+        // work so trajectories are machine-independent). The global deadline
+        // still passes through: it only ends the run, it takes no decision.
+        std::int64_t fd_budget = params.fd_work_cap;
+        std::int64_t* budget_ptr = params.fd_work_cap > 0 ? &fd_budget : nullptr;
+        const std::int64_t basin_mark = ls_stats.evaluated;
         bool dropped = false;
         for (std::int32_t a = 0; a < params.fd_attempts; ++a) {
-            if (Clock::now() >= *fd_deadline) break;
+            if (budget_ptr != nullptr && fd_budget <= 0) break;
+            if (deadline != nullptr && Clock::now() >= *deadline) break;
             if (fleet_descent(inst, nb, ss, rng, fd_params, fd_pcount,
-                              fd_deadline, &result.fd_stats)) {
+                              deadline, budget_ptr, &result.fd_stats)) {
                 dropped = true;
                 break;
             }
         }
         if (!dropped) {
+            result.fd_stats.basin_evaluated += ls_stats.evaluated - basin_mark;
             fd_work_mark = ls_stats.evaluated;
             return std::numeric_limits<double>::quiet_NaN();
         }
@@ -255,6 +258,10 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             result.value = best;
             publish(best, iteration, 2, result.routes);
         }
+        // M0.3 instrumentation: the basin descents' share of LS work, so
+        // FD's total cost is fd_stats.evaluated + fd_stats.basin_evaluated
+        // against ls_stats.evaluated + fd_stats.evaluated for the solve.
+        result.fd_stats.basin_evaluated += ls_stats.evaluated - basin_mark;
         // Reset AFTER the basin descents so the next fd_period_work window
         // measures pure ILS work between triggers (mirrors fd_period, which
         // counts iterations only).

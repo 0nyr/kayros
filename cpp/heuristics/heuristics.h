@@ -67,7 +67,17 @@ struct IlsParams {
     std::int32_t fd_attempts = 3;        // attempts per trigger; 0 disables
     std::int32_t fd_k_max = 2;           // max ejection-window size
     std::int64_t fd_ep_budget = 2000;    // max pool pops per attempt
-    double fd_time_cap_seconds = 10.0;   // wall cap per trigger
+    // Work cap per trigger, in drain candidate pricings (FdStats::evaluated
+    // units, one route pricing each, the drain's analogue of
+    // LsStats::evaluated). Replaces the 1.3.0-1.5.0 fd_time_cap_seconds
+    // (default 10.0 s), which was the one wall-clock decision path left in
+    // the solver: 76.3 % of the plan-12 weekend cells had at least one
+    // time-based drain rollback, which fully explained the grvingt-vs-grappe
+    // trajectory divergence after 30 identical incumbents (plan 15 M0.2).
+    // The default matches the removed cap's intent at the calibrated ~650k
+    // pricings/s single-core rate (10 s = 6.5M). 0 = uncapped. Like every
+    // fd_* knob this is F-gated: dead code under Duration.
+    std::int64_t fd_work_cap = 6'500'000;
     std::int64_t fd_period = 0;          // 0 = stagnation-trigger only
     std::int32_t fd_route_choice = 0;    // 0 random, 1 smallest
     std::int32_t fd_pop_order = 0;       // 0 LIFO, 1 difficult-first

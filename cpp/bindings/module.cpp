@@ -213,8 +213,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("fd_attempts", &kayros::IlsParams::fd_attempts)
         .def_readwrite("fd_k_max", &kayros::IlsParams::fd_k_max)
         .def_readwrite("fd_ep_budget", &kayros::IlsParams::fd_ep_budget)
-        .def_readwrite("fd_time_cap_seconds",
-                       &kayros::IlsParams::fd_time_cap_seconds)
+        .def_readwrite("fd_work_cap", &kayros::IlsParams::fd_work_cap)
         .def_readwrite("fd_period", &kayros::IlsParams::fd_period)
         .def_readwrite("fd_period_work", &kayros::IlsParams::fd_period_work)
         .def_readwrite("seed_k_factor", &kayros::IlsParams::seed_k_factor)
@@ -277,7 +276,10 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("rollbacks_deadend",
                       &kayros::FdStats::rollbacks_deadend)
         .def_readonly("rollbacks_budget", &kayros::FdStats::rollbacks_budget)
-        .def_readonly("rollbacks_time", &kayros::FdStats::rollbacks_time);
+        .def_readonly("rollbacks_time", &kayros::FdStats::rollbacks_time)
+        .def_readonly("rollbacks_work", &kayros::FdStats::rollbacks_work)
+        .def_readonly("evaluated", &kayros::FdStats::evaluated)
+        .def_readonly("basin_evaluated", &kayros::FdStats::basin_evaluated);
 
     py::class_<kayros::KStats>(m, "KStats")
         .def_readonly("k_seed", &kayros::KStats::k_seed)
@@ -413,7 +415,8 @@ PYBIND11_MODULE(_core, m) {
            std::vector<std::vector<std::int32_t>> routes, std::uint64_t seed,
            std::int32_t k_max, std::int64_t ep_budget,
            std::int32_t route_choice, std::int32_t pop_order,
-           std::int32_t num_neighbours, double weight_wait) {
+           std::int32_t num_neighbours, double weight_wait,
+           std::int64_t work_cap) {
             const kayros::NeighbourLists nb =
                 kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
             kayros::SearchState ss;
@@ -429,8 +432,10 @@ PYBIND11_MODULE(_core, m) {
             std::vector<std::int32_t> pcount(
                 static_cast<std::size_t>(inst.num_customers) + 1, 0);
             kayros::FdStats stats;
+            std::int64_t work_budget = work_cap;
             const bool success = kayros::fleet_descent(
-                inst, nb, ss, rng, params, pcount, nullptr, &stats);
+                inst, nb, ss, rng, params, pcount, nullptr,
+                work_cap > 0 ? &work_budget : nullptr, &stats);
             routes.clear();
             routes.reserve(ss.states.size());
             for (kayros::RouteState& s : ss.states) {
@@ -440,12 +445,14 @@ PYBIND11_MODULE(_core, m) {
             return py::make_tuple(std::move(routes), value, success,
                                   stats.pops, stats.step1_inserts,
                                   stats.ejections, stats.rollbacks_deadend,
-                                  stats.rollbacks_budget);
+                                  stats.rollbacks_budget, stats.rollbacks_work,
+                                  stats.evaluated);
         },
         py::arg("instance"), py::arg("routes"), py::arg("seed"),
         py::arg("k_max") = 2, py::arg("ep_budget") = 2000,
         py::arg("route_choice") = 0, py::arg("pop_order") = 0,
-        py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2);
+        py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2,
+        py::arg("work_cap") = 0);
     m.def(
         "ls_evaluate_splice",
         [](const kayros::Instance& inst, const std::vector<std::int32_t>& route1,

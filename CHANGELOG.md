@@ -2,6 +2,16 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [Unreleased]
+
+### Changed
+
+- **BREAKING: `Params.fd_time_cap_seconds` is removed outright and replaced by `Params.fd_work_cap` (default 6,500,000 candidate pricings per fleet-descent trigger; 0 = uncapped).** The wall-clock cap was the one wall-clock decision path left in the solver: it rolled the drain back after 10 s of wall time, so the same seed on the same instance took different FleetCostDuration trajectories on different machines (76.3 percent of the 3,692 plan-12 weekend cells had at least one time-based rollback, which fully explained a grvingt-versus-grappe divergence after 30 identical incumbents). The drain is now capped by its own work counter, machine-independently, following the `fd_period_work` pattern; the default matches the removed cap's intent at the calibrated ~650k pricings/s single-core rate. No deprecation alias: passing `fd_time_cap_seconds` now raises. **FleetCostDuration trajectories differ from 1.3.0-1.5.0 from this change on** (the cap fires at different points than the wall clock did); comparisons against pre-change FCD results are different-mechanism comparisons. Duration trajectories are bitwise unchanged at any setting: the whole branch is F-gated dead code there. The global `time_limit` still ends a drain mid-attempt at end-of-run (`fd_stats["rollbacks_time"]` keeps its name and now counts only that); the audit of the remaining wall-clock uses found none that takes a mid-run decision (the VND deadline in `ls_descend` and the `exhaustive_on_best` gates read the global time limit only).
+
+### Added
+
+- **Fleet-descent work accounting** (plan 15 M0.3): `fd_stats["rollbacks_work"]` (drain attempts rolled back by `fd_work_cap`), `fd_stats["evaluated"]` (drain candidate pricings: ranked insertion candidates, splice evaluations and fold-commit rebuilds, one route pricing each) and `fd_stats["basin_evaluated"]` (LS work of the post-drop basin descents, in `Solution.work_units` units). Together they give fleet descent's share of solver work: `(evaluated + basin_evaluated) / (work_units + evaluated)`.
+
 ## [1.5.0] — 2026-08-04
 
 A fleet-sizing release, and a **deliberate change of default behaviour**: Duration results move versus 1.4.x. Under the Duration objective the search sheds routes freely and effectively never adds one, so the route count it finishes with is essentially the one the seed handed it. On instances where waiting dominates, the constructed seed lands near half the duration-optimal fleet and the search cannot climb out. 1.5.0 seeds above the constructed count and lets the search descend to its own.
