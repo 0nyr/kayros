@@ -19,7 +19,9 @@ find_package(pybind11 CONFIG REQUIRED)
 pybind11_add_module(_core
     cpp/bindings/module.cpp
     cpp/pwlf/pwlf.cpp
+    cpp/pwlf/warp.cpp
     cpp/core/route_eval.cpp
+    cpp/core/warp_eval.cpp
     cpp/heuristics/greedy_makespan.cpp
     cpp/heuristics/aco.cpp
     cpp/heuristics/ils.cpp

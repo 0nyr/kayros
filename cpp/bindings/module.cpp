@@ -11,10 +11,12 @@
 #include <random>
 
 #include "core/instance.h"
+#include "core/warp_eval.h"
 #include "heuristics/heuristics.h"
 #include "ls/ls.h"
 #include "ls/perturb.h"
 #include "pwlf/pwlf.h"
+#include "pwlf/warp.h"
 
 namespace py = pybind11;
 
@@ -147,6 +149,31 @@ PYBIND11_MODULE(_core, m) {
               return py::make_tuple(std::move(f.xs), std::move(f.ys));
           });
 
+    // --- TD time-warp primitives (Stream 8; exposed for the warp gate suite) ---
+    m.def("pwlf_add", [](std::vector<double> f_xs, std::vector<double> f_ys,
+                         std::vector<double> g_xs, std::vector<double> g_ys) {
+        const kayros::Pwlf f = make_pwlf(std::move(f_xs), std::move(f_ys));
+        const kayros::Pwlf g = make_pwlf(std::move(g_xs), std::move(g_ys));
+        kayros::Pwlf h = kayros::add(kayros::view(f), kayros::view(g));
+        return py::make_tuple(std::move(h.xs), std::move(h.ys));
+    });
+    m.def("pwlf_make_theta_warp",
+          [](double earliest, double latest, double service_time, double t_end) {
+              kayros::ThetaWarp tw =
+                  kayros::make_theta_warp(earliest, latest, service_time, t_end);
+              return py::make_tuple(
+                  py::make_tuple(std::move(tw.theta.xs), std::move(tw.theta.ys)),
+                  py::make_tuple(std::move(tw.warp.xs), std::move(tw.warp.ys)));
+          });
+    m.def("pwlf_make_return_clamp", [](double due, double t_end) {
+        kayros::Pwlf f = kayros::make_return_clamp(due, t_end);
+        return py::make_tuple(std::move(f.xs), std::move(f.ys));
+    });
+    m.def("pwlf_make_return_warp", [](double due, double t_end) {
+        kayros::Pwlf f = kayros::make_return_warp(due, t_end);
+        return py::make_tuple(std::move(f.xs), std::move(f.ys));
+    });
+
     // --- instance + route evaluation ---
     py::class_<kayros::Instance>(m, "Instance")
         .def(py::init(&make_instance), py::arg("num_customers"),
@@ -174,7 +201,41 @@ PYBIND11_MODULE(_core, m) {
                      inst, route.data(),
                      static_cast<std::int64_t>(route.size()));
                  return py::make_tuple(std::move(d.xs), std::move(d.ys));
-             });
+             })
+        .def("warp_horizon",
+             [](const kayros::Instance& inst) { return kayros::warp_horizon(inst); })
+        .def("route_warp_functions",
+             [](const kayros::Instance& inst,
+                const std::vector<std::int32_t>& route, double t_end,
+                bool dedup) {
+                 kayros::WarpFunctions wf = kayros::warp_route_functions(
+                     inst, route.data(),
+                     static_cast<std::int64_t>(route.size()), t_end, dedup);
+                 return py::make_tuple(
+                     py::make_tuple(std::move(wf.rho.xs), std::move(wf.rho.ys)),
+                     py::make_tuple(std::move(wf.warp.xs), std::move(wf.warp.ys)));
+             },
+             py::arg("route"), py::arg("t_end"), py::arg("dedup") = false)
+        .def("evaluate_route_warp",
+             [](const kayros::Instance& inst,
+                const std::vector<std::int32_t>& route, double penalty,
+                double t_end, bool dedup) {
+                 const kayros::WarpRouteEval r = kayros::evaluate_route_warp(
+                     inst, route.data(),
+                     static_cast<std::int64_t>(route.size()), penalty, t_end,
+                     dedup);
+                 py::dict d;
+                 d["total"] = r.total;
+                 d["feasible"] = r.feasible;
+                 d["duration"] = r.duration;
+                 d["departure"] = r.departure;
+                 d["min_warp"] = r.min_warp;
+                 d["penalised"] = r.penalised;
+                 d["penalised_departure"] = r.penalised_departure;
+                 return d;
+             },
+             py::arg("route"), py::arg("penalty"), py::arg("t_end"),
+             py::arg("dedup") = false);
 
     // --- heuristics ---
     py::class_<kayros::AcoParams>(m, "AcoParams")
