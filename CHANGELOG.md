@@ -2,7 +2,7 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
-## [Unreleased]
+## [1.5.1] — 2026-08-05
 
 ### Fixed
 
@@ -12,7 +12,9 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 
   The fix gates both layers on the solve being step-carrying: the same per-instance `KAYROS_STEP_EXACT` decision the Python bridge already makes from the instance ATFs, now pinned for the whole solve as a scoped process-global in goc (`goc::step_exact_arithmetic`) instead of being re-derived per operand. Jump-free solves take the 1.0.0 arithmetic; the six instances return their stored certificate values bit-exactly, and the previously falsified `n=59/Vu-A2-pB-d98-w100` returns 1846.807 rather than the retracted 1847.240. Step-carrying solves are byte-for-byte the 1.5.0 behaviour: the M13.0 reproducer gates (Rifki-2, Rifki-17, Rifki-18), the step gates and the differential fuzzer are unchanged and green.
 
-  **Consequence for stored certificates.** Every jump-free optimality stamp minted by 1.1.0 through 1.5.0 was produced by this arithmetic and must be re-validated; a stamp is only trustworthy again once re-derived on a build carrying this fix. Certificates minted before 1.1.0, and every step-carrying certificate, are unaffected. `cpp/lera/NOTICE.md` item 9 carries the corresponding amendment. Until this section ships under a version number, `kayros.__version__` still reads 1.5.0 on a fixed build, so a re-certification run made from this branch must be identified by commit, not by version.
+  **Validated at scale before release**: the 2026-08-05 re-certification campaign (Grid'5000, four independent solves per instance) re-derived 465 of the 468 stored optimality stamps at their exact stored values on this build; the three exceptions are one certificate retracted as falsified (its true optimum is re-proven by three of four arms), one four-way disagreement refused by the protocol, and one instance stopped by the memory self-guard in all four arms. Single-arm over-certifications observed during that campaign (one per labeling mode, on different instances) confirm that neither jump-free arithmetic is provably complete arm by arm; the four-solve agreement protocol is the soundness instrument, and certificates exist only where it passes.
+
+  **Consequence for stored certificates.** Every jump-free optimality stamp minted by 1.1.0 through 1.5.0 was produced by this arithmetic and must be re-validated; a stamp is only trustworthy again once re-derived on a build carrying this fix. Certificates minted before 1.1.0, and every step-carrying certificate, are unaffected. `cpp/lera/NOTICE.md` item 9 carries the corresponding amendment. The pre-release re-certification campaign of 2026-08-05 therefore identifies its build by commit (`df05a37`), not by version; builds installing this release read 1.5.1.
 
 ### Changed
 
