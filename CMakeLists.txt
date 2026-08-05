@@ -31,6 +31,8 @@ pybind11_add_module(_core
     cpp/ls/insertion.cpp
     cpp/ls/perturb.cpp
     cpp/ls/splice.cpp
+    cpp/ls/warp_tree.cpp
+    cpp/ls/warp_splice.cpp
     cpp/ls/fleet_descent.cpp
     cpp/ls/local_search.cpp
 )

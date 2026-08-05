@@ -2,6 +2,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <chrono>
 #include <optional>
 #include <stdexcept>
 #include <tuple>
@@ -15,6 +16,7 @@
 #include "heuristics/heuristics.h"
 #include "ls/ls.h"
 #include "ls/perturb.h"
+#include "ls/warp_ls.h"
 #include "pwlf/pwlf.h"
 #include "pwlf/warp.h"
 
@@ -236,6 +238,146 @@ PYBIND11_MODULE(_core, m) {
              },
              py::arg("route"), py::arg("penalty"), py::arg("t_end"),
              py::arg("dedup") = false);
+
+    // --- warp-augmented LS structures (Stream 8, P8.2; gate + bench surface) ---
+    py::class_<kayros::WarpRouteState>(m, "WarpRouteState")
+        .def_readonly("duration", &kayros::WarpRouteState::duration)
+        .def_readonly("min_warp", &kayros::WarpRouteState::min_warp)
+        .def_readonly("load", &kayros::WarpRouteState::load);
+    m.def(
+        "build_warp_route_state",
+        [](const kayros::Instance& inst, std::vector<std::int32_t> vertices,
+           double penalty, double t_end) -> std::optional<kayros::WarpRouteState> {
+            kayros::WarpRouteState state;
+            if (!kayros::build_warp_route_state(inst, std::move(vertices), penalty,
+                                                t_end, state)) {
+                return std::nullopt;
+            }
+            return state;
+        },
+        py::arg("instance"), py::arg("vertices"), py::arg("penalty"),
+        py::arg("t_end"));
+    m.def(
+        "evaluate_splice_warp",
+        [](const kayros::Instance& inst, const kayros::WarpRouteState& r1,
+           std::int64_t i1, std::int64_t j1, const kayros::WarpRouteState& r2,
+           std::int64_t i2, std::int64_t j2, double penalty, double t_end) {
+            const kayros::WarpRouteEval r = kayros::evaluate_splice_warp(
+                inst, r1, i1, j1, r2, i2, j2, penalty, t_end);
+            py::dict d;
+            d["total"] = r.total;
+            d["feasible"] = r.feasible;
+            d["duration"] = r.duration;
+            d["min_warp"] = r.min_warp;
+            d["penalised"] = r.penalised;
+            return d;
+        },
+        py::arg("instance"), py::arg("r1"), py::arg("i1"), py::arg("j1"),
+        py::arg("r2"), py::arg("i2"), py::arg("j2"), py::arg("penalty"),
+        py::arg("t_end"));
+    m.def(
+        "warp_tree_full",
+        [](const kayros::Instance& inst, const std::vector<std::int32_t>& route,
+           double t_end) {
+            kayros::WarpLcaTree tree;
+            tree.build(kayros::warp_route_leaves(
+                inst, route.data(), static_cast<std::int64_t>(route.size()), t_end));
+            kayros::WarpSegment s = tree.query(0, tree.num_leaves() - 1);
+            return py::make_tuple(
+                py::make_tuple(std::move(s.rho.xs), std::move(s.rho.ys)),
+                py::make_tuple(std::move(s.omega.xs), std::move(s.omega.ys)));
+        },
+        py::arg("instance"), py::arg("route"), py::arg("t_end"));
+    m.def(
+        "warp_tree_update_gate",
+        [](const kayros::Instance& inst, const std::vector<std::int32_t>& route,
+           double t_end, std::int64_t position, std::int32_t new_customer) {
+            // Localized update_leaf ≡ fresh rebuild, bitwise, on every query
+            // range (the td-route-trees P4.3 gate transposed to segments).
+            const std::int64_t m = static_cast<std::int64_t>(route.size());
+            if (position < 0 || position >= m) {
+                throw std::invalid_argument("bad position");
+            }
+            std::vector<std::int32_t> modified(route);
+            modified[static_cast<std::size_t>(position)] = new_customer;
+
+            kayros::WarpLcaTree updated;
+            updated.build(kayros::warp_route_leaves(inst, route.data(), m, t_end));
+            std::vector<kayros::WarpSegment> fresh_leaves =
+                kayros::warp_route_leaves(inst, modified.data(), m, t_end);
+            // Changing r[position] touches leaf `position` (incoming arc +
+            // theta) and leaf `position + 1` (outgoing arc; the return leaf
+            // when position == m - 1).
+            updated.update_leaf(position,
+                                fresh_leaves[static_cast<std::size_t>(position)]);
+            updated.update_leaf(position + 1,
+                                fresh_leaves[static_cast<std::size_t>(position + 1)]);
+
+            kayros::WarpLcaTree rebuilt;
+            rebuilt.build(std::move(fresh_leaves));
+
+            for (std::int64_t lo = 0; lo < rebuilt.num_leaves(); ++lo) {
+                for (std::int64_t hi = lo; hi < rebuilt.num_leaves(); ++hi) {
+                    const kayros::WarpSegment a = updated.query(lo, hi);
+                    const kayros::WarpSegment b = rebuilt.query(lo, hi);
+                    if (a.rho.xs != b.rho.xs || a.rho.ys != b.rho.ys ||
+                        a.omega.xs != b.omega.xs || a.omega.ys != b.omega.ys) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        },
+        py::arg("instance"), py::arg("route"), py::arg("t_end"),
+        py::arg("position"), py::arg("new_customer"));
+    m.def(
+        "bench_splice_pair",
+        [](const kayros::Instance& inst,
+           const std::vector<std::vector<std::int32_t>>& routes,
+           const std::vector<std::tuple<std::int64_t, std::int64_t, std::int64_t,
+                                        std::int64_t, std::int64_t, std::int64_t>>&
+               draws,
+           double penalty, double t_end) {
+            // Fair per-move cost: BOTH sides run over prebuilt trees, timed in
+            // C++ (P8.2 microbench; bench-only surface like the gates above).
+            std::vector<kayros::RouteState> base(routes.size());
+            std::vector<kayros::WarpRouteState> warped(routes.size());
+            for (std::size_t r = 0; r < routes.size(); ++r) {
+                if (!kayros::build_route_state(inst, routes[r], base[r])) {
+                    throw std::invalid_argument("bench route infeasible");
+                }
+                if (!kayros::build_warp_route_state(inst, routes[r], penalty, t_end,
+                                                    warped[r])) {
+                    throw std::invalid_argument("bench route hits a hard wall");
+                }
+            }
+            double base_sum = 0.0, warp_sum = 0.0;
+            const auto t0 = std::chrono::steady_clock::now();
+            for (const auto& d : draws) {
+                const kayros::RouteEval e = kayros::evaluate_splice(
+                    inst, base[static_cast<std::size_t>(std::get<0>(d))],
+                    std::get<1>(d), std::get<2>(d),
+                    base[static_cast<std::size_t>(std::get<3>(d))], std::get<4>(d),
+                    std::get<5>(d));
+                if (e.feasible) base_sum += e.duration;
+            }
+            const auto t1 = std::chrono::steady_clock::now();
+            for (const auto& d : draws) {
+                const kayros::WarpRouteEval e = kayros::evaluate_splice_warp(
+                    inst, warped[static_cast<std::size_t>(std::get<0>(d))],
+                    std::get<1>(d), std::get<2>(d),
+                    warped[static_cast<std::size_t>(std::get<3>(d))], std::get<4>(d),
+                    std::get<5>(d), penalty, t_end);
+                if (e.total) warp_sum += e.penalised;
+            }
+            const auto t2 = std::chrono::steady_clock::now();
+            const double base_s = std::chrono::duration<double>(t1 - t0).count();
+            const double warp_s = std::chrono::duration<double>(t2 - t1).count();
+            return py::make_tuple(base_s, warp_s, base_sum, warp_sum);
+        },
+        py::arg("instance"), py::arg("routes"), py::arg("draws"),
+        py::arg("penalty"), py::arg("t_end"));
+
 
     // --- heuristics ---
     py::class_<kayros::AcoParams>(m, "AcoParams")
