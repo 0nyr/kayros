@@ -93,6 +93,11 @@ struct IlsParams {
     std::int64_t sq_work_cap = 0;
     double sq_penalty = 10.0;
     bool sq_on_nodrop = true;
+    // Plan-15 S1 (inert at false, independent of sq_work_cap): the in-ladder
+    // squeeze between feasible-insert failure and ejection, charging the
+    // drain's own fd_work_cap budget. Consumes rng draws inside the F-gated
+    // drain only, so Duration streams stay untouched.
+    bool sq_ladder = false;
     std::int32_t fd_route_choice = 0;    // 0 random, 1 smallest
     std::int32_t fd_pop_order = 0;       // 0 LIFO, 1 difficult-first
     // Work-based triggers (session 44): thresholds in LS work units

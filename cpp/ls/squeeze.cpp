@@ -5,6 +5,8 @@
 #include <limits>
 #include <utility>
 
+#include "ls/rng.h"
+
 namespace kayros {
 
 namespace {
@@ -387,6 +389,244 @@ bool squeeze_phase(const Instance& inst, const NeighbourLists& nb,
     if (bank.routes.empty()) return false;  // nothing beat the entry state
     routes = std::move(bank.routes);
     if (stats) ++stats->improved;
+    return true;
+}
+
+bool squeeze_insert(const Instance& inst, const NeighbourLists& nb,
+                    std::vector<std::vector<std::int32_t>>& routes,
+                    std::int32_t c, double penalty, std::int64_t* work_budget,
+                    std::mt19937_64& rng, SqueezeStats* stats) {
+    const double t_end = warp_horizon(inst);
+    WarpSearch ws;
+    if (!init_warp_search(inst, routes, penalty, t_end, ws)) return false;
+    const auto charge = [&](std::int64_t units) {
+        if (stats) stats->evaluated += units;
+        *work_budget -= units;
+    };
+    charge(static_cast<std::int64_t>(ws.states.size()));  // the state builds
+
+    WarpRouteState c_single;
+    charge(1);
+    if (!build_warp_route_state(inst, {c}, penalty, t_end, c_single)) {
+        return false;
+    }
+
+    // Min-penalised force-insert: candidate positions are route ends plus
+    // positions adjacent to granular neighbours of c (the branch's recreate
+    // primitive); every position of every route when exhaustive.
+    struct Ins {
+        bool found = false;
+        std::int32_t route = 0;
+        std::int64_t pos = 0;
+        double delta = 0.0;
+    } best;
+    const auto consider = [&](std::int32_t r, std::int64_t p) {
+        const WarpRouteState& s = ws.states[static_cast<std::size_t>(r)];
+        if (s.load + inst.demands[static_cast<std::size_t>(c)] >
+            inst.vehicle_capacity) {
+            return;
+        }
+        charge(1);
+        const WarpRouteEval ev =
+            evaluate_splice_warp(inst, s, p, p - 1, c_single, 0, 0, penalty, t_end);
+        if (!ev.total) return;
+        const double delta = ev.penalised - warp_state_cost(s, penalty);
+        if (!best.found || delta < best.delta ||
+            (delta == best.delta &&
+             (r < best.route || (r == best.route && p < best.pos)))) {
+            best = {true, r, p, delta};
+        }
+    };
+    if (!nb.restricted()) {
+        for (std::int32_t r = 0; r < static_cast<std::int32_t>(ws.states.size());
+             ++r) {
+            const std::int64_t m = static_cast<std::int64_t>(
+                ws.states[static_cast<std::size_t>(r)].vertices.size());
+            for (std::int64_t p = 0; p <= m; ++p) consider(r, p);
+        }
+    } else {
+        // Route ends first, then neighbour-adjacent positions, deduplicated
+        // via a per-route visited-position set kept as a sorted probe.
+        std::vector<std::pair<std::int32_t, std::int64_t>> seen;
+        const auto push = [&](std::int32_t r, std::int64_t p) {
+            const auto key = std::make_pair(r, p);
+            for (const auto& s : seen) {
+                if (s == key) return;
+            }
+            seen.push_back(key);
+            consider(r, p);
+        };
+        for (std::int32_t r = 0; r < static_cast<std::int32_t>(ws.states.size());
+             ++r) {
+            const std::int64_t m = static_cast<std::int64_t>(
+                ws.states[static_cast<std::size_t>(r)].vertices.size());
+            push(r, 0);
+            push(r, m);
+        }
+        for (const std::int32_t* it = nb.neighbours_begin(c);
+             it != nb.neighbours_end(c); ++it) {
+            const std::int32_t r = ws.route_of[static_cast<std::size_t>(*it)];
+            if (r < 0) continue;
+            const std::int64_t pv = ws.pos_of[static_cast<std::size_t>(*it)];
+            push(r, pv);
+            push(r, pv + 1);
+        }
+    }
+    if (!best.found) return false;
+    {
+        std::vector<std::int32_t> nv = with_inserted(
+            ws.states[static_cast<std::size_t>(best.route)].vertices, best.pos, c);
+        charge(1);
+        if (!set_route(inst, ws, best.route, std::move(nv), penalty, t_end)) {
+            return false;
+        }
+        ++ws.epoch;
+        ws.route_epoch[static_cast<std::size_t>(best.route)] = ws.epoch;
+    }
+
+    // Confined reference repair: one warp-positive route at a time.
+    while (!search_feasible(ws)) {
+        if (*work_budget <= 0) return false;
+        std::vector<std::int32_t> bad;
+        for (std::int32_t r = 0; r < static_cast<std::int32_t>(ws.states.size());
+             ++r) {
+            if (ws.states[static_cast<std::size_t>(r)].min_warp != 0.0) {
+                bad.push_back(r);
+            }
+        }
+        const std::int32_t rsel = bad[static_cast<std::size_t>(
+            draw(rng, static_cast<std::uint64_t>(bad.size())))];
+        const WarpRouteState& sr = ws.states[static_cast<std::size_t>(rsel)];
+        const double cost_r = warp_state_cost(sr, penalty);
+
+        struct Move {
+            bool found = false;
+            bool is_swap = false;
+            std::int32_t u = 0, v = 0;
+            std::int32_t r2 = 0;
+            std::int64_t p = 0;  // relocate target position in r2
+            double delta = 0.0;
+        } mv;
+        const std::vector<std::int32_t> members = sr.vertices;  // copy: sr moves
+        // Exhaustive-sentinel fallback, as in descend: all clients when the
+        // lists are not materialized.
+        std::vector<std::int32_t> all;
+        if (!nb.restricted()) {
+            all.reserve(static_cast<std::size_t>(inst.num_customers));
+            for (std::int32_t v = 1; v <= inst.num_customers; ++v) {
+                all.push_back(v);
+            }
+        }
+        for (const std::int32_t u : members) {
+            if (*work_budget <= 0) break;
+            const std::int64_t iu = ws.pos_of[static_cast<std::size_t>(u)];
+            bool rem_ok = false;
+            charge(1);
+            const double rem_cost =
+                removal_cost(inst, sr, iu, penalty, t_end, &rem_ok);
+            const std::int32_t* vb =
+                nb.restricted() ? nb.neighbours_begin(u) : all.data();
+            const std::int32_t* ve =
+                nb.restricted() ? nb.neighbours_end(u) : all.data() + all.size();
+            for (const std::int32_t* it = vb; it != ve; ++it) {
+                const std::int32_t v = *it;
+                const std::int32_t r2 = ws.route_of[static_cast<std::size_t>(v)];
+                if (r2 < 0 || r2 == rsel) continue;
+                const WarpRouteState& s2 = ws.states[static_cast<std::size_t>(r2)];
+                const double cost2 = warp_state_cost(s2, penalty);
+                const std::int64_t iv = ws.pos_of[static_cast<std::size_t>(v)];
+                // relocate u out of rsel, before/after v
+                if (rem_ok && s2.load + inst.demands[static_cast<std::size_t>(u)] <=
+                                  inst.vehicle_capacity) {
+                    for (const std::int64_t p : {iv, iv + 1}) {
+                        charge(1);
+                        const WarpRouteEval ins = evaluate_splice_warp(
+                            inst, s2, p, p - 1, sr, iu, iu, penalty, t_end);
+                        if (!ins.total) continue;
+                        const double delta =
+                            (rem_cost + ins.penalised) - (cost_r + cost2);
+                        if (delta < -kScreenEps &&
+                            (!mv.found || delta < mv.delta)) {
+                            // NOTE: the reference's early-commit cutoff
+                            // (stop scanning when a move wipes the selected
+                            // route's whole penalty, M0.7 trick 3) is
+                            // deliberately not in v0: it needs the removal
+                            // eval's residual warp threaded through here,
+                            // and it is an optimization, not semantics.
+                            mv = {true, false, u, v, r2, p, delta};
+                        }
+                    }
+                }
+                // swap u <-> v
+                if (ws.states[static_cast<std::size_t>(rsel)].load -
+                            inst.demands[static_cast<std::size_t>(u)] +
+                            inst.demands[static_cast<std::size_t>(v)] <=
+                        inst.vehicle_capacity &&
+                    s2.load - inst.demands[static_cast<std::size_t>(v)] +
+                            inst.demands[static_cast<std::size_t>(u)] <=
+                        inst.vehicle_capacity) {
+                    charge(2);
+                    const WarpRouteEval e1 = evaluate_splice_warp(
+                        inst, sr, iu, iu, s2, iv, iv, penalty, t_end);
+                    if (!e1.total) continue;
+                    const WarpRouteEval e2 = evaluate_splice_warp(
+                        inst, s2, iv, iv, sr, iu, iu, penalty, t_end);
+                    if (!e2.total) continue;
+                    const double delta =
+                        (e1.penalised + e2.penalised) - (cost_r + cost2);
+                    if (delta < -kScreenEps && (!mv.found || delta < mv.delta)) {
+                        mv = {true, true, u, v, r2, 0, delta};
+                    }
+                }
+            }
+        }
+        if (!mv.found) return false;  // stuck: the whole squeeze fails
+
+        // Commit through the fold, revert-on-non-improvement (repricing rule).
+        const std::int64_t iu = ws.pos_of[static_cast<std::size_t>(mv.u)];
+        const double before =
+            warp_state_cost(ws.states[static_cast<std::size_t>(rsel)], penalty) +
+            warp_state_cost(ws.states[static_cast<std::size_t>(mv.r2)], penalty);
+        std::vector<std::int32_t> n1, n2;
+        if (mv.is_swap) {
+            const std::int64_t iv = ws.pos_of[static_cast<std::size_t>(mv.v)];
+            n1 = ws.states[static_cast<std::size_t>(rsel)].vertices;
+            n1[static_cast<std::size_t>(iu)] = mv.v;
+            n2 = ws.states[static_cast<std::size_t>(mv.r2)].vertices;
+            n2[static_cast<std::size_t>(iv)] = mv.u;
+        } else {
+            n1 = without_at(ws.states[static_cast<std::size_t>(rsel)].vertices, iu);
+            n2 = with_inserted(ws.states[static_cast<std::size_t>(mv.r2)].vertices,
+                               mv.p, mv.u);
+        }
+        WarpRouteState t1, t2;
+        const bool has1 = !n1.empty();
+        charge(has1 ? 2 : 1);
+        if (!build_warp_route_state(inst, std::move(n2), penalty, t_end, t2)) {
+            return false;
+        }
+        double after = warp_state_cost(t2, penalty);
+        if (has1) {
+            if (!build_warp_route_state(inst, std::move(n1), penalty, t_end, t1)) {
+                return false;
+            }
+            after += warp_state_cost(t1, penalty);
+        }
+        if (!(after < before - kScreenEps)) return false;
+        ws.states[static_cast<std::size_t>(mv.r2)] = std::move(t2);
+        index_route(ws, mv.r2);
+        ++ws.epoch;
+        ws.route_epoch[static_cast<std::size_t>(mv.r2)] = ws.epoch;
+        if (has1) {
+            ws.states[static_cast<std::size_t>(rsel)] = std::move(t1);
+            index_route(ws, rsel);
+            ws.route_epoch[static_cast<std::size_t>(rsel)] = ws.epoch;
+        } else {
+            set_route(inst, ws, rsel, {}, penalty, t_end);
+        }
+    }
+
+    routes = extract_ws_routes(ws);
     return true;
 }
 

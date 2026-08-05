@@ -117,6 +117,39 @@ def test_squeeze_armed_deterministic_and_valid(instance_path) -> None:
 
 
 @pytest.mark.parametrize("instance_path", BLAUTH_N10[:1])
+def test_ladder_squeeze_inert_off_fcd(instance_path) -> None:
+    """sq_ladder=False (the default) must reproduce the same FCD stream as an
+    explicit False: the p-count increment sits exactly where it always did."""
+    from mamut_routing_lib.td import load_td_instance
+
+    loaded = load_td_instance(instance_path)
+    base = dict(objective="fleet_cost_duration", ils_max_iterations=400)
+    a = kayros.solve(loaded, kayros.Params(**base), seed=5)
+    b = kayros.solve(loaded, kayros.Params(**base, sq_ladder=False), seed=5)
+    assert a.routes == b.routes
+    assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
+    assert a.fd_stats["ladder_squeezes"] == 0
+
+
+@pytest.mark.parametrize("instance_path", BLAUTH_N10[:1])
+def test_ladder_squeeze_armed_deterministic(instance_path) -> None:
+    from mamut_routing_lib.td import load_td_instance
+
+    loaded = load_td_instance(instance_path)
+    params = kayros.Params(
+        objective="fleet_cost_duration",
+        ils_max_iterations=400,
+        sq_ladder=True,
+        fd_period=25,
+    )
+    a = kayros.solve(loaded, params, seed=5)
+    b = kayros.solve(loaded, params, seed=5)
+    assert a.routes == b.routes
+    assert a.fd_stats == b.fd_stats
+    assert a.fd_stats["ladder_rescues"] <= a.fd_stats["ladder_squeezes"]
+
+
+@pytest.mark.parametrize("instance_path", BLAUTH_N10[:1])
 def test_squeeze_inert_under_duration(instance_path) -> None:
     """Under Duration the whole branch is F-gated dead code at ANY setting."""
     from mamut_routing_lib.td import load_td_instance
@@ -125,7 +158,9 @@ def test_squeeze_inert_under_duration(instance_path) -> None:
     base = dict(objective="duration", ils_max_iterations=400)
     a = kayros.solve(loaded, kayros.Params(**base), seed=7)
     b = kayros.solve(
-        loaded, kayros.Params(**base, sq_work_cap=1_000_000, sq_penalty=1.0),
+        loaded,
+        kayros.Params(**base, sq_work_cap=1_000_000, sq_penalty=1.0,
+                      sq_ladder=True),
         seed=7,
     )
     assert a.routes == b.routes

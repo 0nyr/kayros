@@ -130,6 +130,11 @@ class Params:
     sq_work_cap: int = 0
     sq_penalty: float = 10.0
     sq_on_nodrop: bool = True
+    # Plan-15 S1 (inert at False, independent of sq_work_cap): the in-ladder
+    # squeeze between feasible-insert failure and ejection, charging the
+    # drain's fd_work_cap budget; the difficulty counter then increments only
+    # after the squeeze also fails (reference RMH semantics).
+    sq_ladder: bool = False
     fd_period: int = 0
     fd_route_choice: int = 0  # 0 uniform random victim, 1 smallest
     fd_pop_order: int = 0  # 0 LIFO, 1 difficult-first
@@ -209,6 +214,7 @@ class Params:
         params.sq_work_cap = self.sq_work_cap
         params.sq_penalty = self.sq_penalty
         params.sq_on_nodrop = self.sq_on_nodrop
+        params.sq_ladder = self.sq_ladder
         params.fd_period = self.fd_period
         params.fd_route_choice = self.fd_route_choice
         params.fd_pop_order = self.fd_pop_order
@@ -318,6 +324,8 @@ _FD_STATS_FIELDS = (
     "squeeze_evaluated",
     "squeeze_checkpoints",
     "squeeze_improved",
+    "ladder_squeezes",
+    "ladder_rescues",
 )
 
 _K_STATS_FIELDS = (

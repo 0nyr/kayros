@@ -30,6 +30,12 @@ struct FleetDescentParams {
     std::int64_t ep_budget = 2000;  // max ejection-pool pops per attempt
     std::int32_t route_choice = 0;  // 0 uniform random; 1 smallest (ties uniform)
     std::int32_t pop_order = 0;     // 0 LIFO; 1 difficult-first (max p-count)
+    // Plan-15 S1 (inert at false): squeeze between feasible-insert failure
+    // and ejection (the RMH step the ladder omitted). When armed, the
+    // p-count increments only after the squeeze also fails, per the
+    // reference semantics.
+    bool sq_ladder = false;
+    double sq_penalty = 10.0;
 };
 
 struct FdStats {
@@ -60,6 +66,10 @@ struct FdStats {
     std::int64_t squeeze_evaluated = 0;
     std::int64_t squeeze_checkpoints = 0;
     std::int64_t squeeze_improved = 0;
+    // Plan-15 S1 counters: in-ladder squeeze attempts and rescues (a popped
+    // client placed through transient warp where step 1 had failed).
+    std::int64_t ladder_squeezes = 0;
+    std::int64_t ladder_rescues = 0;
 };
 
 // One attempt; true iff the route count strictly decreased (by exactly one).

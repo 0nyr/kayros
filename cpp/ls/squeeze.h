@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <random>
 #include <vector>
 
 #include "core/warp_eval.h"
@@ -46,5 +47,23 @@ bool squeeze_phase(const Instance& inst, const NeighbourLists& nb,
                    const SqueezeParams& params,
                    const std::chrono::steady_clock::time_point* deadline,
                    SqueezeStats* stats);
+
+// Plan-15 S1: the drain-assist squeeze (Nagata-Braysy's missing step 2,
+// placed strictly between feasible-insert failure and ejection). Force-insert
+// client `c` into `routes` (feasible, c absent) at the minimum-penalised
+// position (candidates: route ends + positions adjacent to granular
+// neighbours of c, the branch's recreate primitive), then the confined
+// reference repair: pick ONE warp-positive route at random, best-improvement
+// over its customers x granular neighbours (relocate-out + swap), strictly
+// improving penalised moves only, with the early-commit cutoff when a move
+// wipes the selected route's whole penalty; repeat until every route is
+// exactly-zero warp. On success returns true and `routes` holds the feasible
+// result with c placed; on failure (stuck route or budget) returns false and
+// `routes` is untouched. Charges *work_budget (never null); draws from `rng`
+// only for the warp-positive route pick.
+bool squeeze_insert(const Instance& inst, const NeighbourLists& nb,
+                    std::vector<std::vector<std::int32_t>>& routes,
+                    std::int32_t c, double penalty, std::int64_t* work_budget,
+                    std::mt19937_64& rng, SqueezeStats* stats);
 
 }  // namespace kayros

@@ -211,6 +211,8 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     fd_params.ep_budget = params.fd_ep_budget;
     fd_params.route_choice = params.fd_route_choice;
     fd_params.pop_order = params.fd_pop_order;
+    fd_params.sq_ladder = params.sq_ladder;
+    fd_params.sq_penalty = params.sq_penalty;
     std::vector<std::int32_t> fd_pcount(
         static_cast<std::size_t>(inst.num_customers) + 1, 0);
     const bool fd_armed = inst.fixed_route_cost > 0.0 && params.fd_attempts > 0;

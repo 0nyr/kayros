@@ -1,9 +1,11 @@
 #include "ls/fleet_descent.h"
 
 #include <algorithm>
+#include <limits>
 
 #include "ls/insertion.h"
 #include "ls/rng.h"
+#include "ls/squeeze.h"
 
 namespace kayros {
 
@@ -122,6 +124,40 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
             }
         }
         if (placed) continue;
+
+        // Plan-15 S1: squeeze strictly between feasible-insert failure and
+        // ejection (the RMH order); the p-count increments only after BOTH
+        // fail. Inert at sq_ladder=false: the increment below then sits
+        // exactly where it always did.
+        if (params.sq_ladder) {
+            if (stats) ++stats->ladder_squeezes;
+            std::vector<std::vector<std::int32_t>> cur;
+            cur.reserve(ss.states.size());
+            for (const RouteState& s : ss.states) cur.push_back(s.vertices);
+            std::int64_t unlimited = std::numeric_limits<std::int64_t>::max() / 2;
+            std::int64_t* wb = work_budget != nullptr ? work_budget : &unlimited;
+            SqueezeStats sst;
+            const bool rescued = squeeze_insert(inst, nb, cur, c,
+                                                params.sq_penalty, wb, rng, &sst);
+            if (stats) stats->squeeze_evaluated += sst.evaluated;
+            if (rescued) {
+                // Adopt: rebuild the RouteStates from the zero-warp result
+                // (all-or-nothing: only swap in when every route rebuilds).
+                std::vector<RouteState> next(cur.size());
+                bool ok = true;
+                for (std::size_t k = 0; k < cur.size(); ++k) {
+                    if (!build_route_state(inst, cur[k], next[k])) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok) {
+                    ss.states = std::move(next);
+                    if (stats) ++stats->ladder_rescues;
+                    continue;
+                }
+            }
+        }
         ++pcount[static_cast<std::size_t>(c)];
 
         // Ladder step 2 (NBRMH step 3): contiguous-window insertion-with-

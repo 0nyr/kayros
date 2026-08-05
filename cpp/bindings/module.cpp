@@ -421,6 +421,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("sq_work_cap", &kayros::IlsParams::sq_work_cap)
         .def_readwrite("sq_penalty", &kayros::IlsParams::sq_penalty)
         .def_readwrite("sq_on_nodrop", &kayros::IlsParams::sq_on_nodrop)
+        .def_readwrite("sq_ladder", &kayros::IlsParams::sq_ladder)
         .def_readwrite("fd_period", &kayros::IlsParams::fd_period)
         .def_readwrite("fd_period_work", &kayros::IlsParams::fd_period_work)
         .def_readwrite("seed_k_factor", &kayros::IlsParams::seed_k_factor)
@@ -491,7 +492,9 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("squeeze_evaluated", &kayros::FdStats::squeeze_evaluated)
         .def_readonly("squeeze_checkpoints",
                       &kayros::FdStats::squeeze_checkpoints)
-        .def_readonly("squeeze_improved", &kayros::FdStats::squeeze_improved);
+        .def_readonly("squeeze_improved", &kayros::FdStats::squeeze_improved)
+        .def_readonly("ladder_squeezes", &kayros::FdStats::ladder_squeezes)
+        .def_readonly("ladder_rescues", &kayros::FdStats::ladder_rescues);
 
     py::class_<kayros::KStats>(m, "KStats")
         .def_readonly("k_seed", &kayros::KStats::k_seed)
