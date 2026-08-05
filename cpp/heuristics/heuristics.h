@@ -79,6 +79,20 @@ struct IlsParams {
     // fd_* knob this is F-gated: dead code under Duration.
     std::int64_t fd_work_cap = 6'500'000;
     std::int64_t fd_period = 0;          // 0 = stagnation-trigger only
+    // Plan-15 S2 squeeze (INERT at the default 0): a penalised polish of the
+    // post-drain state on every FD trigger, on both the post-drop and the
+    // no-drop (matched-K) paths. Runs a granular Phi-descent (Phi = duration
+    // + sq_penalty * warp) that may pass through transient time-window
+    // violations, banking every exactly-zero-warp improvement, with a
+    // dominating-repair tail leg; only a strictly better zero-warp bank is
+    // ever adopted. rng-free and F-gated like every fd_* knob: dead code
+    // under Duration, and sq_work_cap = 0 recovers the pre-squeeze FCD
+    // streams bitwise. sq_work_cap is the phase budget in penalised
+    // candidate pricings; sq_penalty is the explore-leg warp weight in ms of
+    // duration per ms of warp (M3 calibrates both).
+    std::int64_t sq_work_cap = 0;
+    double sq_penalty = 10.0;
+    bool sq_on_nodrop = true;
     std::int32_t fd_route_choice = 0;    // 0 random, 1 smallest
     std::int32_t fd_pop_order = 0;       // 0 LIFO, 1 difficult-first
     // Work-based triggers (session 44): thresholds in LS work units

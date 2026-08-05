@@ -9,6 +9,7 @@
 #include "heuristics/heuristics.h"
 #include "ls/fleet_descent.h"
 #include "ls/ls.h"
+#include "ls/squeeze.h"
 #include "ls/perturb.h"
 
 namespace kayros {
@@ -241,16 +242,71 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 break;
             }
         }
+        // Plan-15 S2 squeeze: a penalised polish of the post-drain state, run
+        // on a routes COPY and adopted into ss only when it banks a strictly
+        // better exactly-zero-warp solution, so a phase that banks nothing is
+        // a strict no-op. Fires on both paths (one routine, two walls: the
+        // post-drop repair and the matched-K polish); rng-free, work-capped.
+        const auto try_squeeze = [&]() -> bool {
+            SqueezeParams sqp;
+            sqp.penalty = params.sq_penalty;
+            sqp.work_cap = params.sq_work_cap;
+            SqueezeStats sst;
+            std::vector<std::vector<std::int32_t>> sq_routes = extract_routes(ss);
+            const bool adopted =
+                squeeze_phase(inst, nb, sq_routes, sqp, deadline, &sst);
+            result.fd_stats.squeeze_phases += sst.phases;
+            result.fd_stats.squeeze_evaluated += sst.evaluated;
+            result.fd_stats.squeeze_checkpoints += sst.checkpoints;
+            if (!adopted) return false;
+            std::vector<std::vector<std::int32_t>> pre = extract_routes(ss);
+            if (!init_search_state(inst, sq_routes, ss)) {
+                // Unreachable (exactly-zero warp == checker-feasible,
+                // gate-proven); restore the pre-squeeze state if it ever is.
+                const bool ok = init_search_state(inst, pre, ss);
+                (void)ok;
+                mark_all_touched(ss);
+                return false;
+            }
+            ++result.fd_stats.squeeze_improved;
+            return true;
+        };
+
         if (!dropped) {
+            double nodrop_cand = std::numeric_limits<double>::quiet_NaN();
+            if (fd_armed && params.sq_work_cap > 0 && params.sq_on_nodrop &&
+                !past() && try_squeeze()) {
+                mark_all_touched(ss);
+                nodrop_cand = ls_descend(inst, nb, ss, &ls_stats, deadline);
+                if (params.exhaustive_on_best && !past()) {
+                    mark_all_touched(ss);
+                    nodrop_cand =
+                        ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
+                }
+                if (nodrop_cand < best) {
+                    best = nodrop_cand;
+                    result.routes = extract_routes(ss);
+                    result.value = best;
+                    publish(best, iteration, 2, result.routes);
+                }
+            }
             result.fd_stats.basin_evaluated += ls_stats.evaluated - basin_mark;
             fd_work_mark = ls_stats.evaluated;
-            return std::numeric_limits<double>::quiet_NaN();
+            return nodrop_cand;
         }
         mark_all_touched(ss);
         double cand = ls_descend(inst, nb, ss, &ls_stats, deadline);
         if (params.exhaustive_on_best && !past()) {
             mark_all_touched(ss);
             cand = ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
+        }
+        if (params.sq_work_cap > 0 && !past() && try_squeeze()) {
+            mark_all_touched(ss);
+            cand = ls_descend(inst, nb, ss, &ls_stats, deadline);
+            if (params.exhaustive_on_best && !past()) {
+                mark_all_touched(ss);
+                cand = ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
+            }
         }
         if (cand < best) {
             best = cand;

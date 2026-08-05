@@ -53,6 +53,13 @@ struct FdStats {
     std::int64_t rollbacks_work = 0;
     std::int64_t evaluated = 0;
     std::int64_t basin_evaluated = 0;  // caller-side (ils.cpp), not this file
+    // Plan-15 S2 squeeze counters (caller-side, ils.cpp): phases run,
+    // penalised pricings spent, zero-warp improvements banked, and phases
+    // whose bank was adopted into the search state.
+    std::int64_t squeeze_phases = 0;
+    std::int64_t squeeze_evaluated = 0;
+    std::int64_t squeeze_checkpoints = 0;
+    std::int64_t squeeze_improved = 0;
 };
 
 // One attempt; true iff the route count strictly decreased (by exactly one).

@@ -116,6 +116,20 @@ class Params:
     # from 1.3.0-1.5.0; Duration streams are untouched (the branch is F-gated
     # dead code there).
     fd_work_cap: int = 6_500_000
+    # Plan-15 S2 squeeze (INERT at the default 0; new in 1.6): a penalised
+    # polish of the post-drain state on every fleet-descent trigger, on both
+    # the post-drop and the no-drop (matched-K) paths. A granular descent on
+    # Phi = duration + sq_penalty * time-warp may pass through transient
+    # time-window violations; every exactly-zero-warp improvement is banked
+    # and only a strictly better bank is ever adopted, so the published
+    # stream stays feasible by construction. rng-free and F-gated: dead code
+    # under Duration; sq_work_cap=0 recovers the pre-squeeze FCD streams
+    # bitwise. sq_work_cap = phase budget in penalised candidate pricings;
+    # sq_penalty = explore-leg warp weight (ms of duration per ms of warp);
+    # sq_on_nodrop gates the matched-K half.
+    sq_work_cap: int = 0
+    sq_penalty: float = 10.0
+    sq_on_nodrop: bool = True
     fd_period: int = 0
     fd_route_choice: int = 0  # 0 uniform random victim, 1 smallest
     fd_pop_order: int = 0  # 0 LIFO, 1 difficult-first
@@ -192,6 +206,9 @@ class Params:
         params.fd_k_max = self.fd_k_max
         params.fd_ep_budget = self.fd_ep_budget
         params.fd_work_cap = self.fd_work_cap
+        params.sq_work_cap = self.sq_work_cap
+        params.sq_penalty = self.sq_penalty
+        params.sq_on_nodrop = self.sq_on_nodrop
         params.fd_period = self.fd_period
         params.fd_route_choice = self.fd_route_choice
         params.fd_pop_order = self.fd_pop_order
@@ -297,6 +314,10 @@ _FD_STATS_FIELDS = (
     "rollbacks_work",
     "evaluated",
     "basin_evaluated",
+    "squeeze_phases",
+    "squeeze_evaluated",
+    "squeeze_checkpoints",
+    "squeeze_improved",
 )
 
 _K_STATS_FIELDS = (

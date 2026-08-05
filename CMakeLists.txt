@@ -34,6 +34,7 @@ pybind11_add_module(_core
     cpp/ls/warp_tree.cpp
     cpp/ls/warp_splice.cpp
     cpp/ls/fleet_descent.cpp
+    cpp/ls/squeeze.cpp
     cpp/ls/local_search.cpp
 )
 target_include_directories(_core PRIVATE cpp)

@@ -16,6 +16,7 @@
 #include "heuristics/heuristics.h"
 #include "ls/ls.h"
 #include "ls/perturb.h"
+#include "ls/squeeze.h"
 #include "ls/warp_ls.h"
 #include "pwlf/pwlf.h"
 #include "pwlf/warp.h"
@@ -417,6 +418,9 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("fd_k_max", &kayros::IlsParams::fd_k_max)
         .def_readwrite("fd_ep_budget", &kayros::IlsParams::fd_ep_budget)
         .def_readwrite("fd_work_cap", &kayros::IlsParams::fd_work_cap)
+        .def_readwrite("sq_work_cap", &kayros::IlsParams::sq_work_cap)
+        .def_readwrite("sq_penalty", &kayros::IlsParams::sq_penalty)
+        .def_readwrite("sq_on_nodrop", &kayros::IlsParams::sq_on_nodrop)
         .def_readwrite("fd_period", &kayros::IlsParams::fd_period)
         .def_readwrite("fd_period_work", &kayros::IlsParams::fd_period_work)
         .def_readwrite("seed_k_factor", &kayros::IlsParams::seed_k_factor)
@@ -482,7 +486,12 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("rollbacks_time", &kayros::FdStats::rollbacks_time)
         .def_readonly("rollbacks_work", &kayros::FdStats::rollbacks_work)
         .def_readonly("evaluated", &kayros::FdStats::evaluated)
-        .def_readonly("basin_evaluated", &kayros::FdStats::basin_evaluated);
+        .def_readonly("basin_evaluated", &kayros::FdStats::basin_evaluated)
+        .def_readonly("squeeze_phases", &kayros::FdStats::squeeze_phases)
+        .def_readonly("squeeze_evaluated", &kayros::FdStats::squeeze_evaluated)
+        .def_readonly("squeeze_checkpoints",
+                      &kayros::FdStats::squeeze_checkpoints)
+        .def_readonly("squeeze_improved", &kayros::FdStats::squeeze_improved);
 
     py::class_<kayros::KStats>(m, "KStats")
         .def_readonly("k_seed", &kayros::KStats::k_seed)
@@ -656,6 +665,26 @@ PYBIND11_MODULE(_core, m) {
         py::arg("route_choice") = 0, py::arg("pop_order") = 0,
         py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2,
         py::arg("work_cap") = 0);
+    m.def(
+        "ls_squeeze_phase",
+        [](const kayros::Instance& inst,
+           std::vector<std::vector<std::int32_t>> routes, double penalty,
+           std::int64_t work_cap, std::int32_t num_neighbours,
+           double weight_wait) {
+            const kayros::NeighbourLists nb =
+                kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
+            kayros::SqueezeParams params;
+            params.penalty = penalty;
+            params.work_cap = work_cap;
+            kayros::SqueezeStats stats;
+            const bool improved = kayros::squeeze_phase(inst, nb, routes, params,
+                                                        nullptr, &stats);
+            return py::make_tuple(std::move(routes), improved, stats.phases,
+                                  stats.evaluated, stats.checkpoints);
+        },
+        py::arg("instance"), py::arg("routes"), py::arg("penalty") = 10.0,
+        py::arg("work_cap") = 1000000, py::arg("num_neighbours") = 50,
+        py::arg("weight_wait") = 0.2);
     m.def(
         "ls_evaluate_splice",
         [](const kayros::Instance& inst, const std::vector<std::int32_t>& route1,
