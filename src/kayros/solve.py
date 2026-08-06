@@ -135,6 +135,16 @@ class Params:
     # drain's fd_work_cap budget; the difficulty counter then increments only
     # after the squeeze also fails (reference RMH semantics).
     sq_ladder: bool = False
+    # Plan-15 S3 (inert at 0, F-gated: dead code under Duration at any value):
+    # confine the search to at most k_cap routes. A seed or warm start above
+    # the cap is drained toward it before the loop opens; candidates never
+    # raise K above max(k_cap, current K); incumbents publish only at
+    # K <= k_cap, and a run that never reaches the cap comes back Infeasible
+    # with an empty incumbent stream rather than an above-cap solution
+    # (design memo section 10, D-S3.1): an empty cell is the honest outcome.
+    # The cap is a plain route-count target with no anchoring to any
+    # reference fleet; sub-reference caps are legitimate (plan 15 D10).
+    k_cap: int = 0
     fd_period: int = 0
     fd_route_choice: int = 0  # 0 uniform random victim, 1 smallest
     fd_pop_order: int = 0  # 0 LIFO, 1 difficult-first
@@ -215,6 +225,7 @@ class Params:
         params.sq_penalty = self.sq_penalty
         params.sq_on_nodrop = self.sq_on_nodrop
         params.sq_ladder = self.sq_ladder
+        params.k_cap = self.k_cap
         params.fd_period = self.fd_period
         params.fd_route_choice = self.fd_route_choice
         params.fd_pop_order = self.fd_pop_order
@@ -273,6 +284,9 @@ class Solution:
     # every K counter the solver had lived inside the FleetCostDuration-gated
     # dissolve branch. Always a dict for an ILS solve; empty for pure ACO.
     k_stats: dict[str, int] = field(default_factory=dict)
+    # Plan-15 S3 K-cap diagnostics (core KCapStats fields). None when the cap
+    # is off or the objective is Duration (the cap is F-gated dead code there).
+    k_cap_stats: dict[str, int] | None = None
     # Work-trigger diagnostics (session 44, ILS only; 0 for pure ACO): total
     # LS work units spent (candidate pricings; work_units / wall seconds is
     # the machine's work rate, the calibration source for the *_work
@@ -326,6 +340,13 @@ _FD_STATS_FIELDS = (
     "squeeze_improved",
     "ladder_squeezes",
     "ladder_rescues",
+)
+
+_K_CAP_STATS_FIELDS = (
+    "seed_drain_attempts",
+    "reached_cap",
+    "rejected_above_cap",
+    "first_capped_work",
 )
 
 _K_STATS_FIELDS = (
@@ -480,6 +501,13 @@ def solve(
             make_hook(incumbent_offset, below=phase1.value), phase1.routes,
         )
     if result.status == _core.SolveStatus.Infeasible or not result.routes:
+        if params.k_cap > 0 and objective != "Duration":
+            # Plan-15 S3 (D-S3.1): the run never reached the cap, so it
+            # publishes nothing. An empty cell is the honest outcome.
+            raise InfeasibleError(
+                f"kayros found no solution within k_cap={params.k_cap} routes "
+                f"for {loaded.instance.instance_name}"
+            )
         raise InfeasibleError(
             f"kayros could not construct a feasible solution for "
             f"{loaded.instance.instance_name}"
@@ -524,6 +552,10 @@ def solve(
         restarts=result.restarts,
         k_stats={
             name: getattr(result.k_stats, name) for name in _K_STATS_FIELDS
+        },
+        k_cap_stats=None if objective == "Duration" or params.k_cap == 0 else {
+            name: getattr(result.k_cap_stats, name)
+            for name in _K_CAP_STATS_FIELDS
         },
         incumbents=extra_incumbents + [
             Incumbent(i.value, i.seconds + incumbent_offset, i.iteration,

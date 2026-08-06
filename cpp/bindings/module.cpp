@@ -422,6 +422,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("sq_penalty", &kayros::IlsParams::sq_penalty)
         .def_readwrite("sq_on_nodrop", &kayros::IlsParams::sq_on_nodrop)
         .def_readwrite("sq_ladder", &kayros::IlsParams::sq_ladder)
+        .def_readwrite("k_cap", &kayros::IlsParams::k_cap)
         .def_readwrite("fd_period", &kayros::IlsParams::fd_period)
         .def_readwrite("fd_period_work", &kayros::IlsParams::fd_period_work)
         .def_readwrite("seed_k_factor", &kayros::IlsParams::seed_k_factor)
@@ -512,6 +513,12 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("new_best_k_up", &kayros::KStats::new_best_k_up)
         .def_readonly("new_best_k_down", &kayros::KStats::new_best_k_down);
 
+    py::class_<kayros::KCapStats>(m, "KCapStats")
+        .def_readonly("seed_drain_attempts", &kayros::KCapStats::seed_drain_attempts)
+        .def_readonly("reached_cap", &kayros::KCapStats::reached_cap)
+        .def_readonly("rejected_above_cap", &kayros::KCapStats::rejected_above_cap)
+        .def_readonly("first_capped_work", &kayros::KCapStats::first_capped_work);
+
     py::class_<kayros::SolveResult>(m, "SolveResult")
         .def_readonly("routes", &kayros::SolveResult::routes)
         .def_readonly("value", &kayros::SolveResult::value)
@@ -522,7 +529,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("fd_stats", &kayros::SolveResult::fd_stats)
         .def_readonly("work_units", &kayros::SolveResult::work_units)
         .def_readonly("restarts", &kayros::SolveResult::restarts)
-        .def_readonly("k_stats", &kayros::SolveResult::k_stats);
+        .def_readonly("k_stats", &kayros::SolveResult::k_stats)
+        .def_readonly("k_cap_stats", &kayros::SolveResult::k_cap_stats);
 
     m.def("greedy_makespan", [](const kayros::Instance& inst) {
         std::vector<std::vector<std::int32_t>> routes;

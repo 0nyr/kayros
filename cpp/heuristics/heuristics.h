@@ -98,6 +98,16 @@ struct IlsParams {
     // drain's own fd_work_cap budget. Consumes rng draws inside the F-gated
     // drain only, so Duration streams stay untouched.
     bool sq_ladder = false;
+    // Plan-15 S3 (inert at 0, F-gated like the rest of the fleet machinery):
+    // confine the search to at most k_cap routes. A seed or warm start above
+    // the cap is drained by back-to-back fleet-descent attempts before the
+    // loop opens; a candidate may never raise K above max(k_cap, current K)
+    // (monotone toward the cap); incumbents publish only at K <= k_cap, and a
+    // run that never reaches the cap returns Infeasible with no incumbents
+    // rather than an above-cap solution (design memo section 10, D-S3.1).
+    // The cap is a plain route-count target: nothing anchors it to any
+    // reference fleet, and sub-reference caps are legitimate (plan 15 D10).
+    std::int32_t k_cap = 0;
     std::int32_t fd_route_choice = 0;    // 0 random, 1 smallest
     std::int32_t fd_pop_order = 0;       // 0 LIFO, 1 difficult-first
     // Work-based triggers (session 44): thresholds in LS work units
@@ -220,6 +230,16 @@ struct KStats {
     std::int64_t new_best_k_down = 0;
 };
 
+// Plan-15 S3 K-cap diagnostics (ILS only; all zero when k_cap is off).
+// Integer increments, route-count reads and one work-unit stamp: no rng draw
+// and no priced value, so streams stay bitwise with or without them.
+struct KCapStats {
+    std::int64_t seed_drain_attempts = 0;  // back-to-back drain calls before the loop
+    std::int64_t reached_cap = 0;          // 1 once any K <= k_cap incumbent published
+    std::int64_t rejected_above_cap = 0;   // candidates rejected by the cap guard
+    std::int64_t first_capped_work = -1;   // work-unit stamp of the first capped incumbent
+};
+
 struct SolveResult {
     std::vector<std::vector<std::int32_t>> routes;  // best solution (customer ids, no depot)
     double value = 0.0;                             // its solution_duration
@@ -229,6 +249,7 @@ struct SolveResult {
     FleetKickStats fleet_stats;
     FdStats fd_stats;  // Plan-12 M4 fleet-descent phase diagnostics (ILS only)
     KStats k_stats;    // route-count movement, recorded under every objective
+    KCapStats k_cap_stats;  // Plan-15 S3 K-cap diagnostics (ILS only)
     // Work-trigger diagnostics (ILS only): total LS work units spent
     // (calibration source for the *_work thresholds: work_units divided by
     // wall seconds is the machine's work rate) and restart-to-best count.

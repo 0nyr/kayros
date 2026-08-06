@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -83,15 +84,28 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     SolveResult result;
 
+    // Work-unit accounting (session 44): candidate pricings across every
+    // descent this solve runs. Integer increments only, so streams and priced
+    // values are byte-identical with or without the counter. Declared before
+    // the publication point so the S3 first-capped-work stamp can read it.
+    LsStats ls_stats;
+
+    // Plan-15 S3: the K-cap arms only when routes are priced, like the rest
+    // of the fleet machinery; under Duration k_cap is dead code at any value.
+    const bool cap_active = inst.fixed_route_cost > 0.0 && params.k_cap > 0;
+
     // Single publication point for the anytime stream: records the incumbent,
     // fires the hook, and keeps the stream strictly decreasing.
     double published = std::numeric_limits<double>::infinity();
     const auto publish =
         [&](double value, std::uint64_t iteration, std::int32_t origin,
             const std::vector<std::vector<std::int32_t>>& routes) {
+            const std::int64_t k = static_cast<std::int64_t>(routes.size());
+            // S3 publication guard (D-S3.1): above-cap states are
+            // unpublishable; they still guide the internal search.
+            if (cap_active && k > params.k_cap) return;
             if (!(value < published)) return;
             published = value;
-            const std::int64_t k = static_cast<std::int64_t>(routes.size());
             if (result.incumbents.empty()) {
                 result.k_stats.k_best_min = k;
                 result.k_stats.k_best_max = k;
@@ -100,6 +114,10 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 if (k > result.k_stats.k_best_max) result.k_stats.k_best_max = k;
             }
             result.incumbents.push_back({value, elapsed(), iteration, origin});
+            if (cap_active && result.k_cap_stats.reached_cap == 0) {
+                result.k_cap_stats.reached_cap = 1;
+                result.k_cap_stats.first_capped_work = ls_stats.evaluated;
+            }
             if (on_incumbent) on_incumbent(result.incumbents.back(), routes);
         };
 
@@ -155,10 +173,6 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         result.status = SolveStatus::Infeasible;
         return result;
     }
-    // Work-unit accounting (session 44): candidate pricings across every
-    // descent this solve runs. Integer increments only, so streams and priced
-    // values are byte-identical with or without the counter.
-    LsStats ls_stats;
     result.k_stats.k_seed = static_cast<std::int64_t>(seed_routes.size());
     double curr = ls_descend(inst, nb, ss, &ls_stats, deadline);
 
@@ -329,6 +343,22 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     fd_work_mark = ls_stats.evaluated;
     improve_work_mark = ls_stats.evaluated;
+    // Plan-15 S3 seed drain: a seed (or warm start) above the cap is drained
+    // toward it by back-to-back descent attempts before the loop opens, the
+    // M5 wave shape (warm-start at K, cap at K-1). On a no-progress sweep the
+    // loop starts anyway; the cap keeps acting through the candidate guard
+    // and the publication guard.
+    if (fd_armed && cap_active) {
+        while (static_cast<std::int32_t>(ss.states.size()) > params.k_cap &&
+               !past()) {
+            const std::size_t k_pre = ss.states.size();
+            ++result.k_cap_stats.seed_drain_attempts;
+            const double fd_cand = run_fleet_descent();
+            if (!std::isnan(fd_cand)) curr = fd_cand;
+            if (ss.states.size() >= k_pre) break;
+        }
+        improve_work_mark = ls_stats.evaluated;
+    }
     for (; iteration < params.max_iterations; ++iteration) {
         if (past()) {
             status = SolveStatus::TimeLimit;
@@ -414,8 +444,18 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             else if (k_after < k_before) ++ks.k_down_after_descent;
         }
 
+        // Plan-15 S3 candidate guard: monotone toward the cap. Above the cap
+        // K may fall or hold, never rise; at or below it, never re-ascend
+        // above the cap. Rejection reuses the LAHC restore path below, so
+        // every other counter and the history bookkeeping stay untouched.
+        const bool cap_reject =
+            cap_active &&
+            k_after > std::max<std::size_t>(
+                          static_cast<std::size_t>(params.k_cap), k_before);
+        if (cap_reject) ++result.k_cap_stats.rejected_above_cap;
+
         ++no_improvement;
-        if (cand < best) {
+        if (!cap_reject && cand < best) {
             no_improvement = 0;
             improve_work_mark = ls_stats.evaluated;
             if (params.exhaustive_on_best && !past()) {
@@ -444,7 +484,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             history_idx % static_cast<std::uint64_t>(history_len));
         const bool slot_empty = std::isnan(history[slot]);
         const double late = slot_empty ? init_cost : history[slot];
-        if (cand < late || cand < curr) {
+        if (!cap_reject && (cand < late || cand < curr)) {
             curr = cand;
             if (outcome.applied) {
                 if (outcome.dissolved) ++fks.dissolved_accepted_lahc;
@@ -462,6 +502,14 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     result.iterations_run = iteration;
     result.work_units = ls_stats.evaluated;
+    // Plan-15 S3 return contract (D-S3.1): a capped run that never reached
+    // the cap returns Infeasible with no routes and no incumbents; an
+    // above-cap solution never masquerades as a capped result.
+    if (cap_active &&
+        static_cast<std::int32_t>(result.routes.size()) > params.k_cap) {
+        result.routes.clear();
+        result.value = kInfeasible;
+    }
     result.k_stats.k_final = static_cast<std::int64_t>(result.routes.size());
     result.status = result.routes.empty() ? SolveStatus::Infeasible : status;
     return result;
