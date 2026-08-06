@@ -94,8 +94,8 @@ nyr::NDCPWLF nyr::NDCPWLF::inverse() const {
     // (step: duplicate x) inverts to a plateau (duplicate y) and a plateau
     // inverts to a step. Collinearity is preserved by the reflection, so a
     // normalized f yields a normalized f^{-1} with no extra work and, crucially,
-    // no numerical error: this is the operation the 1e-3 mollifier existed to
-    // avoid on goc::PWLFunction.
+    // no numerical error: this is the operation the 1e-3 bridging existed to
+    // avoid on goc::PWLFunction (NOTICE.md item 9).
     return NDCPWLF(ys, xs);
 }
 

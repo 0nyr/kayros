@@ -17,6 +17,48 @@
 
 namespace goc
 {
+// M13.3 (kayros-added, NOT vendored): selects which vertical-piece arithmetic
+// the PWL operators use.
+//
+//   true  = the M13.0 exact tagged-vertical rules. Compose carries BOTH
+//           vertical kinds through an increasing inner function, operator+
+//           pairs vertical endpoints by sweep order, and operator+/operator*
+//           hold an operand back for any stacked boundary piece. These rules
+//           are what the exact value-jump labeling needs on step-carrying
+//           (stepwise-ATF) instances.
+//   false = the pre-M13.0 (kayros 1.0.0) rules, which preserve only JUMP
+//           verticals in Compose, pair operator+ verticals by image order, and
+//           hold back only for a boundary vertical after a non-vertical piece.
+//
+// Why the switch exists: CHOICE verticals (from Inverse of a departure
+// plateau) and set-valued label durations occur on JUMP-FREE instances too, so
+// the M13.0 rules were never confined to the exact path the way M13.0 assumed.
+// On jump-free instances they change the audited v1.0.0 arithmetic and
+// over-certify (M13.3). The flag restores the documented intent: jump-free
+// solves take the v1.0.0 arithmetic bit-identically.
+//
+// Process-global, defaulting to the M13.0 rules (the library semantics the goc
+// unit tests pin). `kayros::lera::solve_duration_json` sets it per solve from
+// KAYROS_STEP_EXACT through StepExactArithmeticScope and restores it on exit.
+bool step_exact_arithmetic();
+void set_step_exact_arithmetic(bool on);
+
+// RAII: set the mode for a scope, restore the previous value on exit.
+class StepExactArithmeticScope
+{
+public:
+    explicit StepExactArithmeticScope(bool on) : previous_(step_exact_arithmetic())
+    {
+        set_step_exact_arithmetic(on);
+    }
+    ~StepExactArithmeticScope() { set_step_exact_arithmetic(previous_); }
+    StepExactArithmeticScope(const StepExactArithmeticScope&) = delete;
+    StepExactArithmeticScope& operator=(const StepExactArithmeticScope&) = delete;
+
+private:
+    bool previous_;
+};
+
 // This class represents a piecewise linear function. It has a sequence of linear functions with bounded domains.
 // Invariant: the linear functions are non overlapping and are increasing in domain.
 // Invariant: the function is stored normalized. A function is normalized iif no two consecutive pieces have the same

@@ -2,6 +2,7 @@
 #include "lera_bridge.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -78,6 +79,15 @@ kayros::RouteEval checker_eval(const kayros::Instance& ci, const goc::GraphPath&
 }  // namespace
 
 std::string solve_duration_json(const std::string& payload, const SolveParams& params) {
+    // M13.3: pin the PWL vertical arithmetic for the whole solve, from the
+    // same KAYROS_STEP_EXACT flag the Python bridge sets per instance and the
+    // labeling already reads. Step-carrying instances get the M13.0 exact
+    // tagged-vertical rules; jump-free instances get the audited kayros 1.0.0
+    // rules bit-identically (the M13.0 rules over-certify on them; see
+    // goc/math/pwl_function.h). Scoped so the process-global default (M13.0,
+    // the goc unit-test semantics) is restored on return.
+    const goc::StepExactArithmeticScope step_mode(std::getenv("KAYROS_STEP_EXACT") != nullptr);
+
     nlohmann::json inst = nlohmann::json::parse(payload);
 
     // Checker-exact certification instance (M5.6 stage A), grabbed before
@@ -235,10 +245,12 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             if (!ev.feasible)
             {
                 // M5.9 (19/n): the labeling CAN price a checker-infeasible
-                // route on stepwise ATFs (the documented mollifier-sliver
-                // hazard: dep on bridged arrivals believes slightly-later
-                // departures feasible; first materialized on Rifki-10 n=60
-                // once the Exact level actually ran). Crashing loses the whole
+                // route (first materialized on Rifki-10 n=60 once the Exact
+                // level actually ran, on the retired mollified stepwise path,
+                // where dep on bridged arrivals believed slightly-later
+                // departures feasible; retained as a general integrity net,
+                // since the reverse-side normalizer still bridges). Crashing
+                // loses the whole
                 // solve and silently dropping could let CG close with
                 // improving columns outstanding — so the column is skipped,
                 // COUNTED, and the count poisons the certificate: the caller

@@ -8,6 +8,8 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <tuple>
+#include <utility>
 
 #include "goc/print/print_utils.h"
 #include "goc/exception/exception_utils.h"
@@ -19,6 +21,17 @@ using namespace nlohmann;
 
 namespace goc
 {
+
+// M13.3 (kayros-added): see the contract in pwl_function.h. Defaults to the
+// M13.0 exact tagged-vertical rules; the lera bridge scopes it per solve.
+namespace
+{
+bool g_step_exact_arithmetic = true;
+}
+
+bool step_exact_arithmetic() { return g_step_exact_arithmetic; }
+
+void set_step_exact_arithmetic(bool on) { g_step_exact_arithmetic = on; }
 
 PWLFunction PWLFunction::ConstantFunction(double a, Interval domain)
 {
@@ -396,7 +409,10 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
                 // candidate-side domination then over-estimate the label's
                 // duration and price columns out (the M13.0 incompleteness
                 // class; the pre-M13.0 code preserved only JUMP verticals).
-                if (f[i].is_vertical())
+                // M13.3: extending the rule to CHOICE verticals is exact-path
+                // arithmetic. On jump-free instances it departs from the audited
+                // v1.0.0 collapse and over-certifies, so it is gated.
+                if (f[i].is_jump_vertical() || (step_exact_arithmetic() && f[i].is_vertical()))
                 {
                     double y0 = f[i].domain.left;
                     if (img(g[j]).Includes(y0))
@@ -460,7 +476,7 @@ PWLFunction PWLFunction::Inverse() const
     // The inverse of a NON-DECREASING PWL is the exact coordinate swap
     // (xs <-> ys): both vectors are non-decreasing, a value jump (duplicate x)
     // becomes a plateau (duplicate y) and vice versa, with no numerical error.
-    // This is the operation the 1e-3 mollifier existed to avoid; arrival /
+    // This is the operation the 1e-3 bridging existed to avoid; arrival /
     // departure functions (the only callers) are non-decreasing. For a
     // non-monotone function we fall back to goc's max{x : f(x)=y} behavior.
     bool non_decreasing = true;
@@ -797,6 +813,30 @@ string to_string(const PWLFunction& f)
     return msg.str();
 }
 
+namespace
+{
+// M5.9/M13.0/M13.3: when both operands of a piecewise sweep end at the same
+// abscissa but one of them still has a piece STACKED there, advancing both
+// would drop that piece; hold the other operand so it still meets it.
+//
+//   step-exact (M13.0): hold for any stacked piece, i.e. a vertical OR a
+//     zero-width point starting exactly at the boundary. The pre-M13.0 rule
+//     held only when the CURRENT piece was non-vertical, so a stack of
+//     verticals lost its tail at operand exhaustion (the Rifki-17 witness
+//     label kept one of eight swept departure choices and over-estimated its
+//     duration).
+//   legacy (v1.0.0, in force on jump-free solves): hold only for a boundary
+//     VERTICAL following a non-vertical current piece.
+bool hold_back_for_stacked_piece(const PWLFunction& f, int i, const LinearFunction& current)
+{
+    if (i + 1 >= f.PieceCount()) return false;
+    const LinearFunction& next = f.Piece(i + 1);
+    if (!epsilon_equal(next.domain.left, current.domain.right)) return false;
+    if (step_exact_arithmetic()) return next.is_vertical() || next.domain.IsPoint();
+    return next.is_vertical() && !current.is_vertical();
+}
+}  // namespace
+
 PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
 {
     PWLFunction h;
@@ -818,10 +858,23 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
                 // lo/hi pairing mistagged the sum's attained value on verticals
                 // whose attained endpoint is the high one (down-jumps, flip
                 // products), corrupting Value/MinValueAt/domination downstream.
-                auto [f_in, f_out] = pf.is_vertical() ? pf.sweep_endpoints()
-                                                      : std::make_pair(pf.Value(left), pf.Value(left));
-                auto [g_in, g_out] = pg.is_vertical() ? pg.sweep_endpoints()
-                                                      : std::make_pair(pg.Value(left), pg.Value(left));
+                // M13.3: gated. The image-sorted pairing is the audited v1.0.0
+                // arithmetic and stays in force on jump-free solves.
+                double f_in, f_out, g_in, g_out;
+                if (step_exact_arithmetic())
+                {
+                    std::tie(f_in, f_out) = pf.is_vertical() ? pf.sweep_endpoints()
+                                                             : std::make_pair(pf.Value(left), pf.Value(left));
+                    std::tie(g_in, g_out) = pg.is_vertical() ? pg.sweep_endpoints()
+                                                             : std::make_pair(pg.Value(left), pg.Value(left));
+                }
+                else
+                {
+                    f_in  = pf.is_vertical() ? pf.image.left  : pf.Value(left);
+                    f_out = pf.is_vertical() ? pf.image.right : pf.Value(left);
+                    g_in  = pg.is_vertical() ? pg.image.left  : pg.Value(left);
+                    g_out = pg.is_vertical() ? pg.image.right : pg.Value(left);
+                }
                 LinearFunction v({left, f_in + g_in}, {left, f_out + g_out});
                 bool jump = pf.is_jump_vertical() || pg.is_jump_vertical();
                 if (v.is_vertical() && !jump) v = v.as_choice_vertical();
@@ -830,24 +883,9 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
             else
                 h.AddPiece(LinearFunction({left, pf.Value(left)+pg.Value(left)}, {right, pf.Value(right)+pg.Value(right)}));
         }
-        // M5.9: when both operands end at the same abscissa but one of them has
-        // a boundary VERTICAL next (a zero-width piece starting exactly there,
-        // e.g. dep's trailing choice vertical), advancing both would skip it:
-        // hold the other operand so the vertical still meets it.
-        // M5.9/M13.0: when both operands end at the same abscissa but one of
-        // them still has a STACKED piece there (a vertical or a zero-width
-        // point starting exactly at the boundary), advancing both would drop
-        // the whole remaining stack: hold the other operand so every stacked
-        // piece still meets it. The pre-M13.0 hold-back applied only when the
-        // CURRENT piece was non-vertical, so a stack of verticals lost its
-        // tail at operand exhaustion (the Rifki-17 witness label kept one of
-        // eight swept departure choices and over-estimated its duration).
-        bool f_stack_next = i + 1 < f.PieceCount()
-                        && epsilon_equal(f.Piece(i + 1).domain.left, pf.domain.right)
-                        && (f.Piece(i + 1).is_vertical() || f.Piece(i + 1).domain.IsPoint());
-        bool g_stack_next = j + 1 < g.PieceCount()
-                        && epsilon_equal(g.Piece(j + 1).domain.left, pg.domain.right)
-                        && (g.Piece(j + 1).is_vertical() || g.Piece(j + 1).domain.IsPoint());
+        // Stacked-boundary hold-back (see hold_back_for_stacked_piece above).
+        bool f_stack_next = hold_back_for_stacked_piece(f, i, pf);
+        bool g_stack_next = hold_back_for_stacked_piece(g, j, pg);
         if (epsilon_equal(pf.domain.right, pg.domain.right))
         {
             if (f_stack_next) { ++i; }
@@ -896,20 +934,9 @@ PWLFunction operator*(const PWLFunction& f, const PWLFunction& g)
             else
                 h.AddPiece(LinearFunction({left, pf.Value(left)*pg.Value(left)}, {right, pf.Value(right)*pg.Value(right)}));
         }
-        // M5.9/M13.0: when both operands end at the same abscissa but one of
-        // them still has a STACKED piece there (a vertical or a zero-width
-        // point starting exactly at the boundary), advancing both would drop
-        // the whole remaining stack: hold the other operand so every stacked
-        // piece still meets it. The pre-M13.0 hold-back applied only when the
-        // CURRENT piece was non-vertical, so a stack of verticals lost its
-        // tail at operand exhaustion (the Rifki-17 witness label kept one of
-        // eight swept departure choices and over-estimated its duration).
-        bool f_stack_next = i + 1 < f.PieceCount()
-                        && epsilon_equal(f.Piece(i + 1).domain.left, pf.domain.right)
-                        && (f.Piece(i + 1).is_vertical() || f.Piece(i + 1).domain.IsPoint());
-        bool g_stack_next = j + 1 < g.PieceCount()
-                        && epsilon_equal(g.Piece(j + 1).domain.left, pg.domain.right)
-                        && (g.Piece(j + 1).is_vertical() || g.Piece(j + 1).domain.IsPoint());
+        // Stacked-boundary hold-back (see hold_back_for_stacked_piece above).
+        bool f_stack_next = hold_back_for_stacked_piece(f, i, pf);
+        bool g_stack_next = hold_back_for_stacked_piece(g, j, pg);
         if (epsilon_equal(pf.domain.right, pg.domain.right))
         {
             if (f_stack_next) { ++i; }

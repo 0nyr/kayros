@@ -101,9 +101,10 @@ private:
 	// ordering with a lower bound; the pool exit reprices only the stored
 	// path and the master never saw the witness column: certified
 	// 21331 > 21319). Path-keying lets every ordering reach the checker-exact
-	// repricing; the bridge dedups by path fingerprint anyway. Jump-free and
-	// mollified instances carry no verticals and keep the legacy pool
-	// (container, order and size semantics bit-identical).
+	// repricing; the bridge dedups by path fingerprint anyway. M13.3: the gate
+	// is the SOLVE being step-carrying, not per-operand vertical detection.
+	// Jump-free instances DO carry CHOICE verticals. Jump-free solves keep the
+	// legacy pool (container, order and size semantics bit-identical).
 	bool step_pool_;
 	std::map<goc::GraphPath, goc::Route> S_paths;
 	size_t pool_size() const { return step_pool_ ? S_paths.size() : S.size(); }
