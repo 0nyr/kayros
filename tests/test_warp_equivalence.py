@@ -152,10 +152,14 @@ def test_warp_gate_random_routes(instance_path) -> None:
 
 def test_warped_path_exercised() -> None:
     """Runs after the parametrized gates: the penalised (warped) regime must
-    have been hit many times across the corpus."""
+    have been hit many times across the corpus. The floor scales with the
+    resolved corpus (CI fetches only the sparse Dabia n=25 slice, 6 cases,
+    where the full local tree parametrizes 42), capped at the full-corpus bar.
+    """
     if not ALL_CASES:
         pytest.skip("benchmarks not available")
-    assert OUTCOME_TOTALS["warped"] > 100, OUTCOME_TOTALS
+    floor = min(100, 3 * len(ALL_CASES))
+    assert OUTCOME_TOTALS["warped"] > floor, (OUTCOME_TOTALS, len(ALL_CASES))
 
 
 @pytest.mark.parametrize("instance_path", ALL_CASES)
