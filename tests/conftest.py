@@ -1,3 +1,13 @@
+"""Shared benchmark-resolution helpers for the test suite.
+
+Suite-wide convention: every ``kayros.io.load_instance`` call in these tests
+passes ``verify=True`` explicitly. The library default is ``False`` because it
+is the solver's hot path, but the test suite is exactly where the check belongs:
+it keeps the verification code path exercised on every run, and it turns a
+corrupted or mismatched benchmark artifact into a test failure instead of a
+silently wrong gate.
+"""
+
 import os
 from pathlib import Path
 

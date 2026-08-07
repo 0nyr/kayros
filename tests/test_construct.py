@@ -46,7 +46,7 @@ def instances():
 @pytest.mark.parametrize("path", instances(), ids=lambda p: p.stem)
 def test_seed_matches_the_lookahead_reference(path) -> None:
     require_benchmarks()
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
 
     ok_fast, routes_fast = _core.greedy_makespan(core)
     ok_ref, routes_ref = _core.greedy_makespan_lookahead(core)
@@ -69,7 +69,7 @@ def test_seed_is_cheaper_than_the_lookahead_reference() -> None:
     paths = family_instances("TDVRPTW", "Dabia2013", ["n=100"])
     if not paths:
         pytest.skip("Dabia2013 n=100 not present")
-    core = to_core(load_instance(paths[0]))
+    core = to_core(load_instance(paths[0], verify=True))
 
     start = time.perf_counter()
     _core.greedy_makespan(core)

@@ -41,7 +41,7 @@ def test_split_preserves_the_solution() -> None:
     path = a_duration_instance()
     if path is None:
         pytest.skip("no Duration instance available")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     ok, seed = _core.greedy_makespan(core)
     assert ok
     seed = [list(r) for r in seed]
@@ -63,7 +63,7 @@ def test_split_is_a_no_op_below_the_current_count() -> None:
     path = a_duration_instance()
     if path is None:
         pytest.skip("no Duration instance available")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     ok, seed = _core.greedy_makespan(core)
     assert ok
     seed = [list(r) for r in seed]
@@ -89,7 +89,7 @@ def test_disabling_recovers_the_pre_1_5_seed_bitwise() -> None:
     path = a_duration_instance()
     if path is None:
         pytest.skip("no Duration instance available")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     params = _core.IlsParams()
     params.max_iterations = 120
     params.seed_k_factor = 1.0
@@ -110,7 +110,7 @@ def test_seeding_starts_the_search_from_the_split_solution() -> None:
     path = a_duration_instance()
     if path is None:
         pytest.skip("no Duration instance available")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     params = _core.IlsParams()
     params.max_iterations = 120
 
@@ -131,7 +131,7 @@ def test_seeding_is_inert_under_fleet_cost_duration() -> None:
     paths = family_instances("TDVRPTW", "Blauth2024", ["n=10"])
     if not paths:
         pytest.skip("Blauth2024 (the fleet-priced family) not present")
-    core = to_core(load_instance(paths[0]), objective_function="FleetCostDuration")
+    core = to_core(load_instance(paths[0], verify=True), objective_function="FleetCostDuration")
     assert core.fixed_route_cost > 0.0
 
     params = _core.IlsParams()

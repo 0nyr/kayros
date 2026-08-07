@@ -15,6 +15,19 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 - **The TD time-warp evaluation layer, extracted from the `td-time-warp` branch** (plan 15 D4): clamp-at-deadline warp PWLF builders with the safe flat-run dedup, the augmented `(rho, W)` route fold and accounting evaluators, and the `(rho, omega)` segment monoid with `WarpLcaTree` and the penalised splice evaluator, with their 115 gates (bitwise reduction to the checker on feasible routes, pure-Python twin bit-identity, tree-vs-fold and update==rebuild gates). Additive: no existing code path changes; the branch's prototype drivers stay behind.
 
 - **Fleet-descent work accounting** (plan 15 M0.3): `fd_stats["rollbacks_work"]` (drain attempts rolled back by `fd_work_cap`), `fd_stats["evaluated"]` (drain candidate pricings: ranked insertion candidates, splice evaluations and fold-commit rebuilds, one route pricing each) and `fd_stats["basin_evaluated"]` (LS work of the post-drop basin descents, in `Solution.work_units` units). Together they give fleet descent's share of solver work: `(evaluated + basin_evaluated) / (work_units + evaluated)`.
+## [1.5.2] — 2026-08-07
+
+### Changed
+
+- **Loading no longer verifies artifact digests by default, and the check becomes a visible `verify` argument.** `kayros.io.load_instance(path)` silently inherited `verify_sha256=True` from the benchmark library, so the public single-argument entry point `kayros.solve("instance.vrp.json")` re-derived the `atf_sha256` of the materialized arrival-time functions on every call, through a full canonical re-serialization of the entire ATF set in Python. At n = 1000 that is roughly 80 seconds and about 10 GB of extra peak memory before the search even starts (measured on a one-million-arc instance carrying 114 million breakpoints), which is what users were seeing as an unexplained slow loading phase. Materialization is deterministic and the digest is already declared by the instance file, so on the solver's hot path the check spends minutes re-establishing what a single earlier check already established. It is now off unless you ask for it, and asking for it is one keyword.
+
+  **When to ask for it.** `load_instance(path, verify=True)`, or `kayros.solve(path, verify=True)`, runs the full check: the sidecar digests, and the ATF digest against the value the instance file declares. Verify on test runs, and on the first run over data you have not used before. That is where the check earns its cost, because it catches a truncated download, a sidecar that does not belong to the instance sitting next to it, or an artifact someone edited by hand, and every one of those failure modes is otherwise silent: the solver optimizes the wrong travel times and returns a perfectly plausible answer. Once a given pair of artifacts has passed, re-checking it on every solve tells you nothing new.
+
+  KAYROS's own test suite passes `verify=True` at every instance load, so the verification path stays exercised on every run instead of decaying into untested code, and two new gates pin what the switch is worth: a load with `verify=True` refuses a sidecar whose arrival values were altered, and the default load, by design, accepts it without a word.
+
+### Added
+
+- **`verify` (default `False`) on `kayros.io.load_instance` and on `kayros.solve`**: the opt-in artifact integrity check described above. On `solve` it belongs to the path-accepting form; passing `verify=True` together with an already-loaded `LoadedTDInstance` raises rather than being ignored, since the artifacts have been read by then and there is nothing left for `solve` to verify.
 
 ## [1.5.1] — 2026-08-05
 

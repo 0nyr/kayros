@@ -57,7 +57,7 @@ def test_ils_solution_checker_valid(pick) -> None:
     from mamut_routing_lib.models import BenchmarkSolution
     from mamut_routing_lib.td import check_td_solution
 
-    loaded = load_instance(pick)
+    loaded = load_instance(pick, verify=True)
     core = to_core(loaded)
     result = _core.solve_ils(core, ils_params(max_iterations=200), 42, 0.0)
     assert result.status.name in ("Finished", "TimeLimit")
@@ -81,7 +81,7 @@ def test_ils_solution_checker_valid(pick) -> None:
 
 
 def test_ils_incumbents_monotone(pick) -> None:
-    core = to_core(load_instance(pick))
+    core = to_core(load_instance(pick, verify=True))
     events = []
     result = _core.solve_ils(
         core,
@@ -112,7 +112,7 @@ def test_ils_incumbents_monotone(pick) -> None:
 def test_ils_publishes_the_raw_seed_first(pick) -> None:
     """1.4.0 publish-early: the first incumbent is the greedy seed exactly as
     built, before any descent has touched it."""
-    core = to_core(load_instance(pick))
+    core = to_core(load_instance(pick, verify=True))
     ok, seed_routes = _core.greedy_makespan(core)
     assert ok
     seed_value = _core.solution_duration(core, seed_routes)
@@ -128,7 +128,7 @@ def test_ils_publishes_the_raw_seed_first(pick) -> None:
 
 
 def test_ils_deterministic(pick) -> None:
-    core = to_core(load_instance(pick))
+    core = to_core(load_instance(pick, verify=True))
     a = _core.solve_ils(core, ils_params(max_iterations=250), 11, 0.0)
     b = _core.solve_ils(core, ils_params(max_iterations=250), 11, 0.0)
     assert a.routes == b.routes
@@ -141,7 +141,7 @@ def test_ils_seeds_diverge() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=50", "C103")
     if path is None:
         pytest.skip("instance not present")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     finals = {
         _core.solve_ils(core, ils_params(max_iterations=100), s, 0.0).value
         for s in range(4)
@@ -154,7 +154,7 @@ def test_ils_beats_greedy_seed() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=50", "R205")
     if path is None:
         pytest.skip("instance not present")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     ok, routes = _core.greedy_makespan(core)
     assert ok
     seed_after_ls, *_ = (
@@ -169,7 +169,7 @@ def test_ils_time_limit_compliance() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=100", "R101")
     if path is None:
         pytest.skip("instance not present")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     t0 = time.perf_counter()
     result = _core.solve_ils(core, ils_params(), 1, 2.0)
     wall = time.perf_counter() - t0
@@ -185,7 +185,7 @@ def test_ils_restart_path_runs() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=25", "C101")
     if path is None:
         pytest.skip("instance not present")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     params = ils_params(max_iterations=120, restart_no_improvement=10)
     a = _core.solve_ils(core, params, 5, 0.0)
     b = _core.solve_ils(core, params, 5, 0.0)
