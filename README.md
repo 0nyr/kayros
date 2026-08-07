@@ -42,6 +42,8 @@ def on_incumbent(incumbent, routes):
 solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumbent)
 ```
 
+Instances are loaded without re-verifying their artifact digests, because materialization is deterministic and the check costs minutes and gigabytes of peak memory at n = 1000. Pass `verify=True` (to `kayros.solve` on a path, or to `kayros.io.load_instance`) on test runs and on the first run over data you have not used before: it re-derives the sidecar digests and the ATF digest and pins them against what the instance file declares, which is what catches a truncated download or a mismatched sidecar. Without it those failures are silent.
+
 The default strategy is `"ils"` (single-trajectory iterated local search), picked over the alternatives in a 20,808-run head-to-head across five TD families at n=10..1000, with the margin growing with instance size. A MAX-MIN TD ant colony remains available as `Params(strategy="aco")`, and `Params(num_neighbours=0)` restores exhaustive (non-granular) local-search enumeration; both are alternatives for experimentation, not defaults.
 
 Families that price vehicles (a normative `fleet_fixed_cost` field on the instance, e.g. [Blauth2024](https://github.com/ANR-MAMUT/MAMUT-routing)) can be solved under the **FleetCostDuration** objective: the same canonical duration fold plus `fleet_fixed_cost × num_routes`, priced bitwise by the reference checker. The fleet term is part of `solution.duration`; the local search then trades route dissolves against duration, helped by a route-dissolve perturbation kick.
