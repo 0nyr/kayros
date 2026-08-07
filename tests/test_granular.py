@@ -22,7 +22,7 @@ from conftest import family_instances, require_benchmarks
 
 
 def load_core(path):
-    return to_core(load_instance(path))
+    return to_core(load_instance(path, verify=True))
 
 
 def pick_one(problem_type, family, size_dir, name=None):
@@ -98,7 +98,7 @@ def test_granular_ls_invariants(pick, k) -> None:
     from mamut_routing_lib.models import BenchmarkSolution
     from mamut_routing_lib.td import check_td_solution
 
-    loaded = load_instance(pick)
+    loaded = load_instance(pick, verify=True)
     core = to_core(loaded)
     routes = greedy_routes(core)
     before = _core.solution_duration(core, routes)

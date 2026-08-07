@@ -54,7 +54,7 @@ def test_perturb_feasible_and_checker_valid(pick, seed) -> None:
     from mamut_routing_lib.models import BenchmarkSolution
     from mamut_routing_lib.td import check_td_solution
 
-    loaded = load_instance(pick)
+    loaded = load_instance(pick, verify=True)
     core = to_core(loaded)
     routes = greedy_routes(core)
     served = sorted(c for route in routes for c in route)
@@ -84,7 +84,7 @@ def test_perturb_feasible_and_checker_valid(pick, seed) -> None:
 
 
 def test_perturb_deterministic(pick) -> None:
-    core = load_core = to_core(load_instance(pick))
+    core = load_core = to_core(load_instance(pick, verify=True))
     routes = greedy_routes(core)
     a = _core.ls_perturb(core, routes, 123)
     b = _core.ls_perturb(core, routes, 123)
@@ -99,7 +99,7 @@ def test_perturb_seeds_differ() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=50", "C103")
     if path is None:
         pytest.skip("instance not present")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     routes = greedy_routes(core)
     outcomes = {
         tuple(tuple(r) for r in _core.ls_perturb(core, routes, s)[0])
@@ -116,7 +116,7 @@ def test_perturb_kick_usually_worsens() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=25", "R101")
     if path is None:
         pytest.skip("instance not present")
-    core = to_core(load_instance(path))
+    core = to_core(load_instance(path, verify=True))
     routes = greedy_routes(core)
     base = _core.solution_duration(core, routes)
     worse = 0
@@ -130,7 +130,7 @@ def test_perturb_kick_usually_worsens() -> None:
 
 
 def test_perturb_magnitude_respected(pick) -> None:
-    core = to_core(load_instance(pick))
+    core = to_core(load_instance(pick, verify=True))
     routes = greedy_routes(core)
     n = core.num_customers
     _, _, applied, removed, *_ = _core.ls_perturb(
@@ -148,7 +148,7 @@ def test_perturb_undo_restores_exactly() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=25", "R101")
     if path is None:
         pytest.skip("instance not present")
-    loaded = load_instance(path)
+    loaded = load_instance(path, verify=True)
     core = to_core(loaded)
     routes = greedy_routes(core)
     n = core.num_customers

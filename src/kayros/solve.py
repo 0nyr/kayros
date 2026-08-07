@@ -331,6 +331,7 @@ def solve(
     time_limit: float | None = None,
     seed: int = 0,
     on_incumbent: IncumbentHook | None = None,
+    verify: bool = False,
 ) -> Solution:
     """Solve a MAMUT TD instance (TDVRPTW or TDVRP; Duration minimization by
     default, FleetCostDuration via ``params.objective``).
@@ -349,6 +350,17 @@ def solve(
     disagreement raises (it would be a kayros bug, never a rounding issue to
     tolerate).
 
+    ``verify`` applies to the loading half only, and is forwarded to
+    ``kayros.io.load_instance``: it re-derives the sidecar digests and the
+    ``atf_sha256`` of the materialized arrival-time functions and pins them
+    against what the instance file declares. Verify on test runs and on the
+    first run over unfamiliar data, where the check catches a truncated
+    download or a mismatched sidecar; leave it off afterwards, since
+    materialization is deterministic and the check costs minutes and several
+    gigabytes of peak memory at n = 1000. It is rejected when ``instance`` is
+    an already-loaded ``LoadedTDInstance``, because by then the artifacts have
+    been read and it is too late to verify them here.
+
     ``on_incumbent`` makes the solve anytime: it fires synchronously on every
     new incumbent with the ``Incumbent`` record and the routes, so callers can
     checkpoint solutions while the search keeps running. The stream is strictly
@@ -357,7 +369,16 @@ def solve(
     the hook cheap — the solve loop blocks on it; an
     exception raised inside it aborts the solve and propagates.
     """
-    loaded = instance if isinstance(instance, LoadedTDInstance) else load_instance(instance)
+    if isinstance(instance, LoadedTDInstance):
+        if verify:
+            raise ValueError(
+                "verify=True has nothing to verify on an already-loaded "
+                "instance: pass the .vrp.json path to solve(), or call "
+                "kayros.io.load_instance(path, verify=True) yourself"
+            )
+        loaded = instance
+    else:
+        loaded = load_instance(instance, verify=verify)
     params = params or Params()
     objective = canonical_objective(params.objective)
     check_kwargs: dict = {}

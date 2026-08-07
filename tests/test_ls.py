@@ -35,7 +35,7 @@ def greedy_routes(core):
 
 
 def load_core(path):
-    return to_core(load_instance(path))
+    return to_core(load_instance(path, verify=True))
 
 
 def pick_one(problem_type, family, size_dir, name=None):
@@ -147,7 +147,7 @@ def test_local_search_invariants(gate_case) -> None:
     from mamut_routing_lib.td import check_td_solution
 
     path, _ = gate_case
-    loaded = load_instance(path)
+    loaded = load_instance(path, verify=True)
     core = to_core(loaded)
     routes = greedy_routes(core)
     before = _core.solution_duration(core, routes)

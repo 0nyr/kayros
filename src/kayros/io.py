@@ -39,9 +39,30 @@ def canonical_objective(objective_function: object) -> str:
         ) from None
 
 
-def load_instance(path: str | Path) -> LoadedTDInstance:
-    """Load a MAMUT TD instance (``.vrp.json``) together with its ATF sidecar."""
-    return load_td_instance(path)
+def load_instance(path: str | Path, *, verify: bool = False) -> LoadedTDInstance:
+    """Load a MAMUT TD instance (``.vrp.json``) together with its ATF sidecar.
+
+    ``verify`` turns on the artifact integrity check of mamut-routing-lib
+    (``verify_sha256``): the sidecar file digests, plus ``atf_sha256``, the
+    digest of the materialized arrival-time functions, re-derived by a full
+    canonical re-serialization and compared against the value the instance
+    file declares.
+
+    **Verify on test runs, and on the first run over data you have not used
+    before.** That is what catches a truncated download, a sidecar that does
+    not belong to the instance sitting next to it, or a hand-edited artifact:
+    without the check those failure modes are silent, and the solver happily
+    optimizes the wrong travel times.
+
+    **It is off by default here because this is the solver's hot path.**
+    Materialization is deterministic, so once a pair of artifacts has been
+    checked, re-checking it on every solve tells you nothing new. The check is
+    not cheap at scale: the canonical re-serialization costs about 80 seconds
+    and roughly 10 GB of extra peak memory on a one-million-arc instance with
+    114 million breakpoints (n = 1000), which used to show up as a mysterious
+    slow loading phase before the search even started.
+    """
+    return load_td_instance(path, verify_sha256=verify)
 
 
 def to_core(
