@@ -2,7 +2,9 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
-## [Unreleased]
+## [1.6.0] — 2026-08-08
+
+A fleet-squeeze release: the penalty-tolerant time-window squeeze (the S2 phase polish and the S1 in-ladder rescue) and the K-cap confined search arrive as **opt-in campaign features, inert by default**. The inert default is a measured decision, not caution. In the plan-15 validation campaigns (paired off-versus-armed, bitwise-identical starts), arming the squeeze at the calibrated operating point (`sq_penalty=2.0`, `sq_work_cap=30000000`, `sq_on_nodrop=True`, `sq_ladder=True`) reached the BonnTour reference fleet in 4 of 30 cold 12 h cells at n=1000 where the default reached it in 0 of 30, removed a net 12 routes over the 30 pairs and improved the paired mean FleetCostDuration by 1.32 percent; but the same campaigns surfaced K-endgame variance in both directions (short 2 h cells at n=500 degraded the armed paired mean, and one 12 h pair ended with the armed run stalled one route above its twin), so there is no size at which arming is unconditionally safe and campaigns arm it explicitly. Default FleetCostDuration streams stay bitwise pre-squeeze (`sq_work_cap=0`), and Duration streams are untouched at any setting. Armed and warm-started from the stored records, this build's release campaign refreshed 29 of the 30 Blauth2024 FleetCostDuration best-known solutions (the thirtieth held), and 90 companion searches capped one vehicle below the records all ended Infeasible without ever attaining the reduced fleet, evidence that the stored route counts are tight at a 12 h single-core budget.
 
 ### Changed
 
@@ -15,6 +17,7 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 - **The TD time-warp evaluation layer, extracted from the `td-time-warp` branch** (plan 15 D4): clamp-at-deadline warp PWLF builders with the safe flat-run dedup, the augmented `(rho, W)` route fold and accounting evaluators, and the `(rho, omega)` segment monoid with `WarpLcaTree` and the penalised splice evaluator, with their 115 gates (bitwise reduction to the checker on feasible routes, pure-Python twin bit-identity, tree-vs-fold and update==rebuild gates). Additive: no existing code path changes; the branch's prototype drivers stay behind.
 
 - **Fleet-descent work accounting** (plan 15 M0.3): `fd_stats["rollbacks_work"]` (drain attempts rolled back by `fd_work_cap`), `fd_stats["evaluated"]` (drain candidate pricings: ranked insertion candidates, splice evaluations and fold-commit rebuilds, one route pricing each) and `fd_stats["basin_evaluated"]` (LS work of the post-drop basin descents, in `Solution.work_units` units). Together they give fleet descent's share of solver work: `(evaluated + basin_evaluated) / (work_units + evaluated)`.
+
 ## [1.5.2] — 2026-08-07
 
 ### Changed
@@ -50,6 +53,7 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 ### Added
 
 - **Two reverse-side soundness gates**, `test_jumpfree_reverse_side_certificate_is_not_above_the_truth` on `Vu-A2-pB-d98-w60` and `Vu-A2-pB-d98-w100`. The existing jump-free gate pins `Vu-A5-pA-d90-w40`, which keeps certifying its exact stored value on a build whose reverse arrivals are wrong, so it passes a regression it was meant to catch. These two are the instances that discriminate, and each also checks its returned routes price at the certified value under the reference checker.
+
 ## [1.5.0] — 2026-08-04
 
 A fleet-sizing release, and a **deliberate change of default behaviour**: Duration results move versus 1.4.x. Under the Duration objective the search sheds routes freely and effectively never adds one, so the route count it finishes with is essentially the one the seed handed it. On instances where waiting dominates, the constructed seed lands near half the duration-optimal fleet and the search cannot climb out. 1.5.0 seeds above the constructed count and lets the search descend to its own.
