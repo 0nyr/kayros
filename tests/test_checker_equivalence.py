@@ -128,7 +128,11 @@ def test_dabia2013_tdvrp_equivalence(instance_path) -> None:
     "instance_path", DABIA_TDVRPTW, ids=lambda p: f"BKS-{p.parent.name}-{p.name.removesuffix('.vrp.json')}"
 )
 def test_dabia2013_bks_repricing(instance_path) -> None:
-    """Repriced best-known solutions: core canonical-order total == stored cost."""
+    """Stored routes: core total equals the installed checker's repricing.
+
+    The benchmark snapshot's declared cost may use a different numerical
+    contract. Compare the same routes under the installed checker instead.
+    """
     from mamut_routing_lib.bks import get_bks_path_for_instance, load_bks
     from mamut_routing_lib.enums import ObjectiveFunction
 
@@ -144,7 +148,12 @@ def test_dabia2013_bks_repricing(instance_path) -> None:
         feasible, duration, _ = core.evaluate_route(route)
         assert feasible, (instance_path, route)
         total += duration
-    assert total == bks.cost, (instance_path, total, bks.cost)
+    reference = check_td_solution(
+        loaded,
+        BenchmarkSolution(instance_name=loaded.instance.instance_name, routes=bks.routes),
+    )
+    assert reference.is_valid(), (instance_path, reference.status, reference.error_message)
+    assert total == reference.routing_cost, (instance_path, total, reference.routing_cost)
 
 
 def test_benchmarks_available_or_skipped() -> None:

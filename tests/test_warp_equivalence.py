@@ -23,6 +23,7 @@ import zlib
 import pytest
 from mamut_routing_lib.td import (
     NDCPWLF,
+    check_td_solution,
     compute_route_duration,
     compute_route_ready_time_function,
     load_td_instance,
@@ -172,6 +173,7 @@ def test_warp_gate_bks_and_deadline_riders(instance_path) -> None:
     """
     from mamut_routing_lib.bks import get_bks_path_for_instance, load_bks
     from mamut_routing_lib.enums import ObjectiveFunction
+    from mamut_routing_lib.models import BenchmarkSolution
 
     bks_path = get_bks_path_for_instance(instance_path, ObjectiveFunction.DURATION)
     if not bks_path.exists():
@@ -186,7 +188,14 @@ def test_warp_gate_bks_and_deadline_riders(instance_path) -> None:
         outcome = assert_route_gates(loaded, core, t_end, route, instance_path)
         assert outcome == "feasible", (instance_path, route)
         total += core.evaluate_route_warp(route, GATE_PENALTY, t_end)["duration"]
-    assert total == bks.cost, (instance_path, total, bks.cost)
+    # Stored costs may use another checker contract. Reprice the same routes
+    # under the installed checker before comparing the penalized evaluator.
+    reference = check_td_solution(
+        loaded,
+        BenchmarkSolution(instance_name=loaded.instance.instance_name, routes=bks.routes),
+    )
+    assert reference.is_valid(), (instance_path, reference.status, reference.error_message)
+    assert total == reference.routing_cost, (instance_path, total, reference.routing_cost)
 
     rng = random.Random(zlib.crc32(b"riders:" + str(instance_path).encode()))
     for route in bks.routes:

@@ -11,7 +11,7 @@ name = "kayros"
 # Bump BY HAND alongside this key: CITATION.cff `version:`, the README status
 # line, and create the matching GitHub release tag vX.Y.Z (publish.yml ships
 # the wheels to PyPI on release).
-version = "1.6.0"
+version = "1.6.1"
 description = "KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP)"
 readme = "README.md"
 authors = [
@@ -42,8 +42,10 @@ classifiers = [
 # The canonical benchmark/checker dependency: loaders, the NDCPWLF reference
 # checker, BKS helpers and the OptimalityMetadata schema. The floor is the
 # stack the certification work is tested against.
+# The C++ evaluator implements td-fold/1. Newer checker contracts require
+# numerical equivalence validation before this upper bound can be widened.
 dependencies = [
-    "mamut-routing-lib>=0.6.0",
+    "mamut-routing-lib>=0.6.0,<0.12",
 ]
 
 [dependency-groups]

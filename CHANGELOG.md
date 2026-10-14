@@ -2,6 +2,15 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.6.1] — 2026-10-14
+
+A checker-compatibility patch. Solver algorithms and numerical evaluation are unchanged. New installations require `mamut-routing-lib>=0.6.0,<0.12`, matching the historical TD contract implemented by KAYROS.
+
+### Fixed
+
+- **Exclude incompatible reference checker contracts.** The previous open-ended dependency allowed mamut-routing-lib 0.12.0, whose `td-fold/2` evaluation can differ from KAYROS's `td-fold/1` cost by a final floating-point bit. KAYROS's strict final objective check then rejected internally generated solutions, including reported Dabia2013 C101 and C103 cases at n=25. The temporary upper bound excludes 0.12 and later releases until compatibility is validated. Existing installations should upgrade KAYROS or explicitly install `mamut-routing-lib==0.11.0`.
+- **Re-evaluate stored routes in the checker-equivalence tests.** Stored BKS costs may belong to another checker contract. The ordinary and penalized evaluation tests now compare the C++ total with the installed compatible checker's evaluation of the same routes, rather than assuming the latest benchmark snapshot's declared cost uses that contract.
+
 ## [1.6.0] — 2026-08-08
 
 A fleet-squeeze release: the penalty-tolerant time-window squeeze (the S2 phase polish and the S1 in-ladder rescue) and the K-cap confined search arrive as **opt-in campaign features, inert by default**. The inert default is a measured decision, not caution. In the plan-15 validation campaigns (paired off-versus-armed, bitwise-identical starts), arming the squeeze at the calibrated operating point (`sq_penalty=2.0`, `sq_work_cap=30000000`, `sq_on_nodrop=True`, `sq_ladder=True`) reached the BonnTour reference fleet in 4 of 30 cold 12 h cells at n=1000 where the default reached it in 0 of 30, removed a net 12 routes over the 30 pairs and improved the paired mean FleetCostDuration by 1.32 percent; but the same campaigns surfaced K-endgame variance in both directions (short 2 h cells at n=500 degraded the armed paired mean, and one 12 h pair ended with the armed run stalled one route above its twin), so there is no size at which arming is unconditionally safe and campaigns arm it explicitly. Default FleetCostDuration streams stay bitwise pre-squeeze (`sq_work_cap=0`), and Duration streams are untouched at any setting. Armed and warm-started from the stored records, this build's release campaign refreshed 29 of the 30 Blauth2024 FleetCostDuration best-known solutions (the thirtieth held), and 90 companion searches capped one vehicle below the records all ended Infeasible without ever attaining the reduced fleet, evidence that the stored route counts are tight at a 12 h single-core budget.
