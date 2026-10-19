@@ -1,14 +1,17 @@
 # Authors
 
-This file records the authorship, scientific supervision, funding context, and contributor policy of KAYROS. It is the authoritative statement of who wrote the software; machine-readable citation metadata lives in [`CITATION.cff`](CITATION.cff), and the license terms in [`LICENSE`](LICENSE).
+This file records the authorship, scientific supervision, funding context, and contributor policy of KAYROS. It records the authors and their roles. Machine-readable citation metadata lives in [`CITATION.cff`](CITATION.cff), and the license terms in [`LICENSE`](LICENSE).
 
-## Author and maintainer
+## Authors and maintainer
 
-KAYROS is written and maintained by:
+The authors of KAYROS, in citation order, are:
 
 - **Florian Rascoussier** (Onyr), IMT Atlantique and INSA Lyon, France. [GitHub](https://github.com/0nyr) · [ORCID 0009-0005-3253-9814](https://orcid.org/0009-0005-3253-9814) · [LinkedIn](https://www.linkedin.com/in/florian-rascoussier-onyr/) · <onyr.maintainer@gmail.com>
+- **Romain Billot**, IMT Atlantique, Lab-STICC, France. [ORCID 0000-0002-2614-3822](https://orcid.org/0000-0002-2614-3822)
+- **Lina Fahed**, IMT Atlantique, Lab-STICC, France. [ORCID 0000-0002-7207-0580](https://orcid.org/0000-0002-7207-0580)
+- **Christine Solnon**, INSA Lyon, Inria, CITI, France. [ORCID 0000-0002-0919-496X](https://orcid.org/0000-0002-0919-496X)
 
-He is the sole author of the KAYROS codebase, with the exception of the vendored third-party component described below. Everything stays MIT-licensed.
+Florian Rascoussier leads software implementation and maintenance. Romain Billot, Lina Fahed and Christine Solnon contribute scientific supervision. The vendored third-party component is credited separately below. Everything stays MIT-licensed.
 
 ## Vendored third-party code
 
@@ -16,7 +19,7 @@ The exact branch-price-and-cut component (`cpp/lera/`) is derived from the open-
 
 ## AI-assisted development
 
-KAYROS is developed with the assistance of AI coding tools (Claude, ChatGPT, and others) for code generation, documentation, and exploratory work. Claude Fable 5 in particular has been used extensively. The author remains solely responsible for all design decisions, all published claims, and all content of this repository.
+KAYROS is developed with the assistance of AI coding tools (Claude, ChatGPT, and others) for code generation, documentation, and exploratory work. Claude Fable 5 in particular has been used extensively. Florian Rascoussier leads the review of AI-assisted implementation. The human authors retain responsibility for the work and its published claims.
 
 ## Scientific supervision
 
@@ -31,6 +34,8 @@ KAYROS is built as part of a [PhD in Informatics and Operations Research](https:
 This work is part of the ANR-MAMUT project, [ANR-22-CE22-0016](https://anr.fr/Projet-ANR-22-CE22-0016).
 
 ## Acknowledgements
+
+The acknowledgements below are Florian Rascoussier's personal account.
 
 The KAYROS solver is dedicated to the memory of my friend Thomas Garcia.
 

@@ -15,7 +15,10 @@ version = "1.6.1"
 description = "KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP)"
 readme = "README.md"
 authors = [
-    { name = "Florian Rascoussier (Onyr)", email = "onyr.maintainer@gmail.com" },
+    { name = "Florian Rascoussier", email = "onyr.maintainer@gmail.com" },
+    { name = "Romain Billot" },
+    { name = "Lina Fahed" },
+    { name = "Christine Solnon" },
 ]
 license = { text = "MIT" }
 # Upper bound is deliberate: kayros ships compiled wheels, so the metadata must

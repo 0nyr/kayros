@@ -6,8 +6,8 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1783159238,
-        "narHash": "sha256-AZVUF9MszUqJGUIZQLmSBynM2sZpGjCQ/83y1uVBa3s=",
+        "lastModified": 1786364788,
+        "narHash": "sha256-eR1+8hLYYX/T3vbTP1CjwGcxYG/uzdhi/qtKGwcIR0c=",
         "path": "/home/onyr/nix-dev-base",
         "type": "path"
       },

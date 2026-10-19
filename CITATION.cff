@@ -10,6 +10,18 @@ authors:
     alias: Onyr
     affiliation: IMT Atlantique; INSA Lyon
     orcid: "https://orcid.org/0009-0005-3253-9814"
+  - given-names: Romain
+    family-names: Billot
+    affiliation: IMT Atlantique; Lab-STICC
+    orcid: "https://orcid.org/0000-0002-2614-3822"
+  - given-names: Lina
+    family-names: Fahed
+    affiliation: IMT Atlantique; Lab-STICC
+    orcid: "https://orcid.org/0000-0002-7207-0580"
+  - given-names: Christine
+    family-names: Solnon
+    affiliation: INSA Lyon; Inria; CITI
+    orcid: "https://orcid.org/0000-0002-0919-496X"
 url: "https://github.com/0nyr/kayros"
 repository-code: "https://github.com/0nyr/kayros"
 abstract: >-
