@@ -220,6 +220,7 @@ def solve_duration(
     node_limit: int | None = None,
     solution_limit: int = 3000,
     on_incumbent: Callable[[dict[str, Any]], None] | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
     initial_routes: list[list[int]] | None = None,
     stab_alpha: float = 0.0,
     memory_limit_mb: float | None = None,
@@ -315,6 +316,8 @@ def solve_duration(
             on_incumbent(json.loads(incumbent_json))
 
         kwargs["on_incumbent"] = _hook
+    if on_event is not None:
+        kwargs["on_event"] = lambda payload: on_event(json.loads(payload))
     if initial_routes is not None:
         kwargs["initial_routes"] = [[int(c) for c in route] for route in initial_routes]
     result = json.loads(_lera.solve_duration_json(json.dumps(payload), **kwargs))

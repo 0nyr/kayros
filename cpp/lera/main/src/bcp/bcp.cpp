@@ -94,6 +94,10 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 	Node* root = new Node{0, INFTY, {}};
 	ProcessNode(root);
 	log.root_time = rolex.Peek();
+	if (log.root_lp_value.IsSet()) {
+		z_lb = *log.root_lp_value;
+		if (on_bound) on_bound(rolex.Peek(), z_lb, "root_complete");
+	}
 
 	if (!q.empty())
 	{
@@ -127,6 +131,10 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 				// Output to console.
 				if (tstream.RegisterAttempt()) tstream.WriteRow({STR(rolex.Peek()), STR(log.nodes_closed), STR(log.nodes_open), STR(z_lb), STR(z_ub), STR(spf->formulation->VariableCount())});
 			}
+			if (log.status == BCStatus::DidNotStart && !q.empty()) {
+				z_lb = std::max(z_lb, std::min(z_ub, q.top()->bound));
+				if (on_bound) on_bound(rolex.Peek(), z_lb, "frontier");
+			}
 			delete bbnode;
 		}
 		// (M5.2) Only close the gap when the tree was fully explored: a branch
@@ -140,7 +148,10 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		// open node's bound (q is best-bound-first), not the last popped one —
 		// report it so the final incumbent's true gap is known. If the TL hit
 		// during root CG there is no valid LB and best_bound stays unset.
-		if (!q.empty()) z_lb = std::max(z_lb, q.top()->bound);
+		// An interrupted active branch can have children absent from q.
+		// Retain its inherited bound rather than advancing to the queue alone.
+		if (!q.empty() && log.status == BCStatus::DidNotStart)
+			z_lb = std::max(z_lb, std::min(z_ub, q.top()->bound));
 
 		// Delete nodes that were not processed.
 		while (!q.empty()) { delete q.top(); q.pop(); }
@@ -153,6 +164,8 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		z_lb = z_ub;
 	}
 	log.time = rolex.Peek();
+	if (on_bound) on_bound(log.time, z_lb,
+		log.status == BCStatus::Optimum && z_ub < INFTY ? "search_closed" : "search_terminated");
 	
 	// Set bounds and solutions found.
 	if (z_ub != INFTY) log.best_int_value = z_ub;
@@ -179,6 +192,8 @@ double BCP::EstimateBound(Node* node)
 	auto lp_log = lp_solver.Solve(spf->formulation);
 	// (M5.2) An aborted probe must poison the run status: dropping both
 	// children of a node silently would let Run() claim optimality later.
+	node->rmp_infeasible = lp_log.status == LPStatus::Infeasible;
+    if (node->rmp_infeasible) ++strong_rmp_infeasible_count;
 	if (lp_log.status == LPStatus::TimeLimitReached) log.status = BCStatus::TimeLimitReached;
 	if (lp_log.status == LPStatus::MemoryLimitReached) log.status = BCStatus::MemoryLimitReached; // kayros (M13.2)
 	return lp_log.status == LPStatus::Optimum ? *lp_log.incumbent_value : INFTY;
@@ -198,6 +213,10 @@ void BCP::ProcessNode(Node* node)
 	// Update node.
 	if (cg_log.status == CGStatus::Optimum)
 	{
+        ++cg_optimum_count;
+        bool certified = cg_log.iterations.IsSet() && !cg_log.iterations->empty()
+            && cg_log.iterations->back().value("ablation_final_pricing_certified", false);
+        if (certified) ++cg_certified_count; else ++cg_unresolved_count;
 		node->bound = cg_log.incumbent_value;
 		node->opt = *cg_log.incumbent;
 	}
@@ -228,6 +247,7 @@ void BCP::ProcessNode(Node* node)
 	}
 	else if (cg_log.status == CGStatus::Infeasible)
 	{
+        ++cg_infeasible_count;
 		log.nodes_closed++;
 		delete node;
 	}
@@ -285,6 +305,8 @@ void BCP::BranchNode(Node* node)
 	
 	// Calculate all candidate estimate bounds and keep the best one.
 	vector<Node> best_candidate;
+    int selected_infeasible = 0;
+    if (x_most.empty()) ++unbranched_fractional_count;
 	if (!x_most.empty())
 	{
 		double best_estimate = -INFTY;
@@ -311,12 +333,14 @@ void BCP::BranchNode(Node* node)
 			{
 				best_estimate = min(left.bound, right.bound);
 				best_candidate = {};
+                selected_infeasible = int(left.rmp_infeasible) + int(right.rmp_infeasible);
 				if (left.bound < INFTY) best_candidate.push_back(left);
 				if (right.bound < INFTY) best_candidate.push_back(right);
 			}
 		}
 	}
 	
+    if (log.status == BCStatus::DidNotStart) selected_rmp_infeasible_count += selected_infeasible;
 	*log.branching_time += rolex_branch.Pause();
 	// Process new children to the queue.
 	for (Node& candidate: best_candidate)

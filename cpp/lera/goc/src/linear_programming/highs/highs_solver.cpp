@@ -4,6 +4,8 @@
 
 #include "goc/linear_programming/highs/highs_solver.h"
 
+// ablation backend settings
+#include "goc/linear_programming/solver/ablation_settings.h"
 #include <map>
 
 #include "Highs.h"
@@ -94,10 +96,14 @@ HighsModel materialize(MatrixFormulation* formulation, bool relax)
 
 // Configures a Highs instance: silent by default, single-threaded (kayros
 // one-run-one-thread convention), time limit, then user config overrides.
-void configure(Highs& solver, ostream* screen_output, Duration time_limit, const json& config)
+void configure(Highs& solver, ostream* screen_output, Duration time_limit, const json& config, const string& phase)
 {
 	solver.setOptionValue("output_flag", screen_output != nullptr);
-	solver.setOptionValue("threads", 1);
+    solver.setOptionValue("threads", 1);
+    solver.setOptionValue("primal_feasibility_tolerance", 1e-7);
+    solver.setOptionValue("dual_feasibility_tolerance", 1e-7);
+    solver.setOptionValue("mip_feasibility_tolerance", 1e-6);
+    solver.setOptionValue("mip_rel_gap", 0.0);
 	solver.setOptionValue("time_limit", max(0.0, time_limit.Amount(DurationUnit::Seconds)));
 	for (auto it = config.begin(); it != config.end(); ++it)
 	{
@@ -105,7 +111,23 @@ void configure(Highs& solver, ostream* screen_output, Duration time_limit, const
 		else if (it.value().is_number()) solver.setOptionValue(it.key(), (double)it.value());
 		else if (it.value().is_boolean()) solver.setOptionValue(it.key(), (bool)it.value());
 		else solver.setOptionValue(it.key(), (string)it.value());
-	}
+    }
+    json record = {{"backend", "HiGHS"}, {"version", solver.version()}};
+    for (const string key : {"threads", "random_seed", "simplex_strategy"}) {
+        HighsInt value; if (solver.getOptionValue(key, value) != HighsStatus::kOk) fail("Cannot read HiGHS option " + key);
+        record[key] = value;
+    }
+    for (const string key : {"primal_feasibility_tolerance", "dual_feasibility_tolerance", "mip_feasibility_tolerance", "mip_rel_gap"}) {
+        double value; if (solver.getOptionValue(key, value) != HighsStatus::kOk) fail("Cannot read HiGHS option " + key);
+        record[key] = value;
+    }
+    for (const string key : {"presolve", "solver", "parallel"}) {
+        string value; if (solver.getOptionValue(key, value) != HighsStatus::kOk) fail("Cannot read HiGHS option " + key);
+        record[key] = value;
+    }
+    auto& all = ablation_backend_settings();
+    int count = all.find(phase) != all.end() ? all[phase].value("calls", 0) : 0;
+    record["calls"] = count+1; all[phase] = record;
 }
 
 Valuation values_to_valuation(MatrixFormulation* formulation, const vector<double>& values)
@@ -214,7 +236,7 @@ LPExecutionLog solve_lp(MatrixFormulation* formulation, ostream* screen_output, 
 		formulation->lp_session = session;
 	}
 	Highs& solver = session->solver;
-	configure(solver, screen_output, time_limit, config);
+	configure(solver, screen_output, time_limit, config, "lp");
 	sync_session(session.get(), formulation);
 
 	Stopwatch rolex(true);
@@ -263,7 +285,7 @@ BCExecutionLog solve_bc(MatrixFormulation* formulation, ostream* screen_output, 
 	BCExecutionLog execution_log;
 
 	Highs solver;
-	configure(solver, screen_output, time_limit, config);
+	configure(solver, screen_output, time_limit, config, "mip");
 	solver.passModel(materialize(formulation, /*relax=*/false));
 
 	Stopwatch rolex(true);

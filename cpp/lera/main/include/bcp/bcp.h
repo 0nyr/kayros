@@ -26,6 +26,8 @@ typedef std::function<void(goc::Duration elapsed, const goc::VRPSolution& incumb
 class BCP
 {
 public:
+	int cg_optimum_count = 0, cg_certified_count = 0, cg_unresolved_count = 0;
+    int cg_infeasible_count = 0, strong_rmp_infeasible_count = 0, unbranched_fractional_count = 0, selected_rmp_infeasible_count = 0;
 	goc::Duration time_limit;
 	// (M5.2) Absolute deadline derived from time_limit at Run(). All internal
 	// components and the external pricing_solver take their residual budgets
@@ -34,6 +36,7 @@ public:
 	int node_limit;
 	int cut_limit;
 	BCPPricingFunction pricing_solver;
+	std::function<void(goc::Duration, double, const std::string&)> on_bound;
 	BCPIncumbentCallback on_incumbent; // optional; called on every new UB.
 
 	// Initializes the Branch cut and price solver.
@@ -61,6 +64,7 @@ private:
 		int index;
 		double bound;
 		std::vector<goc::Arc> A; // forbidden arcs.
+		bool rmp_infeasible = false;
 		goc::Valuation opt; // relaxation optimum.
 		
 		struct Comparator { inline bool operator() (Node* n1, Node* n2) { return n1->bound > n2->bound; } };

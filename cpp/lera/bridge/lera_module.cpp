@@ -30,7 +30,7 @@ PYBIND11_MODULE(_lera, m) {
         [](const std::string& payload, double time_limit_s, int cut_limit, int node_limit,
            int solution_limit, py::object on_incumbent,
            std::vector<std::vector<int>> initial_routes, double stab_alpha,
-           double memory_limit_mb) {
+           double memory_limit_mb, py::object on_event) {
             kayros::lera::SolveParams params;
             params.time_limit_s = time_limit_s;
             params.cut_limit = cut_limit;
@@ -47,6 +47,12 @@ PYBIND11_MODULE(_lera, m) {
                     on_incumbent(incumbent_json);
                 };
             }
+            if (!on_event.is_none()) {
+                params.on_event = [on_event](const std::string& event_json) {
+                    py::gil_scoped_acquire gil;
+                    on_event(event_json);
+                };
+            }
             py::gil_scoped_release release;
             return kayros::lera::solve_duration_json(payload, params);
         },
@@ -54,7 +60,7 @@ PYBIND11_MODULE(_lera, m) {
         py::arg("node_limit") = INT_MAX, py::arg("solution_limit") = 3000,
         py::arg("on_incumbent") = py::none(),
         py::arg("initial_routes") = std::vector<std::vector<int>>{},
-        py::arg("stab_alpha") = 0.0, py::arg("memory_limit_mb") = 0.0);
+        py::arg("stab_alpha") = 0.0, py::arg("memory_limit_mb") = 0.0, py::arg("on_event") = py::none());
 
     // --- nyr NDCPWLF test surface (M5.9 exact stepwise labeling) -----------
     // Direct pytest access to the step-capable PWL primitives while they are

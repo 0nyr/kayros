@@ -41,6 +41,7 @@ struct SolveParams {
     // routes}); the same records are also collected in the result's
     // "incumbents" array. Keep it cheap — the solve blocks on it.
     std::function<void(const std::string& incumbent_json)> on_incumbent;
+    std::function<void(const std::string&)> on_event;
 };
 
 // payload: normalized Lera instance JSON (built by the kayros.lera Python

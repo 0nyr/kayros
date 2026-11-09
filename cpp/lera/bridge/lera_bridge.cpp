@@ -1,4 +1,5 @@
 // kayros-owned bridge to the vendored Lera-Romero BPC (NOT vendored code).
+#include "goc/linear_programming/solver/ablation_settings.h"
 #include "lera_bridge.h"
 
 #include <cstdint>
@@ -79,6 +80,7 @@ kayros::RouteEval checker_eval(const kayros::Instance& ci, const goc::GraphPath&
 }  // namespace
 
 std::string solve_duration_json(const std::string& payload, const SolveParams& params) {
+    goc::ablation_backend_settings() = nlohmann::json::object();
     // M13.3: pin the PWL vertical arithmetic for the whole solve, from the
     // same KAYROS_STEP_EXACT flag the Python bridge sets per instance and the
     // labeling already reads. Step-carrying instances get the M13.0 exact
@@ -173,6 +175,25 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
              << " columns added" << (valid_ub && added > 0 ? ", UB set" : ", no UB") << endl;
     }
 
+    int exact_calls = 0, exact_finished = 0;
+    bool last_exact_finished = false, ladder_certified = false;
+    int duplicate_columns = 0;
+    auto closure_census = [&]() { return nlohmann::json{
+        {"cg_optimum", bcp.cg_optimum_count}, {"cg_certified_final_pricing", bcp.cg_certified_count},
+        {"cg_unresolved_final_pricing", bcp.cg_unresolved_count}, {"cg_infeasible_unverified", bcp.cg_infeasible_count},
+        {"strong_rmp_infeasible_unverified", bcp.strong_rmp_infeasible_count},
+        {"selected_rmp_infeasible_unverified", bcp.selected_rmp_infeasible_count},
+        {"unbranched_fractional_unverified", bcp.unbranched_fractional_count}, {"duplicate_columns", duplicate_columns}}; };
+    nlohmann::json bound_events = nlohmann::json::array();
+    bcp.on_bound = [&](Duration elapsed, double bound, const std::string& source) {
+        nlohmann::json entry = {{"event", source == "search_closed" ? "search_closed" : (source == "search_terminated" ? "search_terminated" : "global_bound")},
+            {"time", elapsed.Amount(DurationUnit::Seconds)}, {"source", source},
+            {"global_lb", bound > -INFTY && bound < INFTY ? nlohmann::json(bound) : nlohmann::json(nullptr)},
+            {"exact_pricing", {{"calls", exact_calls}, {"finished", exact_finished}}}};
+        entry["closure_census"] = closure_census();
+        if (params.on_event) params.on_event(entry.dump());
+        bound_events.push_back(std::move(entry));
+    };
     nlohmann::json incumbents = nlohmann::json::array();
     bcp.on_incumbent = [&](Duration elapsed, const VRPSolution& sol, const std::string& origin) {
         nlohmann::json entry = {
@@ -201,7 +222,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         // (M5.2) Residual budget from the BCP's single absolute deadline,
         // not from a per-call stopwatch chain.
         lbl.time_limit = bcp.deadline.Remaining();
+        if (heuristic_level == levels.size() - 1) ++exact_calls;
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
+        last_exact_finished = heuristic_level == levels.size() - 1 && lbl_log.status == BLBStatus::Finished;
+        if (last_exact_finished) ++exact_finished;
 
         // Add iteration log.
         cg_execution_log->iterations->push_back(lbl_log);
@@ -240,7 +264,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             // skipped rather than certified — the loud-fail below is for real
             // routes the checker rejects.
             if (r.path.size() < 3) continue;
-            if (!column_keys.insert(path_key(r.path)).second) continue;
+            if (!column_keys.insert(path_key(r.path)).second) { ++duplicate_columns; continue; }
             auto ev = checker_eval(checker_inst, r.path);
             if (!ev.feasible)
             {
@@ -279,6 +303,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     // some level contributes new columns or the Exact level finishes empty.
     auto run_ladder_and_add = [&](const PricingProblem& pp, CGExecutionLog* lg) {
         int added = 0;
+        ladder_certified = false;
         while (!bcp.deadline.Reached()) {
             if (MemoryMonitor::Exceeded()) break; // kayros (M13.2): don't climb levels on a doomed run
             added = add_columns(run_one_level(pp, lg));
@@ -288,6 +313,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 // (If it still REPORTED a negative-reduced-cost duplicate, the
                 // discrepancy is labeling-vs-checker dust within the documented
                 // certificate tolerance; the Exact level did run.)
+                ladder_certified = last_exact_finished && !bcp.deadline.Reached() && !MemoryMonitor::Exceeded();
                 heuristic_level = 0;
                 lbl.closing_state = false;
                 lbl.merge_start = 0;
@@ -314,6 +340,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     const double alpha = params.stab_alpha;
     bcp.pricing_solver = [&](const PricingProblem& pricing_problem, int /*node_number*/,
                              Duration /*tlimit*/, CGExecutionLog* cg_execution_log) {
+        bool certified_true_duals = false;
         if (alpha > 0.0 && center_set) {
             PricingProblem pps = pricing_problem;  // A and S are structural.
             for (size_t i = 0; i < pps.P.size(); ++i)
@@ -325,6 +352,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             if (added == 0 && !bcp.deadline.Reached()) {
                 ++misprice_count;
                 run_ladder_and_add(pricing_problem, cg_execution_log);
+                certified_true_duals = ladder_certified;
                 center_P = pricing_problem.P;
                 center_sigma = pricing_problem.sigma;
             } else {
@@ -334,6 +362,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             }
         } else {
             run_ladder_and_add(pricing_problem, cg_execution_log);
+            certified_true_duals = ladder_certified;
             if (!center_set) {
                 center_P = pricing_problem.P;
                 center_sigma = pricing_problem.sigma;
@@ -351,13 +380,21 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         // BCStatus::MemoryLimitReached (the existing CG->BC branch).
         if (MemoryMonitor::Exceeded())
             cg_execution_log->status = CGStatus::MemoryLimitReached;
+        if (cg_execution_log->iterations.IsSet() && !cg_execution_log->iterations->empty())
+            cg_execution_log->iterations->back()["ablation_final_pricing_certified"] =
+                certified_true_duals && !bcp.deadline.Reached() && !MemoryMonitor::Exceeded();
     };
 
     VRPSolution solution(INFTY, {});
     auto log = bcp.Run(&solution);
 
     nlohmann::json result;
+    result["effective_backend_settings"] = goc::ablation_backend_settings();
+    result["effective_algorithm_settings"] = {{"cut_limit", params.cut_limit}, {"cut_violation_threshold", 0.1}, {"algorithm_epsilon", 1e-6}, {"solution_limit", params.solution_limit}, {"node_limit", params.node_limit}, {"stab_alpha", params.stab_alpha}, {"ng_routes", false}};
     result["exact_log"] = log;
+    result["bound_events"] = bound_events;
+    result["closure_census"] = closure_census();
+    result["exact_pricing"] = {{"calls", exact_calls}, {"finished", exact_finished}};
     result["checker_infeasible_columns"] = checker_infeasible_count;
     // kayros (M13.2): guard observability, never used in control flow.
     result["memory"] = {
