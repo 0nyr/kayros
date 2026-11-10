@@ -272,6 +272,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     const int packed_filter = env_int("KAYROS_BPC_PACKED", 0);
     if (packed_filter < 0 || packed_filter > 2) throw std::invalid_argument("KAYROS_BPC_PACKED must be 0, 1 or 2");
     lbl.packed_filter = packed_filter;
+    //  - LAM_ITERATE (0/1): last-arc merge walks the leftover queue instead
+    //    of popping it (same merges, different order).
+    const bool lam_iterate = env_int("KAYROS_BPC_LAM_ITERATE", 0) != 0;
+    lbl.last_arc_merge_iterate = lam_iterate;
     const int dssr = env_int("KAYROS_BPC_DSSR", 0);
     if (dssr < 0 || dssr > 2) throw std::invalid_argument("KAYROS_BPC_DSSR must be 0, 1 or 2");
     //  - DSSR_LOCAL (0/1): per-vertex memories instead of one global critical
@@ -631,7 +635,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"]["ms61"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
-        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}};
+        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}, {"lam_iterate", lam_iterate}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},

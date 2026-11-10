@@ -187,6 +187,7 @@ BidirectionalLabeling::BidirectionalLabeling(
 	solution_limit = INT_MAX;
 	packed_filter = 0;
 	heuristic_cut_blind = false;
+	last_arc_merge_iterate = false;
 	theta_relaxation = false;
 	last_nonelementary_count = 0;
 	theta_growth_routes = 10;
@@ -551,14 +552,22 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 			for (auto& m: entry.second)
 				insert_sorted(M[m->v][m->parent->v].Insert(entry.first, {}), m, [] (Label* m1, Label* m2) { return m1->min_cost < m2->min_cost; });
 	
-	while (!qf.empty())
+	// (ms61) See last_arc_merge_iterate. The pool never shrinks, so once the
+	// solution limit is reached nothing further can be merged.
+	struct QueueStorage : LBQueue
+	{
+		static const std::vector<LazyLabel>& of(const LBQueue& q) { return q.*&QueueStorage::c; }
+	};
+	const std::vector<LazyLabel>* storage = last_arc_merge_iterate ? &QueueStorage::of(qf) : nullptr;
+	size_t storage_index = 0;
+	while (storage ? storage_index < storage->size() : !qf.empty())
 	{
 		if (run_deadline_.Reached()) break; // (kayros M5.2)
-		LazyLabel ll = qf.top();
-		qf.pop();
+		LazyLabel ll = storage ? (*storage)[storage_index++] : qf.top();
+		if (!storage) qf.pop();
 		Label* l = ll.parent;
 		if (correcting && l->duration.Empty()) continue;
-		if (pool_size() >= solution_limit) continue;
+		if (pool_size() >= solution_limit) { if (storage) break; continue; }
 		
 		// M13.0 trace: is this pop the merge target's frontier arc?
 		bool tr_arc = trace::merge_fwd_prefix(l);

@@ -64,6 +64,12 @@ public:
 	// (ms61) Cut-blind dominance for the current Run. Honoured only on the
 	// heuristic levels (cost or elementarity relaxation).
 	bool heuristic_cut_blind;
+	// (ms61) Last-arc merge walks the leftover forward queue's storage instead
+	// of popping it. The pops only served to empty a queue that dies right
+	// after, at one heap sift per entry over tens of millions of entries. The
+	// set of merges is the same. Their order differs, which can change which
+	// routes fill a saturated pool and which path wins an exact duration tie.
+	bool last_arc_merge_iterate;
 	bool theta_relaxation;
 	nyr::VertexSet theta;
 	std::vector<nyr::VertexSet> theta_local; // per-vertex memories (dynamic ng variant) when non-empty.
