@@ -274,7 +274,46 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     lbl.packed_filter = packed_filter;
     const int dssr = env_int("KAYROS_BPC_DSSR", 0);
     if (dssr < 0 || dssr > 2) throw std::invalid_argument("KAYROS_BPC_DSSR must be 0, 1 or 2");
+    //  - DSSR_LOCAL (0/1): per-vertex memories instead of one global critical
+    //    set (a dynamic ng-route relaxation). A repeated vertex i is added to
+    //    the memory of every vertex lying between its two visits.
+    //  - DSSR_GROWTH (>= 1): number of most negative non-elementary routes
+    //    whose repeats feed each growth step.
+    const bool dssr_local = env_int("KAYROS_BPC_DSSR_LOCAL", 0) != 0;
+    const int dssr_growth = env_int("KAYROS_BPC_DSSR_GROWTH", 10);
+    if (dssr_growth < 1) throw std::invalid_argument("KAYROS_BPC_DSSR_GROWTH must be positive");
+    lbl.theta_growth_routes = dssr_growth;
     nyr::VertexSet theta;
+    std::vector<nyr::VertexSet> theta_local;
+    if (dssr > 0 && dssr_local) theta_local.assign(vrp.D.NbVertices(), nyr::VertexSet());
+    // Tightens the relaxation with the non-elementary routes of the last
+    // pass. Returns whether anything changed (it always does when a route of
+    // the relaxed space repeats a vertex).
+    auto grow_relaxation = [&]() {
+        bool changed = false;
+        if (!dssr_local) {
+            const nyr::VertexSet before = theta;
+            theta |= lbl.last_repeated;
+            return theta != before;
+        }
+        for (const auto& path : lbl.last_nonelementary_paths) {
+            std::vector<int> last_position(vrp.D.NbVertices(), -1);
+            for (int b = 0; b < (int) path.size(); ++b) {
+                const int a = last_position[path[b]];
+                if (a >= 0)
+                    for (int k = a + 1; k < b; ++k)
+                        if (!theta_local[path[k]].test(path[b])) { theta_local[path[k]].set(path[b]); changed = true; }
+                last_position[path[b]] = b;
+            }
+        }
+        return changed;
+    };
+    auto relaxation_size = [&]() {
+        if (!dssr_local) return (int) theta.count();
+        size_t total = 0;
+        for (const auto& memory : theta_local) total += memory.count();
+        return (int) total;
+    };
     int theta_growths = 0, dssr_reruns = 0;
     int dropback_count = 0, early_cut_rounds = 0, early_cut_count = 0;
     long long near_columns_added = 0, near_columns_discarded = 0;
@@ -307,6 +346,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         }
         lbl.theta_relaxation = dssr > 0;
         lbl.theta = theta;
+        lbl.theta_local = theta_local;
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
         last_negative = lbl.last_negative_count;
         last_exact_finished = heuristic_level == levels.size() - 1 && lbl_log.status == BLBStatus::Finished;
@@ -318,7 +358,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         cg_execution_log->iterations->back()["ms61_negative_routes"] = lbl.last_negative_count;
         cg_execution_log->iterations->back()["ms61_near_routes"] = lbl.last_near_count;
         cg_execution_log->iterations->back()["ms61_near_threshold"] = lbl.near_threshold;
-        cg_execution_log->iterations->back()["ms61_theta_size"] = (int) theta.count();
+        cg_execution_log->iterations->back()["ms61_theta_size"] = relaxation_size();
         cg_execution_log->iterations->back()["ms61_nonelementary_routes"] = lbl.last_nonelementary_count;
         cg_execution_log->iterations->back()["ms61_bcp_elapsed_s"] =
             (bcp.time_limit - bcp.deadline.Remaining()).Amount(DurationUnit::Seconds);
@@ -431,9 +471,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             added = add_columns(R, 0, negative);
             if (at_exact) exact_productive_since_cuts = added > 0 && last_exact_finished;
             if (added > 0 && at_exact && dssr == 2 && lbl.last_nonelementary_count > 0) {
-                const nyr::VertexSet before = theta;
-                theta |= lbl.last_repeated;
-                if (theta != before) ++theta_growths;
+                if (grow_relaxation()) ++theta_growths;
             }
             if (added > 0) {
                 // (ms61) Near-zero routes ride along with a productive pass
@@ -457,10 +495,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 // vertex and produced no new column: tighten the relaxation
                 // and run the Exact level again. A route of the relaxed space
                 // never repeats a vertex of theta, so theta strictly grows.
-                const nyr::VertexSet before = theta;
-                theta |= lbl.last_repeated;
-                if (theta == before)
-                    throw std::logic_error("DSSR: non-elementary route without a vertex to add to theta");
+                if (!grow_relaxation())
+                    throw std::logic_error("DSSR: non-elementary route that does not tighten the relaxation");
                 ++theta_growths;
                 ++dssr_reruns;
                 continue;
@@ -554,12 +590,12 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"]["ms61"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
-        {"correction_switch", correction_switch}, {"dssr", dssr}, {"packed_filter", packed_filter}};
+        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},
         {"near_columns_discarded", near_columns_discarded},
-        {"theta_size", (int) theta.count()}, {"theta_growths", theta_growths}, {"dssr_reruns", dssr_reruns}};
+        {"theta_size", relaxation_size()}, {"theta_growths", theta_growths}, {"dssr_reruns", dssr_reruns}};
     result["exact_log"] = log;
     result["bound_events"] = bound_events;
     result["closure_census"] = closure_census();

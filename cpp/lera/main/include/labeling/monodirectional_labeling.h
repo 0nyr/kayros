@@ -50,8 +50,11 @@ public:
 	// the vertices of theta only, i.e. S(l) = (visited(l) ∩ theta) ∪ {v(l)}.
 	// A valid relaxation of the elementary pricing problem, exact when
 	// theta holds every customer.
+	// With theta_local non-empty the memory is per vertex instead (a dynamic
+	// ng-route relaxation): S(l) = (S(parent) ∩ theta_local[v]) ∪ {v}.
 	bool theta_relaxation;
 	nyr::VertexSet theta;
+	std::vector<nyr::VertexSet> theta_local;
 
 	// Dominance structure.
 	typedef std::vector<Label*> BoundLevel;

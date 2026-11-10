@@ -63,8 +63,10 @@ public:
 	int packed_filter; // (ms61) see MonodirectionalLabeling::packed_filter.
 	bool theta_relaxation;
 	nyr::VertexSet theta;
+	std::vector<nyr::VertexSet> theta_local; // per-vertex memories (dynamic ng variant) when non-empty.
 	int last_nonelementary_count;
 	nyr::VertexSet last_repeated;
+	std::vector<goc::GraphPath> last_nonelementary_paths; // the most negative non-elementary routes.
 	int theta_growth_routes; // number of most negative non-elementary routes feeding last_repeated.
 
 	double near_threshold;
@@ -147,7 +149,7 @@ private:
 	double near_eff_ = 0.0; // threshold in force for the current Run (0 = legacy).
 	bool theta_eff_ = false; // relaxation in force for the current Run.
 	size_t nonelementary_count_ = 0;
-	std::vector<std::pair<double, nyr::VertexSet>> nonelementary_best_; // (reduced cost, repeated vertices), bounded.
+	std::vector<std::pair<double, goc::GraphPath>> nonelementary_best_; // (reduced cost, route), bounded.
 	size_t pool_size() const
 	{
 		if (step_pool_) return S_paths.size();

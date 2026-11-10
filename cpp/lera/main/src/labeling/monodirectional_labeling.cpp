@@ -376,7 +376,7 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	lv->rw = dom(lv->duration);
 	
 	if (theta_relaxation)
-		lv->S = unite(intersection(l->S, theta), {v}); // (ms61) S := (S(parent) ∩ theta) ∪ {v}
+		lv->S = unite(intersection(l->S, theta_local.empty() ? theta : theta_local[v]), {v}); // (ms61) S := (S(parent) ∩ theta) ∪ {v}
 	else if (ng_routes_relaxation && ng.has_value())
 	{
 		const VertexSet& ng_v = ng->neighbors(v, lv->rw.left);
