@@ -30,7 +30,7 @@ json bits(const std::vector<double>& values)
     return result;
 }
 
-void equal(const json& expected, const json& actual, const std::string& context)
+void assert_same_state(const json& expected, const json& actual, const std::string& context)
 {
     if (expected != actual)
         throw std::runtime_error(context + "\nlegacy=" + expected.dump() + "\ncandidate=" + actual.dump());
@@ -179,7 +179,7 @@ void check_case(const Case& test, json& records)
 {
     auto legacy = make_model(test), candidate = make_model(test);
     const json original = model_state(*legacy);
-    equal(original, model_state(*candidate), test.name + " initial state");
+    assert_same_state(original, model_state(*candidate), test.name + " initial state");
     cpx::detail::VariableDomains selector(candidate.get());
     require(selector.UsesBatch() == test.batch, test.name + " wrong batching selection");
     json rounds = json::array();
@@ -187,8 +187,8 @@ void check_case(const Case& test, json& records)
     {
         auto old_result = cycle<LegacyDomains>(*legacy, !test.types.empty());
         auto new_result = cycle<cpx::detail::VariableDomains>(*candidate, !test.types.empty());
-        equal(old_result, new_result, test.name + " LP cycle " + std::to_string(round));
-        if (test.batch) equal(original, model_state(*candidate), test.name + " changed types or bounds");
+        assert_same_state(old_result, new_result, test.name + " LP cycle " + std::to_string(round));
+        if (test.batch) assert_same_state(original, model_state(*candidate), test.name + " changed types or bounds");
         rounds.push_back(new_result);
     }
     json mip = nullptr;
@@ -197,8 +197,8 @@ void check_case(const Case& test, json& records)
         cpx::mipopt(legacy->Environment(), legacy->Problem());
         cpx::mipopt(candidate->Environment(), candidate->Problem());
         mip = solution_state(*candidate);
-        equal(solution_state(*legacy), mip, test.name + " MIP following 3 LP solves");
-        equal(model_state(*legacy), model_state(*candidate), test.name + " MIP model state");
+        assert_same_state(solution_state(*legacy), mip, test.name + " MIP following 3 LP solves");
+        assert_same_state(model_state(*legacy), model_state(*candidate), test.name + " MIP model state");
         if (test.name == "mixed-CIB")
         {
             require(rounds[0]["lp"]["status"] == CPX_STAT_OPTIMAL, "mixed LP not optimal");
@@ -226,7 +226,7 @@ void check_errors(const Case& test, json& records)
     auto old_error = exception_text([&] { LegacyDomains snapshot(legacy.get()); });
     auto new_error = exception_text([&] { cpx::detail::VariableDomains snapshot(candidate.get()); });
     require(old_error == new_error, "snapshot exception text changed");
-    equal(model_state(*legacy), model_state(*candidate), "snapshot exception mutated state");
+    assert_same_state(model_state(*legacy), model_state(*candidate), "snapshot exception mutated state");
     records.push_back({{"case", "explicit-LP-error"}, {"error", new_error}});
 
     legacy = make_model(test);
@@ -242,7 +242,7 @@ void check_errors(const Case& test, json& records)
     new_error = exception_text([&] { new_snapshot.Restore(candidate.get()); });
     require(!old_error.empty(), "expected CPXchgctype error on a fixed MILP");
     require(old_error == new_error, "restore exception text changed");
-    equal(model_state(*legacy), model_state(*candidate), "restore exception state differs");
+    assert_same_state(model_state(*legacy), model_state(*candidate), "restore exception state differs");
     records.push_back({{"case", "fixed-MILP-restore-error"}, {"error", new_error}});
 }
 
@@ -267,13 +267,13 @@ void check_solver_integration(const Case& test, json& records)
         primal.push_back(result.incumbent.Value()[candidate->VariableAtIndex(i)]);
         expected_primal.push_back(old_incumbent[candidate->VariableAtIndex(i)]);
     }
-    equal(bits(expected_primal), bits(primal), "production primal differs");
-    equal(expected["lp"]["dual_bits"], bits(result.duals.Value()), "production dual differs");
-    equal(expected["restored_model"], model_state(*candidate), "production restored model differs");
-    equal(expected["after_restore"], solution_state(*candidate), "production post-restore state differs");
+    assert_same_state(bits(expected_primal), bits(primal), "production primal differs");
+    assert_same_state(expected["lp"]["dual_bits"], bits(result.duals.Value()), "production dual differs");
+    assert_same_state(expected["restored_model"], model_state(*candidate), "production restored model differs");
+    assert_same_state(expected["after_restore"], solution_state(*candidate), "production post-restore state differs");
     cpx::mipopt(legacy->Environment(), legacy->Problem());
     cpx::mipopt(candidate->Environment(), candidate->Problem());
-    equal(solution_state(*legacy), solution_state(*candidate), "production LP then MIP differs");
+    assert_same_state(solution_state(*legacy), solution_state(*candidate), "production LP then MIP differs");
     records.push_back({{"case", "production-solve-lp"}, {"passed", true}});
 }
 
