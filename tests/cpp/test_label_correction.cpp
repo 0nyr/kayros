@@ -19,6 +19,14 @@ struct CorrectionInvariantTest {
     static Label* Extend(MonodirectionalLabeling& solver, const LazyLabel& label) { return solver.ExtensionStep(label); }
     static std::size_t Retired(MonodirectionalLabeling& solver) { return solver.retired_labels_.size(); }
     static std::size_t Changes(MonodirectionalLabeling& solver) { return solver.corrected_merge_buckets_.size(); }
+    static void ConfigureDelayedExtension(MonodirectionalLabeling& solver) {
+        solver.pp_.P = std::vector<double>(5, 0.0);
+        solver.vrp_.D.AddArc({0, 1});
+        solver.vrp_.q[1] = 1.0;
+        solver.vrp_.tau[0][1] = solver.vrp_.pretau[0][1] = PWLFunction::ConstantFunction(0.0, {0.0, 10.0});
+        solver.vrp_.arr[0][1] = solver.vrp_.dep[0][1] = PWLFunction::IdentityFunction({0.0, 10.0});
+        solver.vrp_.LDT = Matrix<double>(5, 5, 10.0);
+    }
     static void Refresh(BidirectionalLabeling& solver) { solver.RefreshCorrectedMergeLabels(0); }
     static auto& Pool(BidirectionalLabeling& solver) {
         if (solver.M[0].empty()) solver.M[0].resize(5);
@@ -157,26 +165,26 @@ void check(bool step_exact, bool sort_by_cost) {
         require(CorrectionInvariantTest::Retired(mono) == 0, "Cleanup must release retired owners");
     }
 
-    // A newly extended label can move beyond the current middle after pruning.
-    // Such a label is requeued, so it must not retire the current stored label.
+    // A lazy queue key can predate partial correction of its parent's domain.
+    // Defer the resulting extension and resume it after moving the middle.
     mono.partial = true;
     mono.cross = false;
-    mono.lazy_extension = false;
+    mono.lazy_extension = true;
+    mono.limited_extension = false;
     mono.t_m = 5.0;
+    CorrectionInvariantTest::ConfigureDelayedExtension(mono);
     auto* existing = new Label;
-    initialize(*existing, PWLFunction::ConstantFunction(1.0, {8.0, 10.0}), a);
+    VertexSet old_unreachable = a;
+    old_unreachable.set(0);
+    initialize(*existing, PWLFunction::ConstantFunction(1.0, {8.0, 10.0}), old_unreachable);
     mono.U[1].Insert(1, {}).push_back(existing);
     Label parent;
-    initialize(parent, PWLFunction::ConstantFunction(0.0, {0.0, 10.0}), {});
+    initialize(parent, PWLFunction::ConstantFunction(0.0, {8.0, 10.0}), {});
     parent.v = 0;
     parent.q = 0;
     parent.length = 0;
-    auto* beyond_middle = new Label;
-    initialize(*beyond_middle, PWLFunction::ConstantFunction(0.0, {8.0, 10.0}), a);
-    beyond_middle->parent = &parent;
-    beyond_middle->length = 1;
+    parent.S.set(0);
     LazyLabel lazy{&parent, 1, 0.0};
-    lazy.extension = beyond_middle;
     LBQueue queue;
     queue.push(lazy);
     MLBExecutionLog log(true);
@@ -185,6 +193,11 @@ void check(bool step_exact, bool sort_by_cost) {
             "Boundary-crossing candidate must be deferred");
     require(CorrectionInvariantTest::Retired(mono) == 0 && !existing->duration.Empty(),
             "A deferred candidate must not retire a stored label");
+    mono.t_m = 10.0;
+    const auto resumed = mono.Run(&queue, &log);
+    require(resumed.size() == 1 && queue.empty(), "Deferred lazy extension must resume safely");
+    require(CorrectionInvariantTest::Retired(mono) == 1 && existing->duration.Empty(),
+            "Accepted resumed label should correct the stored label");
     CorrectionInvariantTest::Clean(bidirectional);
 }
 

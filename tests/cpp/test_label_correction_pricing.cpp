@@ -146,6 +146,7 @@ int main() {
                             }
             }
         }
+        require(corrected > 0, "Synthetic pricing must exercise actual full-label correction");
         std::cout << calls << " synthetic exact-pricing oracle checks pass, corrected count " << corrected << '\n';
         return 0;
     } catch (const std::exception& error) {
