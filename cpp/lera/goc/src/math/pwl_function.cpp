@@ -840,6 +840,15 @@ bool hold_back_for_stacked_piece(const PWLFunction& f, int i, const LinearFuncti
 PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
 {
     PWLFunction h;
+    // A scalar supported at one exact abscissa must meet every piece of the
+    // other operand there. In particular, label durations can contain several
+    // departure-choice pieces even on jump-free inputs. Advancing the scalar
+    // after the first choice discards attainable lower durations at tight arcs.
+    // Keep the other legacy sweep rules and the step-arithmetic gate unchanged.
+    const bool f_scalar_point = f.PieceCount() == 1 && !f.Piece(0).is_vertical()
+        && f.Piece(0).domain.left == f.Piece(0).domain.right;
+    const bool g_scalar_point = g.PieceCount() == 1 && !g.Piece(0).is_vertical()
+        && g.Piece(0).domain.left == g.Piece(0).domain.right;
     int i = 0, j = 0;
     while (i < f.PieceCount() && j < g.PieceCount())
     {
@@ -886,6 +895,10 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
         // Stacked-boundary hold-back (see hold_back_for_stacked_piece above).
         bool f_stack_next = hold_back_for_stacked_piece(f, i, pf);
         bool g_stack_next = hold_back_for_stacked_piece(g, j, pg);
+        if (g_scalar_point && i + 1 < f.PieceCount()
+            && f.Piece(i + 1).domain.Includes(pg.domain.left)) f_stack_next = true;
+        if (f_scalar_point && j + 1 < g.PieceCount()
+            && g.Piece(j + 1).domain.Includes(pf.domain.left)) g_stack_next = true;
         if (epsilon_equal(pf.domain.right, pg.domain.right))
         {
             if (f_stack_next) { ++i; }
