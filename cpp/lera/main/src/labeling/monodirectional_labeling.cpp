@@ -7,6 +7,7 @@
 #include "labeling/monodirectional_labeling.h"
 
 #include <climits>
+#include <algorithm>
 
 #include "labeling/pwl_domination_function.h"
 #include "labeling/trace.h"
@@ -205,14 +206,6 @@ vector<Label*> MonodirectionalLabeling::Run(
 			continue;
 		} // Label is dominated, ignore.
 		
-		// Correct existing labels.
-		if (correcting)
-		{
-			rolex2.Reset().Resume();
-			*log->corrected_count += CorrectionStep(l);
-			*log->correction_time += rolex2.Pause();
-		}
-		
 		// If min(rw(l)) > t_m, then l should not be extended and ll should have been preserved in the queue with the
 		// new makespan.
 		if (!cross && epsilon_bigger(min(l->rw), t_m))
@@ -220,6 +213,14 @@ vector<Label*> MonodirectionalLabeling::Run(
 			q->push(LazyLabel(l->parent, l->v, min(l->rw)));
 			delete l;
 			continue;
+		}
+
+		// Only a label retained for processing may correct stored labels.
+		if (correcting)
+		{
+			rolex2.Reset().Resume();
+			*log->corrected_count += CorrectionStep(l);
+			*log->correction_time += rolex2.Pause();
 		}
 		
 		// Otherwise, label l should be processed and extended.
@@ -476,11 +477,13 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 
 int MonodirectionalLabeling::CorrectionStep(Label* m)
 {
+	if (cost_check_relaxation) return 0;
 	int removed = 0;
 	for (auto it_d = U[m->v].rbegin(); it_d != U[m->v].rend(); ++it_d)
 	{
 		auto& demand_entry = *it_d;
 		if (epsilon_smaller(demand_entry.first, m->q)) break;
+		bool changed_cost = false;
 		for (int j = 0; j < demand_entry.second.size(); ++j)
 		{
 			Label* l = demand_entry.second[j];
@@ -493,19 +496,30 @@ int MonodirectionalLabeling::CorrectionStep(Label* m)
 				PWLDominationFunction Delta(l->duration);
 				if (partial)
 				{
+					const double previous_cost = l->min_cost;
 					Delta.DominatePieces(m->duration, theta);
 					l->duration = normalize_pwl((PWLFunction) Delta); // kayros (M5.7)
 					l->rw = l->duration.Domain();
 					l->min_cost = min(img(l->duration)) - l->p - l->cut_cost;
+					changed_cost |= l->min_cost != previous_cost;
 				}
 				if ((!partial && Delta.IsAlwaysDominated(m->duration, theta)) || (partial && l->duration.Empty()))
 				{
 					// If l is fully dominated, remove.
+					retired_labels_.push_back(l);
 					demand_entry.second.erase(demand_entry.second.begin()+j);
 					--j;
 					++removed;
 				}
 			}
+		}
+		if (changed_cost)
+		{
+			// Subsequent labels consult U before this batch returns.
+			if (sort_by_cost)
+				std::stable_sort(demand_entry.second.begin(), demand_entry.second.end(),
+					[&](Label* a, Label* b) { return alpha(a, partial) < alpha(b, partial); });
+			corrected_merge_buckets_.emplace_back(m->v, demand_entry.first);
 		}
 	}
 	return removed;
@@ -552,6 +566,9 @@ void MonodirectionalLabeling::Clean()
 		for (auto& entry_2: entry)
 			for (Label* m: entry_2.second)
 				delete m;
+	for (Label* label: retired_labels_) delete label;
+	retired_labels_.clear();
+	corrected_merge_buckets_.clear();
 	U = vector<DemandLevel>(vrp_.D.NbVertices());
 }
 } // solver

@@ -9,7 +9,10 @@
 #include "bcp/pricing_problem.h"
 
 #include <climits>
+#include <algorithm>
 #include <cstdlib>
+#include <stdexcept>
+#include <string>
 
 #include "labeling/trace.h"
 
@@ -191,6 +194,14 @@ BidirectionalLabeling::BidirectionalLabeling(
 	partial = limited_extension = lazy_extension = unreachable_strengthened = sort_by_cost = true;
 	elementary_check_relaxation = cost_check_relaxation = ng_routes_relaxation = false;
 	correcting = false;
+	// Private diagnostic opt-in. The default algorithm remains unchanged.
+	if (const char* setting = std::getenv("KAYROS_DIAGNOSTIC_CORRECTING"))
+	{
+		const std::string value(setting);
+		if (value != "0" && value != "1")
+			throw std::invalid_argument("KAYROS_DIAGNOSTIC_CORRECTING must be 0 or 1");
+		correcting = value == "1";
+	}
 	// M5.9: `symmetric` was NEVER initialized (upstream set it from the
 	// experiment JSON, e.g. bpc_lera.json: false; the vendoring dropped that
 	// wiring), so line ~172 read an indeterminate value: per-binary-
@@ -320,11 +331,20 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			if (MemoryMonitor::Exceeded()) { log.status = BLBStatus::MemoryLimitReached; break; }
 			lbl_[d].time_limit = time_limit - rolex.Peek(); // Set time limit.
 			auto P = lbl_[d].Run(&q[d], mlb_log[d]);
+			if (correcting)
+			{
+				merge_rolex.Reset().Resume();
+				RefreshCorrectedMergeLabels(d);
+				*log.merge_time += merge_rolex.Pause();
+			}
 			
 			// If iterative-merge is enabled, then add the labels to the structure.
 			if (!closing_state)
 				for (Label* l: P)
+				{
+					if (correcting && l->duration.Empty()) continue;
 					insert_sorted(M[d][l->v].Insert(floor(l->q), {}), l, [] (Label* l, Label* m) { return l->min_cost < m->min_cost; });
+				}
 			
 			// If iterative-merge is enabled, then try to merge.
 			if (!closing_state && log.forward_log->processed_count >= merge_start)
@@ -414,8 +434,32 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	return log;
 }
 
+void BidirectionalLabeling::RefreshCorrectedMergeLabels(int direction)
+{
+	auto& changed = lbl_[direction].corrected_merge_buckets_;
+	if (!closing_state)
+	{
+		std::sort(changed.begin(), changed.end());
+		changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
+		for (const auto& [vertex, demand] : changed)
+			for (auto& entry : M[direction][vertex])
+			{
+				if (entry.first < demand) continue;
+				if (entry.first > demand) break;
+				auto& labels = entry.second;
+				labels.erase(std::remove_if(labels.begin(), labels.end(),
+					[](Label* label) { return label->duration.Empty(); }), labels.end());
+				std::stable_sort(labels.begin(), labels.end(),
+					[](Label* a, Label* b) { return a->min_cost < b->min_cost; });
+				break;
+			}
+	}
+	changed.clear();
+}
+
 void BidirectionalLabeling::IterativeMerge(Label* l, const MonodirectionalLabeling::DominanceStructure& L)
 {
+	if (correcting && l->duration.Empty()) return;
 	TimeUnit T = vrp_.T;
 	for (auto& demand_entry : L[l->v])
 	{
@@ -448,6 +492,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 		LazyLabel ll = qf.top();
 		qf.pop();
 		Label* l = ll.parent;
+		if (correcting && l->duration.Empty()) continue;
 		if (pool_size() >= solution_limit) continue;
 		
 		// M13.0 trace: is this pop the merge target's frontier arc?
@@ -494,6 +539,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 
 void BidirectionalLabeling::Merge(Label* l, Label* m)
 {
+	if (correcting && (l->duration.Empty() || m->duration.Empty())) return;
 	TimeUnit T = vrp_.T;
 
 	// M13.0 trace: full arithmetic of the witness pair's merge attempt.

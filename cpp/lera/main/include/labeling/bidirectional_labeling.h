@@ -58,6 +58,9 @@ public:
 	);
 	
 private:
+	friend struct CorrectionInvariantTest;
+	void RefreshCorrectedMergeLabels(int direction);
+
 	// Sets the labeling level flags based on the given level.
 	void setup_labeling_level_flag(
 		LabelingLevel level

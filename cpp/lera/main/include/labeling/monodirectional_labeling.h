@@ -74,6 +74,14 @@ public:
 	LazyLabel Init() const;
 	
 private:
+	friend class BidirectionalLabeling;
+	friend struct CorrectionInvariantTest;
+	// Removed labels can remain parents of queued or processed labels.
+	// Retain their ownership until the whole pricing call is cleaned.
+	std::vector<Label*> retired_labels_;
+	// Correction changes keys shared with the bidirectional merge index.
+	std::vector<std::pair<goc::Vertex, nyr::CapacityUnit>> corrected_merge_buckets_;
+
 	// The extension step consists in taking a lazy label and building the complete label.
 	// Returns: the extended full label (notice that it may be infeasible, so it may be nullptr).
 	Label* ExtensionStep(const LazyLabel& ll) const;
