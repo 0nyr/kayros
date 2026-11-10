@@ -283,10 +283,21 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //    levers only add iterations and cuts.
     //  - MERGE_PREFILTER (0/1): exact pre-merge bound with shared cut
     //    penalties.
+    //  - ADAPT_LABELS (>= 0): same gate as ADAPT_S on a deterministic work
+    //    counter, the labels extended by the most recent Exact pass. Unlike a
+    //    wall-clock threshold it gives the same search on every machine and
+    //    load. When both are set, either one opens the gate.
     const double adapt_s = env_double("KAYROS_BPC_ADAPT_S", 0.0);
     if (adapt_s < 0.0) throw std::invalid_argument("KAYROS_BPC_ADAPT_S must be non-negative");
+    const long long adapt_labels = (long long) env_double("KAYROS_BPC_ADAPT_LABELS", 0.0);
+    if (adapt_labels < 0) throw std::invalid_argument("KAYROS_BPC_ADAPT_LABELS must be non-negative");
     double last_exact_pass_s = 0.0;
-    auto levers_active = [&]() { return adapt_s <= 0.0 || last_exact_pass_s >= adapt_s; };
+    long long last_exact_pass_extended = 0;
+    auto levers_active = [&]() {
+        if (adapt_s <= 0.0 && adapt_labels <= 0) return true;
+        return (adapt_s > 0.0 && last_exact_pass_s >= adapt_s)
+            || (adapt_labels > 0 && last_exact_pass_extended >= adapt_labels);
+    };
     const bool merge_prefilter = env_int("KAYROS_BPC_MERGE_PREFILTER", 0) != 0;
     lbl.merge_prefilter = merge_prefilter;
     //  - VERIFY_FINAL (0/1): diagnostic and safety net. When an Exact pass
@@ -296,7 +307,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     // The value is a bit mask of what the verification pass changes:
     // 1 correction off, 2 opening state (iterative merge from the start),
     // 4 no cost sorting, 8 weak unreachable sets, 16 no partial dominance,
-    // 32 no limited extension, 64 no packed filter and no merge prefilter.
+    // 32 no limited extension, 64 no packed filter and no merge prefilter,
+    // 128 relaxation off (plain elementary Exact pass).
     const int verify_mask = env_int("KAYROS_BPC_VERIFY_FINAL", 0);
     const bool verify_final = verify_mask != 0;
     int verify_final_runs = 0, verify_final_catches = 0;
@@ -348,9 +360,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //    time a plain Exact pass runs longer than this many seconds. The
     //    interrupted pass is not a proof of anything: its columns are kept
     //    and the level is run again under the relaxation.
+    //  - DSSR_AUTO_LABELS (>= 0, with DSSR > 0): same switch on a deterministic
+    //    budget of extended labels for a plain Exact pass.
     const double dssr_auto_s = env_double("KAYROS_BPC_DSSR_AUTO_S", 0.0);
     if (dssr_auto_s < 0.0) throw std::invalid_argument("KAYROS_BPC_DSSR_AUTO_S must be non-negative");
-    bool dssr_active = dssr > 0 && dssr_auto_s <= 0.0;
+    const long long dssr_auto_labels = (long long) env_double("KAYROS_BPC_DSSR_AUTO_LABELS", 0.0);
+    if (dssr_auto_labels < 0) throw std::invalid_argument("KAYROS_BPC_DSSR_AUTO_LABELS must be non-negative");
+    bool dssr_active = dssr > 0 && dssr_auto_s <= 0.0 && dssr_auto_labels <= 0;
+    bool verifying = false; // (ms61) inside a VERIFY_FINAL pass: no cost probe.
     bool exact_pass_interrupted = false;
     int dssr_auto_switch_exact_call = -1;
     int theta_growths = 0, dssr_reruns = 0;
@@ -398,13 +415,18 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         lbl.heuristic_cut_blind = level_cut_blind[heuristic_level];
         lbl.theta_relaxation = dssr_active;
         lbl.theta = theta;
-        const bool probing_exact_cost = dssr > 0 && !dssr_active && heuristic_level == levels.size() - 1;
-        if (probing_exact_cost)
+        const bool probing_exact_cost = !verifying && dssr > 0 && !dssr_active && heuristic_level == levels.size() - 1;
+        lbl.extended_budget = 0;
+        if (probing_exact_cost && dssr_auto_s > 0.0)
             lbl.time_limit = std::min(lbl.time_limit, Duration(dssr_auto_s, DurationUnit::Seconds));
+        if (probing_exact_cost && dssr_auto_labels > 0) lbl.extended_budget = dssr_auto_labels;
         lbl.theta_local = theta_local;
         Stopwatch pass_rolex(true);
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
-        if (heuristic_level == levels.size() - 1) last_exact_pass_s = pass_rolex.Peek().Amount(DurationUnit::Seconds);
+        if (heuristic_level == levels.size() - 1) {
+            last_exact_pass_s = pass_rolex.Peek().Amount(DurationUnit::Seconds);
+            last_exact_pass_extended = lbl.last_extended;
+        }
         last_negative = lbl.last_negative_count;
         // (ms61) A plain Exact pass cut short by the cost probe, not by the
         // solve deadline: switch to the relaxation for good.
@@ -423,6 +445,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         cg_execution_log->iterations->back()["ms61_negative_routes"] = lbl.last_negative_count;
         cg_execution_log->iterations->back()["ms61_near_routes"] = lbl.last_near_count;
         cg_execution_log->iterations->back()["ms61_near_threshold"] = lbl.near_threshold;
+        cg_execution_log->iterations->back()["ms61_extended"] = lbl.last_extended;
+        cg_execution_log->iterations->back()["ms61_interrupted"] = exact_pass_interrupted;
         cg_execution_log->iterations->back()["ms61_theta_size"] = relaxation_size();
         cg_execution_log->iterations->back()["ms61_nonelementary_routes"] = lbl.last_nonelementary_count;
         cg_execution_log->iterations->back()["ms61_bcp_elapsed_s"] =
@@ -583,6 +607,9 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                     s_unreach = lbl.unreachable_strengthened, s_partial = lbl.partial, s_limited = lbl.limited_extension,
                     s_prefilter = lbl.merge_prefilter;
                 const int s_merge_start = lbl.merge_start, s_packed = lbl.packed_filter;
+                const bool s_dssr_active = dssr_active;
+                if (verify_mask & 128) dssr_active = false;
+                verifying = true;
                 if (verify_mask & 1) lbl.correcting = false;
                 if (verify_mask & 2) { lbl.closing_state = false; lbl.merge_start = 0; }
                 if (verify_mask & 4) lbl.sort_by_cost = false;
@@ -595,6 +622,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 lbl.correcting = s_corr; lbl.closing_state = s_closing; lbl.sort_by_cost = s_sort;
                 lbl.unreachable_strengthened = s_unreach; lbl.partial = s_partial; lbl.limited_extension = s_limited;
                 lbl.merge_prefilter = s_prefilter; lbl.merge_start = s_merge_start; lbl.packed_filter = s_packed;
+                dssr_active = s_dssr_active;
+                verifying = false;
                 const size_t negative2 = std::min<size_t>(R2.size(), (size_t) std::max(last_negative, 0));
                 const int added2 = add_columns(R2, 0, negative2);
                 if (added2 > 0) {
@@ -695,7 +724,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"]["ms61"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
-        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}, {"lam_iterate", lam_iterate},
+        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_auto_labels", dssr_auto_labels},
+        {"adapt_labels", adapt_labels}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}, {"lam_iterate", lam_iterate},
         {"adapt_s", adapt_s}, {"merge_prefilter", merge_prefilter}, {"verify_final", verify_final}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},

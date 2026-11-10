@@ -187,6 +187,9 @@ BidirectionalLabeling::BidirectionalLabeling(
 	solution_limit = INT_MAX;
 	packed_filter = 0;
 	last_complete = false;
+	extended_budget = 0;
+	last_budget_exhausted = false;
+	last_extended = 0;
 	merge_prefilter = false;
 	merge_prefilter_hits = 0;
 	heuristic_cut_blind = false;
@@ -320,6 +323,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		heuristic_cut_blind && level != LabelingLevel::Exact && (cost_check_relaxation || elementary_check_relaxation);
 	
 	BLBExecutionLog log(true);
+	last_budget_exhausted = false;
 	Stopwatch rolex(false), merge_rolex(false);
 	run_deadline_ = Deadline::In(time_limit); // (kayros M5.2)
 	
@@ -356,6 +360,13 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			// kayros (M13.2): sticky memory watermark; also catches a
 			// monodirectional Run below that broke on MemoryLimitReached.
 			if (MemoryMonitor::Exceeded()) { log.status = BLBStatus::MemoryLimitReached; break; }
+			if (extended_budget > 0 && (long long) *mlb_log[0]->extended_count + (long long) *mlb_log[1]->extended_count >= extended_budget)
+			{
+				// (ms61) Work budget reached: same exit as a time limit.
+				last_budget_exhausted = true;
+				log.status = BLBStatus::TimeLimitReached;
+				break;
+			}
 			lbl_[d].time_limit = time_limit - rolex.Peek(); // Set time limit.
 			auto P = lbl_[d].Run(&q[d], mlb_log[d]);
 			if (correcting)
@@ -409,7 +420,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	
 	// Last-edge merge.
 	// kayros (M13.2): a memory-tripped run must not start the merge tail.
-	if (pool_size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached)
+	if (pool_size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached && !last_budget_exhausted)
 	{
 		merge_rolex.Reset().Resume();
 		LastArcMerge(q[0], lbl_[1].U);
@@ -487,6 +498,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	}
 	if (near_eff_ <= 0.0) last_negative_count = (int) R->size();
 	last_complete = log.status == BLBStatus::Finished;
+	last_extended = (long long) *mlb_log[0]->extended_count + (long long) *mlb_log[1]->extended_count;
 	if (theta_eff_)
 	{
 		last_nonelementary_count = (int) nonelementary_count_;

@@ -77,6 +77,14 @@ public:
 	// Whether the last Run explored its whole (relaxed) space: labeling and
 	// merges finished without hitting the pool, time or memory limits.
 	bool last_complete;
+	// (ms61) Deterministic work budget for one Run: when positive, the Run
+	// stops once forward plus backward extended labels reach it, without the
+	// last-arc merge. last_budget_exhausted tells the caller. A Run stopped
+	// this way proves nothing. last_extended is the extended-label count of
+	// the last Run, whatever its outcome.
+	long long extended_budget;
+	bool last_budget_exhausted;
+	long long last_extended;
 	// (ms61) Reject a merge before building the merged duration function when
 	// a lower bound of its reduced cost already fails the acceptance test.
 	// The bound adds the cut penalties shared between the two labels, which
