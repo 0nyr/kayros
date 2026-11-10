@@ -392,6 +392,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_backend_settings"] = goc::ablation_backend_settings();
     result["effective_algorithm_settings"] = {{"cut_limit", params.cut_limit}, {"cut_violation_threshold", 0.1}, {"algorithm_epsilon", 1e-6}, {"solution_limit", params.solution_limit}, {"node_limit", params.node_limit}, {"stab_alpha", params.stab_alpha}, {"ng_routes", false}};
     result["effective_algorithm_settings"]["label_correction"] = lbl.correcting;
+    result["effective_algorithm_settings"]["lazy_extension"] = lbl.lazy_extension;
     result["exact_log"] = log;
     result["bound_events"] = bound_events;
     result["closure_census"] = closure_census();

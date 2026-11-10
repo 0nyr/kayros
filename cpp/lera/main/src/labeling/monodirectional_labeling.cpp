@@ -8,6 +8,7 @@
 
 #include <climits>
 #include <algorithm>
+#include <stdexcept>
 
 #include "labeling/pwl_domination_function.h"
 #include "labeling/trace.h"
@@ -114,7 +115,7 @@ MonodirectionalLabeling::MonodirectionalLabeling(
 	const std::optional<TDNGRoutesParams>& ng_params
 ): 
 	vrp_(vrp), 
-	correcting(false),
+	correcting(true),
 	// Create neignborhoods if ng_params are given.
 	ng(ng_params ? std::make_optional<TDNGNeighborhoods>(vrp, ng_params->partitioned_horizon, ng_params->nb_neighbors_to_keep) : std::nullopt)
 {
@@ -160,6 +161,9 @@ vector<Label*> MonodirectionalLabeling::Run(
 	LBQueue* q, 
 	MLBExecutionLog* log
 ) {
+	if (correcting && !lazy_extension)
+		throw std::invalid_argument("Label correction requires lazy extension");
+
 	// Use rolex to measure whole run time, and rolex2 to measure steps time.
 	Stopwatch rolex(true), rolex2(false);
 	vector<Label*> P; // Processed labels.
@@ -258,6 +262,9 @@ vector<Label*> MonodirectionalLabeling::Run(
 
 LazyLabel MonodirectionalLabeling::Init() const
 {
+	if (correcting && !lazy_extension)
+		throw std::invalid_argument("Label correction requires lazy extension");
+
 	LazyLabel ll = {(Label*) &no_label, vrp_.o, vrp_.tw[vrp_.o].left};
 	if (!lazy_extension) ll.extension = ExtensionStep(ll);
 	return ll;

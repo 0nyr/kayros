@@ -4,6 +4,7 @@
 #include <iostream>
 #include <optional>
 #include <stdexcept>
+#include <string>
 
 #include "labeling/bidirectional_labeling.h"
 
@@ -79,11 +80,49 @@ void initialize(Label& label, PWLFunction duration, VertexSet unreachable) {
     label.U = unreachable;
 }
 
+template <typename Function>
+void require_eager_rejection(Function operation) {
+    bool rejected = false;
+    try {
+        operation();
+    } catch (const std::invalid_argument& error) {
+        rejected = std::string(error.what()) == "Label correction requires lazy extension";
+    }
+    require(rejected, "Correction with eager extension must be rejected explicitly");
+}
+
+void check_default_and_eager_guard(bool step_exact) {
+    StepExactArithmeticScope arithmetic(step_exact);
+    const std::optional<TDNGRoutesParams> ng = std::nullopt;
+    BidirectionalLabeling bidirectional(instance(), ng);
+    MonodirectionalLabeling mono(instance(), ng);
+    require(bidirectional.correcting && mono.correcting,
+            "Experimental candidate must enable correction by default");
+    require(bidirectional.lazy_extension && mono.lazy_extension,
+            "Experimental candidate must preserve the default lazy extension mode");
+    mono.Init();
+    LBQueue queue;
+    MLBExecutionLog log(true);
+    require(mono.Run(&queue, &log).empty(), "Default lazy mode must allow an empty queue");
+    mono.lazy_extension = false;
+    require_eager_rejection([&] { mono.Init(); });
+    require_eager_rejection([&] { mono.Run(&queue, &log); });
+    bidirectional.lazy_extension = false;
+    PricingProblem problem;
+    std::vector<Route> routes;
+    require_eager_rejection([&] { bidirectional.Run(problem, &routes, LabelingLevel::Exact); });
+    require(queue.empty() && routes.empty(), "Rejected modes must not mutate output queues or routes");
+    mono.correcting = bidirectional.correcting = false;
+    require(!mono.correcting && !bidirectional.correcting,
+            "Native callers must retain an explicit correction-off control");
+    require(mono.Run(&queue, &log).empty(), "Correction-off eager mode must not trigger the correction guard");
+}
+
 void check(bool step_exact, bool sort_by_cost) {
     StepExactArithmeticScope arithmetic(step_exact);
     const std::optional<TDNGRoutesParams> ng = std::nullopt;
     BidirectionalLabeling bidirectional(instance(), ng);
-    require(!bidirectional.correcting, "Correction must remain disabled without diagnostic opt-in");
+    require(bidirectional.correcting, "Experimental candidate must enable correction by default");
     bidirectional.correcting = true;
     bidirectional.closing_state = false;
     auto& mono = CorrectionInvariantTest::Mono(bidirectional);
@@ -203,9 +242,11 @@ void check(bool step_exact, bool sort_by_cost) {
 
 int main() {
     try {
-        for (bool arithmetic : {false, true})
+        for (bool arithmetic : {false, true}) {
+            check_default_and_eager_guard(arithmetic);
             for (bool sorting : {false, true}) check(arithmetic, sorting);
-        std::cout << "Correction ordering, negative-route retention, ownership and deferred-label checks pass in both arithmetic modes and sorting settings\n";
+        }
+        std::cout << "Correction defaults, eager-mode guards, ordering, negative-route retention, ownership and deferred-label checks pass in both arithmetic modes and sorting settings\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
