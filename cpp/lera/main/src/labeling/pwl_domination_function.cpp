@@ -192,7 +192,18 @@ bool PWLDominationFunction::DominatePieces(const PWLFunction& f2, double delta)
 				// We first create the rightmost piece [rd, max(dom(p1))].
 				// Move i1 to this piece.
 				prev_i1 = i1;
-				auto right_piece = LinearFunction({rd, p1.Value(rd)}, {p1.domain.right, p1.image.right});
+				// (ms61) Upstream built this piece with p1.image.right as its
+				// value at the right end. image.right is the MAXIMUM of the
+				// piece, which is its value at the right end only when the
+				// piece is non-decreasing. On a decreasing piece (duration
+				// falling with a later arrival, the common case when waiting
+				// shrinks) the surviving right part was rebuilt too high, and
+				// later comparisons could then erase an undominated part of
+				// the label: a pricing incompleteness, hence bounds that can
+				// exceed the optimum. Reproducer: Dabia2013 n=50 RC107 with
+				// KAYROS_BPC_DROPBACK_LEVEL=0 closed at 10632.14 above the
+				// optimum 10614.01, missing route 0,31,34,32,33,26,27,51.
+				auto right_piece = LinearFunction({rd, p1.Value(rd)}, {p1.domain.right, p1.Value(p1.domain.right)});
 				i1 = AddPieceAfter(i1, right_piece);
 				
 				// Now we shrink the leftmost piece to [min(dom(p1)), ld].

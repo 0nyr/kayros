@@ -289,6 +289,18 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     auto levers_active = [&]() { return adapt_s <= 0.0 || last_exact_pass_s >= adapt_s; };
     const bool merge_prefilter = env_int("KAYROS_BPC_MERGE_PREFILTER", 0) != 0;
     lbl.merge_prefilter = merge_prefilter;
+    //  - VERIFY_FINAL (0/1): diagnostic and safety net. When an Exact pass
+    //    with label correction finishes without a new column, the pass is run
+    //    again with correction off before the node is declared optimal. Any
+    //    column it finds is a column the corrected pass missed.
+    // The value is a bit mask of what the verification pass changes:
+    // 1 correction off, 2 opening state (iterative merge from the start),
+    // 4 no cost sorting, 8 weak unreachable sets, 16 no partial dominance,
+    // 32 no limited extension, 64 no packed filter and no merge prefilter.
+    const int verify_mask = env_int("KAYROS_BPC_VERIFY_FINAL", 0);
+    const bool verify_final = verify_mask != 0;
+    int verify_final_runs = 0, verify_final_catches = 0;
+    long long verify_final_columns = 0;
     const int dssr = env_int("KAYROS_BPC_DSSR", 0);
     if (dssr < 0 || dssr > 2) throw std::invalid_argument("KAYROS_BPC_DSSR must be 0, 1 or 2");
     //  - DSSR_LOCAL (0/1): per-vertex memories instead of one global critical
@@ -565,6 +577,35 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 ++dssr_reruns;
                 continue;
             }
+            if (at_exact && verify_final && last_exact_finished && !bcp.deadline.Reached()) {
+                // (ms61) Re-run the empty Exact pass with the masked features changed.
+                const bool s_corr = lbl.correcting, s_closing = lbl.closing_state, s_sort = lbl.sort_by_cost,
+                    s_unreach = lbl.unreachable_strengthened, s_partial = lbl.partial, s_limited = lbl.limited_extension,
+                    s_prefilter = lbl.merge_prefilter;
+                const int s_merge_start = lbl.merge_start, s_packed = lbl.packed_filter;
+                if (verify_mask & 1) lbl.correcting = false;
+                if (verify_mask & 2) { lbl.closing_state = false; lbl.merge_start = 0; }
+                if (verify_mask & 4) lbl.sort_by_cost = false;
+                if (verify_mask & 8) lbl.unreachable_strengthened = false;
+                if (verify_mask & 16) { lbl.partial = false; lbl.correcting = false; }
+                if (verify_mask & 32) lbl.limited_extension = false;
+                if (verify_mask & 64) { lbl.packed_filter = 0; lbl.merge_prefilter = false; }
+                ++verify_final_runs;
+                const vector<Route> R2 = run_one_level(pp, lg);
+                lbl.correcting = s_corr; lbl.closing_state = s_closing; lbl.sort_by_cost = s_sort;
+                lbl.unreachable_strengthened = s_unreach; lbl.partial = s_partial; lbl.limited_extension = s_limited;
+                lbl.merge_prefilter = s_prefilter; lbl.merge_start = s_merge_start; lbl.packed_filter = s_packed;
+                const size_t negative2 = std::min<size_t>(R2.size(), (size_t) std::max(last_negative, 0));
+                const int added2 = add_columns(R2, 0, negative2);
+                if (added2 > 0) {
+                    ++verify_final_catches;
+                    verify_final_columns += added2;
+                    clog << "\tVERIFY_FINAL: Exact pass missed " << added2 << " column(s)" << endl;
+                    for (size_t k = 0; k < negative2; ++k) clog << "\tVERIFY_FINAL route " << STR(R2[k].path) << " duration " << R2[k].duration << endl;
+                    added = added2;
+                    break;
+                }
+            }
             if (at_exact) {
                 // The Exact level contributed nothing new: pricing exhausted.
                 // (If it still REPORTED a negative-reduced-cost duplicate, the
@@ -655,12 +696,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
         {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}, {"lam_iterate", lam_iterate},
-        {"adapt_s", adapt_s}, {"merge_prefilter", merge_prefilter}};
+        {"adapt_s", adapt_s}, {"merge_prefilter", merge_prefilter}, {"verify_final", verify_final}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},
         {"near_columns_discarded", near_columns_discarded},
-        {"theta_size", relaxation_size()}, {"merge_prefilter_hits", lbl.merge_prefilter_hits}, {"theta_growths", theta_growths}, {"dssr_active", dssr_active}, {"dssr_auto_switch_exact_call", dssr_auto_switch_exact_call}, {"dssr_reruns", dssr_reruns}};
+        {"theta_size", relaxation_size()}, {"merge_prefilter_hits", lbl.merge_prefilter_hits},
+        {"verify_final_runs", verify_final_runs}, {"verify_final_catches", verify_final_catches},
+        {"verify_final_columns", verify_final_columns}, {"theta_growths", theta_growths}, {"dssr_active", dssr_active}, {"dssr_auto_switch_exact_call", dssr_auto_switch_exact_call}, {"dssr_reruns", dssr_reruns}};
     result["exact_log"] = log;
     result["bound_events"] = bound_events;
     result["closure_census"] = closure_census();
