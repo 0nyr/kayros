@@ -105,6 +105,27 @@ target_include_directories(_lera PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 target_compile_options(_lera PRIVATE -ffp-contract=off)
+
+# (ms61) The BPC is built as position-independent code inside a Python module,
+# so by default GCC must assume every external function can be interposed. It
+# then refuses to inline even the trivial accessors of the piecewise-linear
+# classes across translation units, and calls them through the PLT. Measured
+# on Dabia2013 n=100 C104: about 15 % of an Exact pricing pass. Both settings
+# below only change inlining and call binding. With -ffp-contract=off and no
+# -march they cannot change any IEEE result or evaluation order, and the
+# measured search work is identical.
+option(KAYROS_LERA_IPO "Build the Lera BPC with -fno-semantic-interposition and link-time optimization" ON)
+if(KAYROS_LERA_IPO)
+    target_compile_options(lera PRIVATE -fno-semantic-interposition)
+    target_compile_options(_lera PRIVATE -fno-semantic-interposition)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT KAYROS_LERA_IPO_SUPPORTED OUTPUT KAYROS_LERA_IPO_MESSAGE)
+    if(KAYROS_LERA_IPO_SUPPORTED)
+        set_property(TARGET lera _lera PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
+    else()
+        message(STATUS "Lera BPC: link-time optimization unavailable (${KAYROS_LERA_IPO_MESSAGE})")
+    endif()
+endif()
 target_link_libraries(_lera PRIVATE lera)
 
 install(TARGETS _lera DESTINATION kayros)

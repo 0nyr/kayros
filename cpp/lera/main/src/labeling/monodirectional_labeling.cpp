@@ -367,7 +367,10 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	}
 	else
 		lv->duration = (l->duration + vrp_.tau[u][v]).Compose(vrp_.dep[u][v]);
-	if (limited_extension && !cross) lv->duration.RestrictDomain({0.0, t_m});
+	// (ms61) Upstream has a `lv->duration.RestrictDomain({0.0, t_m})` call here
+	// for limited extension without crossing. RestrictDomain is const and its
+	// result was discarded, so the call only built and freed a copy of the
+	// function on every extension. Removed, behaviour unchanged.
 	lv->duration = normalize_pwl(lv->duration); // kayros (M5.7): heal epsilon-dust piece misorder.
 	if (lv->duration.Empty())
 	{
