@@ -225,9 +225,13 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //  - DROPBACK_LEVEL (-1 off, 0 or 1): after an Exact pass that contributed
     //    at least DROPBACK_MIN_COLS new columns, the next pass restarts at
     //    that heuristic level instead of staying at Exact.
-    //  - EARLY_CUTS (0/1): at the root, when the heuristic levels are
-    //    exhausted, separate subset-row cuts on the current restricted-master
-    //    solution before paying for an Exact pass.
+    //  - EARLY_CUTS (0 off, 1, 2): at the root, separate subset-row cuts on
+    //    the current restricted-master solution before paying for an Exact
+    //    pass. Mode 1 does so before every Exact pass. Mode 2 does so only
+    //    when the previous Exact pass of the current cycle was productive and
+    //    Finished (pool not saturated), i.e. when the master is close to
+    //    converged. Mode 1 can add cuts that the converged master would never
+    //    violate (seen on Dabia2013 n=25 C207: 25 cuts against 0).
     //  - NEAR_REL (>= 0) and NEAR_LIMIT: an Exact pass that found at least one
     //    new negative column also contributes up to NEAR_LIMIT routes whose
     //    labeling reduced cost lies in [0, NEAR_REL * mean customer dual).
@@ -242,7 +246,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     };
     const int dropback_level = env_int("KAYROS_BPC_DROPBACK_LEVEL", -1);
     const int dropback_min_cols = env_int("KAYROS_BPC_DROPBACK_MIN_COLS", 1);
-    const bool early_cuts = env_int("KAYROS_BPC_EARLY_CUTS", 0) != 0;
+    const int early_cuts = env_int("KAYROS_BPC_EARLY_CUTS", 0);
+    if (early_cuts < 0 || early_cuts > 2)
+        throw std::invalid_argument("KAYROS_BPC_EARLY_CUTS must be 0, 1 or 2");
+    bool exact_productive_since_cuts = false;
     const double near_rel = env_double("KAYROS_BPC_NEAR_REL", 0.0);
     const int near_limit = env_int("KAYROS_BPC_NEAR_LIMIT", 3000);
     const int correction_switch = env_int("KAYROS_BPC_CORRECTION", -1);
@@ -378,9 +385,29 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 lbl.merge_start = saved_merge_start;
                 exact_state_saved = false;
             }
+            if (at_exact && true_duals && early_cuts > 0 && bcp.CanSeparateCuts()
+                && (early_cuts == 1 || exact_productive_since_cuts)) {
+                // (ms61) Try cuts on the current master solution before an
+                // Exact pass. Cuts change the master, so the CG loop
+                // re-solves and pricing restarts at the first level. An Exact
+                // pass is still owed before the node can be declared optimal.
+                exact_productive_since_cuts = false;
+                const int cuts = bcp.SeparateCutRounds();
+                if (cuts > 0) {
+                    ++early_cut_rounds;
+                    early_cut_count += cuts;
+                    clog << "\tEarly cuts: " << cuts << endl;
+                    heuristic_level = 0;
+                    lbl.closing_state = false;
+                    lbl.merge_start = 0;
+                    exact_state_saved = false;
+                    break;
+                }
+            }
             const vector<Route> R = run_one_level(pp, lg);
             const size_t negative = std::min<size_t>(R.size(), (size_t) std::max(last_negative, 0));
             added = add_columns(R, 0, negative);
+            if (at_exact) exact_productive_since_cuts = added > 0 && last_exact_finished;
             if (added > 0) {
                 // (ms61) Near-zero routes ride along with a productive pass
                 // only. A pass without a new negative column discards them,
@@ -409,21 +436,6 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 lbl.merge_start = 0;
                 exact_state_saved = false;
                 break;
-            }
-            if (early_cuts && true_duals && heuristic_level + 2 == levels.size() && bcp.CanSeparateCuts()) {
-                // (ms61) Heuristic levels exhausted at the root: try cuts on
-                // the current master solution before an Exact pass. Cuts
-                // change the master, so the CG loop re-solves and pricing
-                // restarts at the first level. An Exact pass is still owed
-                // before the node can be declared optimal.
-                const int cuts = bcp.SeparateCutRounds();
-                if (cuts > 0) {
-                    ++early_cut_rounds;
-                    early_cut_count += cuts;
-                    clog << "\tEarly cuts: " << cuts << endl;
-                    heuristic_level = 0;
-                    break;
-                }
             }
             ++heuristic_level;
         }
