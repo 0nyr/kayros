@@ -2,7 +2,9 @@
 #include "goc/linear_programming/solver/ablation_settings.h"
 #include "lera_bridge.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <stdexcept>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -213,23 +215,84 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     lbl.solution_limit = params.solution_limit;
     lbl.closing_state = false;
 
+    // (ms61) Column-generation control switches, all inert by default (private
+    // development candidates, read from the environment so that one binary
+    // serves every arm of a comparison). None of them touches the label
+    // arithmetic or the termination rule: a node is only ever declared
+    // optimal after an Exact pricing pass on true duals that finishes without
+    // a new negative column, followed by a cut round that finds no violated
+    // cut.
+    //  - DROPBACK_LEVEL (-1 off, 0 or 1): after an Exact pass that contributed
+    //    at least DROPBACK_MIN_COLS new columns, the next pass restarts at
+    //    that heuristic level instead of staying at Exact.
+    //  - EARLY_CUTS (0/1): at the root, when the heuristic levels are
+    //    exhausted, separate subset-row cuts on the current restricted-master
+    //    solution before paying for an Exact pass.
+    //  - NEAR_REL (>= 0) and NEAR_LIMIT: an Exact pass that found at least one
+    //    new negative column also contributes up to NEAR_LIMIT routes whose
+    //    labeling reduced cost lies in [0, NEAR_REL * mean customer dual).
+    //  - CORRECTION (-1 keep default, 0 off, 1 on): label correction step.
+    auto env_int = [](const char* name, int fallback) {
+        const char* v = std::getenv(name);
+        return v && *v ? std::atoi(v) : fallback;
+    };
+    auto env_double = [](const char* name, double fallback) {
+        const char* v = std::getenv(name);
+        return v && *v ? std::atof(v) : fallback;
+    };
+    const int dropback_level = env_int("KAYROS_BPC_DROPBACK_LEVEL", -1);
+    const int dropback_min_cols = env_int("KAYROS_BPC_DROPBACK_MIN_COLS", 1);
+    const bool early_cuts = env_int("KAYROS_BPC_EARLY_CUTS", 0) != 0;
+    const double near_rel = env_double("KAYROS_BPC_NEAR_REL", 0.0);
+    const int near_limit = env_int("KAYROS_BPC_NEAR_LIMIT", 3000);
+    const int correction_switch = env_int("KAYROS_BPC_CORRECTION", -1);
+    if (dropback_level < -1 || dropback_level > 1)
+        throw std::invalid_argument("KAYROS_BPC_DROPBACK_LEVEL must be -1, 0 or 1");
+    if (near_rel < 0.0 || near_limit < 0)
+        throw std::invalid_argument("KAYROS_BPC_NEAR_REL and KAYROS_BPC_NEAR_LIMIT must be non-negative");
+    if (correction_switch >= 0) lbl.correcting = correction_switch != 0;
+    int dropback_count = 0, early_cut_rounds = 0, early_cut_count = 0;
+    long long near_columns_added = 0, near_columns_discarded = 0;
+    bool exact_state_saved = false, saved_closing_state = false;
+    int saved_merge_start = 0;
+
     const vector<LabelingLevel> levels = {
         LabelingLevel::HeuristicCost, LabelingLevel::HeuristicElementarity, LabelingLevel::Exact};
     const vector<string> level_names = {"Heuristic Cost", "Heuristic Elementarity", "Exact"};
     size_t heuristic_level = 0;
+    int last_negative = 0; // (ms61) leading negative routes in the last R.
     auto run_one_level = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
         vector<Route> R;
         // (M5.2) Residual budget from the BCP's single absolute deadline,
         // not from a per-call stopwatch chain.
         lbl.time_limit = bcp.deadline.Remaining();
         if (heuristic_level == levels.size() - 1) ++exact_calls;
+        // (ms61) Near-zero collection only at the Exact level, scaled by the
+        // mean positive customer dual so one setting serves every instance.
+        lbl.near_threshold = 0.0;
+        lbl.near_limit = near_limit;
+        if (near_rel > 0.0 && near_limit > 0 && heuristic_level == levels.size() - 1) {
+            double dual_sum = 0.0;
+            int dual_count = 0;
+            for (Vertex v : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) {
+                if (pp.P[v] > 0.0) dual_sum += pp.P[v];
+                ++dual_count;
+            }
+            if (dual_count > 0) lbl.near_threshold = near_rel * dual_sum / dual_count;
+        }
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
+        last_negative = lbl.last_negative_count;
         last_exact_finished = heuristic_level == levels.size() - 1 && lbl_log.status == BLBStatus::Finished;
         if (last_exact_finished) ++exact_finished;
 
         // Add iteration log.
         cg_execution_log->iterations->push_back(lbl_log);
         cg_execution_log->iterations->back()["iteration_name"] = level_names[heuristic_level];
+        cg_execution_log->iterations->back()["ms61_negative_routes"] = lbl.last_negative_count;
+        cg_execution_log->iterations->back()["ms61_near_routes"] = lbl.last_near_count;
+        cg_execution_log->iterations->back()["ms61_near_threshold"] = lbl.near_threshold;
+        cg_execution_log->iterations->back()["ms61_bcp_elapsed_s"] =
+            (bcp.time_limit - bcp.deadline.Remaining()).Amount(DurationUnit::Seconds);
 
         // Update merge_start and closing_state.
         lbl.closing_state |=
@@ -252,9 +315,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     // no-new-columns outcome is the misprice signal instead). (M5.2) The
     // adds are deadline-checked per route: a full pool is thousands of ~1 ms
     // formulation inserts, the dominant non-interruptible tail otherwise.
-    auto add_columns = [&](const vector<Route>& R) {
+    auto add_columns = [&](const vector<Route>& R, size_t begin, size_t end) {
         int added = 0;
-        for (const auto& r : R) {
+        for (size_t route_index = begin; route_index < end && route_index < R.size(); ++route_index) {
+            const auto& r = R[route_index];
             if (bcp.deadline.Reached()) break;
             if (MemoryMonitor::Exceeded()) break; // kayros (M13.2)
             // Lera's solution pool holds an empty-path INFTY placeholder for
@@ -301,14 +365,40 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     // unsound termination (the Rifki-14 k=15 reproducer certified 5606 with
     // pricing logs showing zero Exact iterations). Now the ladder climbs until
     // some level contributes new columns or the Exact level finishes empty.
-    auto run_ladder_and_add = [&](const PricingProblem& pp, CGExecutionLog* lg) {
+    auto run_ladder_and_add = [&](const PricingProblem& pp, CGExecutionLog* lg, bool true_duals) {
         int added = 0;
         ladder_certified = false;
         while (!bcp.deadline.Reached()) {
             if (MemoryMonitor::Exceeded()) break; // kayros (M13.2): don't climb levels on a doomed run
-            added = add_columns(run_one_level(pp, lg));
-            if (added > 0) break;
-            if (heuristic_level + 1 >= levels.size()) {
+            const bool at_exact = heuristic_level + 1 >= levels.size();
+            if (at_exact && exact_state_saved) {
+                // (ms61) Re-entering Exact after a drop-back: resume the
+                // merge policy the Exact level had when it was left.
+                lbl.closing_state = saved_closing_state;
+                lbl.merge_start = saved_merge_start;
+                exact_state_saved = false;
+            }
+            const vector<Route> R = run_one_level(pp, lg);
+            const size_t negative = std::min<size_t>(R.size(), (size_t) std::max(last_negative, 0));
+            added = add_columns(R, 0, negative);
+            if (added > 0) {
+                // (ms61) Near-zero routes ride along with a productive pass
+                // only. A pass without a new negative column discards them,
+                // so "no new column" keeps its meaning for termination.
+                if (negative < R.size()) near_columns_added += add_columns(R, negative, R.size());
+                if (at_exact && dropback_level >= 0 && added >= dropback_min_cols) {
+                    saved_closing_state = lbl.closing_state;
+                    saved_merge_start = lbl.merge_start;
+                    exact_state_saved = true;
+                    heuristic_level = (size_t) dropback_level;
+                    lbl.closing_state = false;
+                    lbl.merge_start = 0;
+                    ++dropback_count;
+                }
+                break;
+            }
+            near_columns_discarded += (long long) (R.size() - negative);
+            if (at_exact) {
                 // The Exact level contributed nothing new: pricing exhausted.
                 // (If it still REPORTED a negative-reduced-cost duplicate, the
                 // discrepancy is labeling-vs-checker dust within the documented
@@ -317,7 +407,23 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 heuristic_level = 0;
                 lbl.closing_state = false;
                 lbl.merge_start = 0;
+                exact_state_saved = false;
                 break;
+            }
+            if (early_cuts && true_duals && heuristic_level + 2 == levels.size() && bcp.CanSeparateCuts()) {
+                // (ms61) Heuristic levels exhausted at the root: try cuts on
+                // the current master solution before an Exact pass. Cuts
+                // change the master, so the CG loop re-solves and pricing
+                // restarts at the first level. An Exact pass is still owed
+                // before the node can be declared optimal.
+                const int cuts = bcp.SeparateCutRounds();
+                if (cuts > 0) {
+                    ++early_cut_rounds;
+                    early_cut_count += cuts;
+                    clog << "\tEarly cuts: " << cuts << endl;
+                    heuristic_level = 0;
+                    break;
+                }
             }
             ++heuristic_level;
         }
@@ -348,10 +454,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             center_sigma.resize(pricing_problem.sigma.size(), 0.0);
             for (size_t i = 0; i < pps.sigma.size(); ++i)
                 pps.sigma[i] = alpha * center_sigma[i] + (1.0 - alpha) * pricing_problem.sigma[i];
-            int added = run_ladder_and_add(pps, cg_execution_log);
+            int added = run_ladder_and_add(pps, cg_execution_log, false);
             if (added == 0 && !bcp.deadline.Reached()) {
                 ++misprice_count;
-                run_ladder_and_add(pricing_problem, cg_execution_log);
+                run_ladder_and_add(pricing_problem, cg_execution_log, true);
                 certified_true_duals = ladder_certified;
                 center_P = pricing_problem.P;
                 center_sigma = pricing_problem.sigma;
@@ -361,7 +467,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 center_sigma = std::move(pps.sigma);
             }
         } else {
-            run_ladder_and_add(pricing_problem, cg_execution_log);
+            run_ladder_and_add(pricing_problem, cg_execution_log, true);
             certified_true_duals = ladder_certified;
             if (!center_set) {
                 center_P = pricing_problem.P;
@@ -393,6 +499,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"] = {{"cut_limit", params.cut_limit}, {"cut_violation_threshold", 0.1}, {"algorithm_epsilon", 1e-6}, {"solution_limit", params.solution_limit}, {"node_limit", params.node_limit}, {"stab_alpha", params.stab_alpha}, {"ng_routes", false}};
     result["effective_algorithm_settings"]["label_correction"] = lbl.correcting;
     result["effective_algorithm_settings"]["lazy_extension"] = lbl.lazy_extension;
+    result["effective_algorithm_settings"]["ms61"] = {
+        {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
+        {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
+        {"correction_switch", correction_switch}};
+    result["ms61_counters"] = {
+        {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
+        {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},
+        {"near_columns_discarded", near_columns_discarded}};
     result["exact_log"] = log;
     result["bound_events"] = bound_events;
     result["closure_census"] = closure_census();

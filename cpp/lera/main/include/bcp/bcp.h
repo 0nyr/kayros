@@ -54,6 +54,20 @@ public:
 	// caller keeps its own solution.
 	void SetInitialIncumbent(double value);
 
+	// (ms61) Cut separation exposed to the pricing driver, so that subset-row
+	// cuts can be separated on the current restricted-master solution before
+	// an Exact pricing call. Cuts are valid inequalities whatever the master's
+	// convergence state, so calling this early never affects soundness: node
+	// optimality is still only ever concluded by an Exact pricing pass that
+	// finishes without a new column, followed by a separation round that
+	// finds no violated cut.
+	// CanSeparateCuts: root node being processed and cut budget left.
+	// SeparateCutRounds: re-solves the master LP and adds the most violated
+	// cut, until none is violated or the cut limit is hit. Returns the number
+	// of cuts added.
+	bool CanSeparateCuts() const;
+	int SeparateCutRounds();
+
 	// Executes a Branch-Cut-Price algorithm on the SPF.
 	// If a solution is found, *solution is filled with the best one.
 	goc::BCPExecutionLog Run(goc::VRPSolution* solution);

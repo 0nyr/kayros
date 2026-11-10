@@ -44,6 +44,21 @@ public:
 	bool cost_check_relaxation; // Indicates if dominance c_M(t) <= c_L(t) should be ignored (heuristically).
 	bool ng_routes_relaxation; // Indicates if NG-routes relaxation is be used.
 
+	// (ms61) Near-zero column collection. With near_threshold > 0, merges whose
+	// labeling reduced cost lies in [0, near_threshold) are also kept, in the
+	// same vertex-set-keyed pool, and returned AFTER the negative routes in R
+	// (at most near_limit of them, lowest reduced cost first). The labeling
+	// itself never prunes on reduced cost, so only the merge stage does extra
+	// work. The solution limit and every status still count NEGATIVE routes
+	// only. last_negative_count is the number of leading negative routes in
+	// the R of the last Run. Inactive (bit-identical legacy behaviour) when
+	// near_threshold <= 0 or on the path-keyed step pool.
+	double near_threshold;
+	int near_limit;
+	int near_pool_cap; // hard cap on kept near entries (memory guard).
+	int last_negative_count;
+	int last_near_count;
+
 	BidirectionalLabeling(
 		const nyr::VRPInstance& vrp,
 		const std::optional<TDNGRoutesParams>& ng_routes_params
@@ -76,7 +91,7 @@ private:
 	void Merge(Label* l, Label* m);
 
 	// Adds a solution to the pool S if it is the best yet found with those visited vertices.
-	void AddSolution(const goc::GraphPath& p, double min_duration);
+	void AddSolution(const goc::GraphPath& p, double min_duration, double reduced_cost);
 
 	// (kayros M5.2) Deadline of the current Run(), derived from time_limit at
 	// entry; consulted inside IterativeMerge/LastArcMerge so merge loops are
@@ -110,7 +125,13 @@ private:
 	// legacy pool (container, order and size semantics bit-identical).
 	bool step_pool_;
 	std::map<goc::GraphPath, goc::Route> S_paths;
-	size_t pool_size() const { return step_pool_ ? S_paths.size() : S.size(); }
+	// (ms61) Labeling reduced cost of each pool entry and count of negative
+	// ones; maintained only while the near-zero collection is active.
+	std::unordered_map<nyr::VertexSet, double> S_rc;
+	size_t negative_count_ = 0;
+	size_t near_count_ = 0;
+	double near_eff_ = 0.0; // threshold in force for the current Run (0 = legacy).
+	size_t pool_size() const { return step_pool_ ? S_paths.size() : (near_eff_ > 0.0 ? negative_count_ : S.size()); }
 };
 } // namespace
 

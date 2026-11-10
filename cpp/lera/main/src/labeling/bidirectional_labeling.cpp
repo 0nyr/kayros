@@ -185,6 +185,10 @@ BidirectionalLabeling::BidirectionalLabeling(
 	}
 {
 	solution_limit = INT_MAX;
+	near_threshold = 0.0;
+	near_limit = 0;
+	near_pool_cap = 200000;
+	last_negative_count = last_near_count = 0;
 	time_limit = Duration::Max();
 	screen_output = nullptr;
 	closing_state = true;
@@ -263,6 +267,10 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	// Clean solution pool.
 	S.clear();
 	S_paths.clear(); // M13.0 path-keyed pool (step-carrying instances)
+	S_rc.clear();
+	negative_count_ = near_count_ = 0;
+	near_eff_ = (!step_pool_ && near_threshold > 0.0 && near_limit > 0) ? near_threshold : 0.0;
+	last_negative_count = last_near_count = 0;
 	M[0] = M[1] = vector<MonodirectionalLabeling::DemandLevel>(vrp_.D.NbVertices());
 	
 	// Set pricing problem.
@@ -357,7 +365,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			// Check if any full route was generated.
 			for (Label* l: P)
 				if (d == 0 && l->v == vrp_.d && epsilon_smaller(l->min_cost, 0.0))
-					AddSolution(l->Path(), min(img(l->duration)));
+					AddSolution(l->Path(), min(img(l->duration)), l->min_cost);
 			
 			// Update t_m.
 			if (q[d].empty()) lbl_[d].t_m = vrp_.T - lbl_[od].t_m; // If d has no more labels in the queue, the middle is t_m
@@ -418,6 +426,34 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			reprice_into_R(P_r.second);
 		}
 	}
+	else if (near_eff_ > 0.0)
+	{
+		// (ms61) Negative routes first (pool iteration order), then the best
+		// near-zero ones by labeling reduced cost.
+		vector<pair<double, const Route*>> near;
+		for (auto& V_r: S)
+		{
+			if (run_deadline_.Reached()) break;
+			if (epsilon_smaller(S_rc[V_r.first], 0.0)) reprice_into_R(V_r.second);
+			else near.push_back({S_rc[V_r.first], &V_r.second});
+		}
+		last_negative_count = (int) R->size();
+		if ((int) near.size() > near_limit)
+		{
+			std::nth_element(near.begin(), near.begin() + near_limit, near.end(),
+				[](const pair<double, const Route*>& a, const pair<double, const Route*>& b) { return a.first < b.first; });
+			near.resize(near_limit);
+		}
+		std::sort(near.begin(), near.end(),
+			[](const pair<double, const Route*>& a, const pair<double, const Route*>& b) {
+				return a.first < b.first || (a.first == b.first && a.second->path < b.second->path); });
+		for (auto& n: near)
+		{
+			if (run_deadline_.Reached()) break;
+			reprice_into_R(*n.second);
+		}
+		last_near_count = (int) R->size() - last_negative_count;
+	}
 	else
 	{
 		for (auto& V_r: S)
@@ -426,6 +462,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			reprice_into_R(V_r.second);
 		}
 	}
+	if (near_eff_ <= 0.0) last_negative_count = (int) R->size();
 	
 	return log;
 }
@@ -465,7 +502,7 @@ void BidirectionalLabeling::IterativeMerge(Label* l, const MonodirectionalLabeli
 		for (auto& m: demand_entry.second)
 		{
 			if (pool_size() >= solution_limit) break; // Do not exceed solution limit.
-			if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, 0.0)) break;
+			if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, near_eff_)) break;
 			Merge(l, m);
 		}
 	}
@@ -518,7 +555,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 			for (Label* m: entry.second)
 			{
 				if (pool_size() >= solution_limit) break; // Do not exceed solution limit.
-				if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, 0.0))
+				if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, near_eff_))
 				{
 					if (tr_arc && trace::merge_bwd_suffix(m))
 						fprintf(stderr, "TRC LAM-CBREAK l=%s m=%s m_min_cost=%.6f l_min_cost=%.6f P=%.6f sum=%.6f\n",
@@ -604,7 +641,7 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	if (tr) fprintf(stderr, "TRC MERGE-COST l=%s m=%s dur=%.6f merge_cost=%.6f -> %s\n",
 		trace::path_str(l).c_str(), trace::path_str(m).c_str(), r.duration, merge_cost,
 		epsilon_bigger_equal(merge_cost, 0.0) ? "REJECT" : "ADD");
-	if (epsilon_bigger_equal(merge_cost, 0.0)) return;
+	if (epsilon_bigger_equal(merge_cost, near_eff_)) return;
 	
 	// Merge l and m paths.
 	r.path = l->Path();
@@ -612,10 +649,10 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	if (r.path[0] != vrp_.o) r.path = reverse(r.path);
 	
 	// We have a negative reduced cost route r.
-	AddSolution(r.path, r.duration);
+	AddSolution(r.path, r.duration, merge_cost);
 }
 
-void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_duration)
+void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_duration, double reduced_cost)
 {
 	// M13.0 trace: pool decisions for orderings of the merge target's vertex set.
 	if (trace::merge_on()
@@ -636,6 +673,31 @@ void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_dura
 		return;
 	}
 	VertexSet V = create_bitset<MAX_N>(p);
+	if (near_eff_ > 0.0)
+	{
+		// (ms61) Same keying and same best-duration replacement rule as the
+		// legacy pool; additionally track each entry's labeling reduced cost
+		// so that the solution limit keeps counting negative routes only.
+		const bool negative = epsilon_smaller(reduced_cost, 0.0);
+		auto it = S.find(V);
+		if (it == S.end())
+		{
+			if (!negative && (int) near_count_ >= near_pool_cap) return; // memory guard.
+			S[V] = Route(p, 0.0, min_duration);
+			S_rc[V] = reduced_cost;
+			if (negative) ++negative_count_; else ++near_count_;
+			return;
+		}
+		if (it->second.duration > min_duration)
+		{
+			double& rc = S_rc[V];
+			const bool was_negative = epsilon_smaller(rc, 0.0);
+			it->second = Route(p, 0.0, min_duration);
+			if (reduced_cost < rc) rc = reduced_cost;
+			if (!was_negative && epsilon_smaller(rc, 0.0)) { ++negative_count_; --near_count_; }
+		}
+		return;
+	}
 	if (!includes_key(S, V)) S[V] = Route({}, 0.0, INFTY);
 	if (S[V].duration > min_duration) S[V] = Route(p, 0.0, min_duration);
 }

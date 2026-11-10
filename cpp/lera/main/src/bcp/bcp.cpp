@@ -45,26 +45,37 @@ BCP::BCP(
 		// If no variable were added and we are in root node, separate cuts.
 		if (node_seq == 1 && variable_count == this->spf->formulation->VariableCount())
 		{
-			int cuts_added = 0;
-			while (this->spf->cuts.size() < cut_limit)
-			{
-				if (deadline.Reached()) break; // (M5.2)
-				Stopwatch cut_rolex(true);
-				lp_solver.time_limit = deadline.Remaining();
-				auto lp_log = lp_solver.Solve(this->spf->formulation, {LPOption::Incumbent});
-				if (lp_log.status != LPStatus::Optimum) break;
-				bool added_cuts = SeparateCuts(lp_log.incumbent);
-				log.cut_family_iteration_count->at("SR")++;
-				log.cut_family_cut_time->at("SR") += cut_rolex.Peek();
-				*log.cut_time += cut_rolex.Peek();
-				if (!added_cuts) break;
-				log.cut_family_cut_count->at("SR")++;
-				log.cut_count++;
-				cuts_added++;
-			}
+			int cuts_added = SeparateCutRounds();
 			if (cuts_added > 0) clog << "\tCuts: " << cuts_added << endl;
 		}
 	};
+}
+
+bool BCP::CanSeparateCuts() const
+{
+	return node_seq == 1 && (int) spf->cuts.size() < cut_limit;
+}
+
+int BCP::SeparateCutRounds()
+{
+	int cuts_added = 0;
+	while (this->spf->cuts.size() < cut_limit)
+	{
+		if (deadline.Reached()) break; // (M5.2)
+		Stopwatch cut_rolex(true);
+		lp_solver.time_limit = deadline.Remaining();
+		auto lp_log = lp_solver.Solve(this->spf->formulation, {LPOption::Incumbent});
+		if (lp_log.status != LPStatus::Optimum) break;
+		bool added_cuts = SeparateCuts(lp_log.incumbent);
+		log.cut_family_iteration_count->at("SR")++;
+		log.cut_family_cut_time->at("SR") += cut_rolex.Peek();
+		*log.cut_time += cut_rolex.Peek();
+		if (!added_cuts) break;
+		log.cut_family_cut_count->at("SR")++;
+		log.cut_count++;
+		cuts_added++;
+	}
+	return cuts_added;
 }
 
 void BCP::SetInitialIncumbent(double value)
