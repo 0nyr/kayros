@@ -74,6 +74,16 @@ public:
 	nyr::VertexSet theta;
 	std::vector<nyr::VertexSet> theta_local; // per-vertex memories (dynamic ng variant) when non-empty.
 	int last_nonelementary_count;
+	// Whether the last Run explored its whole (relaxed) space: labeling and
+	// merges finished without hitting the pool, time or memory limits.
+	bool last_complete;
+	// (ms61) Reject a merge before building the merged duration function when
+	// a lower bound of its reduced cost already fails the acceptance test.
+	// The bound adds the cut penalties shared between the two labels, which
+	// the sorted-scan break ignores. It only skips merges the full test would
+	// reject, so the routes found are unchanged.
+	bool merge_prefilter;
+	long long merge_prefilter_hits;
 	nyr::VertexSet last_repeated;
 	std::vector<goc::GraphPath> last_nonelementary_paths; // the most negative non-elementary routes.
 	int theta_growth_routes; // number of most negative non-elementary routes feeding last_repeated.

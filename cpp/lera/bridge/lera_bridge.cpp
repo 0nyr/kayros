@@ -276,6 +276,19 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //    of popping it (same merges, different order).
     const bool lam_iterate = env_int("KAYROS_BPC_LAM_ITERATE", 0) != 0;
     lbl.last_arc_merge_iterate = lam_iterate;
+    //  - ADAPT_S (>= 0): when positive, drop-back, early cuts (mode 2) and
+    //    near-zero columns only act after an Exact pass that lasted at least
+    //    this many seconds, judged on the most recent Exact pass. Instances
+    //    whose Exact passes are cheap keep the legacy ladder, where these
+    //    levers only add iterations and cuts.
+    //  - MERGE_PREFILTER (0/1): exact pre-merge bound with shared cut
+    //    penalties.
+    const double adapt_s = env_double("KAYROS_BPC_ADAPT_S", 0.0);
+    if (adapt_s < 0.0) throw std::invalid_argument("KAYROS_BPC_ADAPT_S must be non-negative");
+    double last_exact_pass_s = 0.0;
+    auto levers_active = [&]() { return adapt_s <= 0.0 || last_exact_pass_s >= adapt_s; };
+    const bool merge_prefilter = env_int("KAYROS_BPC_MERGE_PREFILTER", 0) != 0;
+    lbl.merge_prefilter = merge_prefilter;
     const int dssr = env_int("KAYROS_BPC_DSSR", 0);
     if (dssr < 0 || dssr > 2) throw std::invalid_argument("KAYROS_BPC_DSSR must be 0, 1 or 2");
     //  - DSSR_LOCAL (0/1): per-vertex memories instead of one global critical
@@ -361,7 +374,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         // mean positive customer dual so one setting serves every instance.
         lbl.near_threshold = 0.0;
         lbl.near_limit = near_limit;
-        if (near_rel > 0.0 && near_limit > 0 && heuristic_level == levels.size() - 1) {
+        if (near_rel > 0.0 && near_limit > 0 && heuristic_level == levels.size() - 1 && levers_active()) {
             double dual_sum = 0.0;
             int dual_count = 0;
             for (Vertex v : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) {
@@ -377,7 +390,9 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         if (probing_exact_cost)
             lbl.time_limit = std::min(lbl.time_limit, Duration(dssr_auto_s, DurationUnit::Seconds));
         lbl.theta_local = theta_local;
+        Stopwatch pass_rolex(true);
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
+        if (heuristic_level == levels.size() - 1) last_exact_pass_s = pass_rolex.Peek().Amount(DurationUnit::Seconds);
         last_negative = lbl.last_negative_count;
         // (ms61) A plain Exact pass cut short by the cost probe, not by the
         // solve deadline: switch to the relaxation for good.
@@ -486,7 +501,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 exact_state_saved = false;
             }
             if (at_exact && true_duals && early_cuts > 0 && bcp.CanSeparateCuts()
-                && (early_cuts == 1 || exact_productive_since_cuts)) {
+                && (early_cuts == 1 || (exact_productive_since_cuts && levers_active()))) {
                 // (ms61) Try cuts on the current master solution before an
                 // Exact pass. Cuts change the master, so the CG loop
                 // re-solves and pricing restarts at the first level. An Exact
@@ -507,7 +522,11 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             const vector<Route> R = run_one_level(pp, lg);
             const size_t negative = std::min<size_t>(R.size(), (size_t) std::max(last_negative, 0));
             added = add_columns(R, 0, negative);
-            if (at_exact) exact_productive_since_cuts = added > 0 && last_exact_finished;
+            // (ms61) "Near converged" for early cuts mode 2: the last Exact
+            // pass explored its whole space and found something, new columns
+            // or, under the relaxation, routes that repeat a vertex.
+            if (at_exact) exact_productive_since_cuts = lbl.last_complete
+                && (added > 0 || lbl.last_nonelementary_count > 0);
             if (added > 0 && at_exact && dssr_active && dssr == 2 && lbl.last_nonelementary_count > 0) {
                 if (grow_relaxation()) ++theta_growths;
             }
@@ -516,7 +535,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 // only. A pass without a new negative column discards them,
                 // so "no new column" keeps its meaning for termination.
                 if (negative < R.size()) near_columns_added += add_columns(R, negative, R.size());
-                if (at_exact && dropback_level >= 0 && added >= dropback_min_cols) {
+                if (at_exact && dropback_level >= 0 && added >= dropback_min_cols && levers_active()) {
                     saved_closing_state = lbl.closing_state;
                     saved_merge_start = lbl.merge_start;
                     exact_state_saved = true;
@@ -635,12 +654,13 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"]["ms61"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
-        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}, {"lam_iterate", lam_iterate}};
+        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}, {"lam_iterate", lam_iterate},
+        {"adapt_s", adapt_s}, {"merge_prefilter", merge_prefilter}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},
         {"near_columns_discarded", near_columns_discarded},
-        {"theta_size", relaxation_size()}, {"theta_growths", theta_growths}, {"dssr_active", dssr_active}, {"dssr_auto_switch_exact_call", dssr_auto_switch_exact_call}, {"dssr_reruns", dssr_reruns}};
+        {"theta_size", relaxation_size()}, {"merge_prefilter_hits", lbl.merge_prefilter_hits}, {"theta_growths", theta_growths}, {"dssr_active", dssr_active}, {"dssr_auto_switch_exact_call", dssr_auto_switch_exact_call}, {"dssr_reruns", dssr_reruns}};
     result["exact_log"] = log;
     result["bound_events"] = bound_events;
     result["closure_census"] = closure_census();

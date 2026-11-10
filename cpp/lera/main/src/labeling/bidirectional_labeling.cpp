@@ -186,6 +186,9 @@ BidirectionalLabeling::BidirectionalLabeling(
 {
 	solution_limit = INT_MAX;
 	packed_filter = 0;
+	last_complete = false;
+	merge_prefilter = false;
+	merge_prefilter_hits = 0;
 	heuristic_cut_blind = false;
 	last_arc_merge_iterate = false;
 	theta_relaxation = false;
@@ -483,6 +486,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		}
 	}
 	if (near_eff_ <= 0.0) last_negative_count = (int) R->size();
+	last_complete = log.status == BLBStatus::Finished;
 	if (theta_eff_)
 	{
 		last_nonelementary_count = (int) nonelementary_count_;
@@ -631,6 +635,22 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 		return;
 	}
 	
+	// (ms61) Cut penalty of the merged route, needed by the prefilter below
+	// and by the cost test at the end.
+	double merge_cut_cost = 0.0;
+	for (int i = 0; i < pp_.S.size(); ++i) if (l->parent->cut_visited[i]+m->cut_visited[i] >= 2) merge_cut_cost += pp_.sigma[i];
+	if (merge_prefilter && !tr)
+	{
+		// min(img(duration)) of each label, recovered from its min_cost. The
+		// merged duration is at least their sum in both branches below (the
+		// waiting term is non-negative, and the minimum of a sum is at least
+		// the sum of the minima). The 1e-5 margin covers the rounding of
+		// these recoveries and the epsilon of the waiting test.
+		const double duration_bound = (l->min_cost + l->p + l->cut_cost) + (m->min_cost + m->p + m->cut_cost);
+		const double cost_bound = duration_bound - l->p - m->p + pp_.P[l->v] - merge_cut_cost;
+		if (epsilon_bigger_equal(cost_bound - 1e-5, near_eff_)) { ++merge_prefilter_hits; return; }
+	}
+
 	Route r;
 	// kayros (M5.7): rw and dom(duration) are maintained separately and can
 	// disagree by epsilon (goc's piece arithmetic is epsilon-tolerant, and the
@@ -676,8 +696,6 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 			min(l->rw), max(l->rw), T-max(m->rw), T-min(m->rw));
 	}
 
-	double merge_cut_cost = 0.0;
-	for (int i = 0; i < pp_.S.size(); ++i) if (l->parent->cut_visited[i]+m->cut_visited[i] >= 2) merge_cut_cost += pp_.sigma[i];
 	double merge_cost = r.duration - l->p - m->p + pp_.P[l->v] - merge_cut_cost;
 	if (tr) fprintf(stderr, "TRC MERGE-COST l=%s m=%s dur=%.6f merge_cost=%.6f -> %s\n",
 		trace::path_str(l).c_str(), trace::path_str(m).c_str(), r.duration, merge_cost,
