@@ -320,9 +320,21 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     bool exact_state_saved = false, saved_closing_state = false;
     int saved_merge_start = 0;
 
-    const vector<LabelingLevel> levels = {
+    //  - HE_CUTBLIND (0 off, 1, 2): the heuristic elementarity level ignores
+    //    cut memory in dominance. Mode 1 replaces the level. Mode 2 inserts
+    //    the cut-blind pass before the legacy one (4-level ladder).
+    const int he_cutblind = env_int("KAYROS_BPC_HE_CUTBLIND", 0);
+    if (he_cutblind < 0 || he_cutblind > 2) throw std::invalid_argument("KAYROS_BPC_HE_CUTBLIND must be 0, 1 or 2");
+    vector<LabelingLevel> levels = {
         LabelingLevel::HeuristicCost, LabelingLevel::HeuristicElementarity, LabelingLevel::Exact};
-    const vector<string> level_names = {"Heuristic Cost", "Heuristic Elementarity", "Exact"};
+    vector<string> level_names = {"Heuristic Cost", "Heuristic Elementarity", "Exact"};
+    vector<bool> level_cut_blind = {false, he_cutblind == 1, false};
+    if (he_cutblind == 2) {
+        levels = {LabelingLevel::HeuristicCost, LabelingLevel::HeuristicElementarity,
+                  LabelingLevel::HeuristicElementarity, LabelingLevel::Exact};
+        level_names = {"Heuristic Cost", "Heuristic Elementarity Blind", "Heuristic Elementarity", "Exact"};
+        level_cut_blind = {false, true, false, false};
+    }
     size_t heuristic_level = 0;
     int last_negative = 0; // (ms61) leading negative routes in the last R.
     auto run_one_level = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
@@ -344,6 +356,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             }
             if (dual_count > 0) lbl.near_threshold = near_rel * dual_sum / dual_count;
         }
+        lbl.heuristic_cut_blind = level_cut_blind[heuristic_level];
         lbl.theta_relaxation = dssr > 0;
         lbl.theta = theta;
         lbl.theta_local = theta_local;
@@ -590,7 +603,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"]["ms61"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
-        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}};
+        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},

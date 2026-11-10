@@ -186,6 +186,7 @@ BidirectionalLabeling::BidirectionalLabeling(
 {
 	solution_limit = INT_MAX;
 	packed_filter = 0;
+	heuristic_cut_blind = false;
 	theta_relaxation = false;
 	last_nonelementary_count = 0;
 	theta_growth_routes = 10;
@@ -311,6 +312,8 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	lbl_[0].theta = lbl_[1].theta = theta;
 	lbl_[0].theta_local = lbl_[1].theta_local = theta_local;
 	lbl_[0].packed_filter = lbl_[1].packed_filter = packed_filter;
+	lbl_[0].cut_blind_dominance = lbl_[1].cut_blind_dominance =
+		heuristic_cut_blind && level != LabelingLevel::Exact && (cost_check_relaxation || elementary_check_relaxation);
 	
 	BLBExecutionLog log(true);
 	Stopwatch rolex(false), merge_rolex(false);

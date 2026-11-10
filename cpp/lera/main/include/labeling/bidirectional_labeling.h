@@ -61,6 +61,9 @@ public:
 	// theta. The relaxed pass proves that no negative elementary route exists
 	// only when it Finished with last_nonelementary_count == 0.
 	int packed_filter; // (ms61) see MonodirectionalLabeling::packed_filter.
+	// (ms61) Cut-blind dominance for the current Run. Honoured only on the
+	// heuristic levels (cost or elementarity relaxation).
+	bool heuristic_cut_blind;
 	bool theta_relaxation;
 	nyr::VertexSet theta;
 	std::vector<nyr::VertexSet> theta_local; // per-vertex memories (dynamic ng variant) when non-empty.

@@ -55,6 +55,12 @@ public:
 	bool theta_relaxation;
 	nyr::VertexSet theta;
 	std::vector<nyr::VertexSet> theta_local;
+	// (ms61) Heuristic levels only: dominance ignores the cut memory of the
+	// dominating label (no sigma correction of theta). With many active
+	// subset-row cuts that correction blocks nearly every dominance, and a
+	// heuristic pass then compares each label against hundreds of others.
+	// Never set on the Exact level.
+	bool cut_blind_dominance;
 
 	// Dominance structure.
 	typedef std::vector<Label*> BoundLevel;

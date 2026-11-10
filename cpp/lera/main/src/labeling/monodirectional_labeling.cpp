@@ -125,6 +125,7 @@ MonodirectionalLabeling::MonodirectionalLabeling(
 	partial = limited_extension = lazy_extension = unreachable_strengthened = sort_by_cost = true;
 	elementary_check_relaxation = cost_check_relaxation = ng_routes_relaxation = false;
 	theta_relaxation = false;
+	cut_blind_dominance = false;
 	packed_filter = 0;
 	processed_count = 0;
 	
@@ -468,7 +469,7 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 			{
 				// theta = p(l) + cut_cost(l) - p(m) - cut_cost(m) - \sum {sigma(i) : cut_visited[i](m) == 1 && cut_visited[i](l) != 1 }.
 				double theta = l->p + l->cut_cost - m->p - m->cut_cost;
-				for (int i: m->cut_nz) if (l->cut_visited[i] != 1) theta -= pp_.sigma[i];
+				if (!cut_blind_dominance) for (int i: m->cut_nz) if (l->cut_visited[i] != 1) theta -= pp_.sigma[i];
 				if (!partial && !Delta.IsAlwaysDominated(m->duration, theta)) continue;
 				else if (partial && !Delta.DominatePieces(m->duration, theta)) continue;
 			}
@@ -534,7 +535,7 @@ int MonodirectionalLabeling::CorrectionStep(Label* m)
 			{
 				// theta = p(l) + cut_cost(l) - p(m) - cut_cost(m) - \sum {sigma(i) : cut_visited[i](m) == 1 && cut_visited[i](l) != 1 }.
 				double theta = l->p + l->cut_cost - m->p - m->cut_cost;
-				for (int i: m->cut_nz) if (l->cut_visited[i] != 1) theta -= pp_.sigma[i];
+				if (!cut_blind_dominance) for (int i: m->cut_nz) if (l->cut_visited[i] != 1) theta -= pp_.sigma[i];
 				PWLDominationFunction Delta(l->duration);
 				if (partial)
 				{
