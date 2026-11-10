@@ -314,6 +314,16 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         for (const auto& memory : theta_local) total += memory.count();
         return (int) total;
     };
+    //  - DSSR_AUTO_S (>= 0, with DSSR > 0): start with the plain Exact level
+    //    and switch to the relaxation for the rest of the solve the first
+    //    time a plain Exact pass runs longer than this many seconds. The
+    //    interrupted pass is not a proof of anything: its columns are kept
+    //    and the level is run again under the relaxation.
+    const double dssr_auto_s = env_double("KAYROS_BPC_DSSR_AUTO_S", 0.0);
+    if (dssr_auto_s < 0.0) throw std::invalid_argument("KAYROS_BPC_DSSR_AUTO_S must be non-negative");
+    bool dssr_active = dssr > 0 && dssr_auto_s <= 0.0;
+    bool exact_pass_interrupted = false;
+    int dssr_auto_switch_exact_call = -1;
     int theta_growths = 0, dssr_reruns = 0;
     int dropback_count = 0, early_cut_rounds = 0, early_cut_count = 0;
     long long near_columns_added = 0, near_columns_discarded = 0;
@@ -357,11 +367,22 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             if (dual_count > 0) lbl.near_threshold = near_rel * dual_sum / dual_count;
         }
         lbl.heuristic_cut_blind = level_cut_blind[heuristic_level];
-        lbl.theta_relaxation = dssr > 0;
+        lbl.theta_relaxation = dssr_active;
         lbl.theta = theta;
+        const bool probing_exact_cost = dssr > 0 && !dssr_active && heuristic_level == levels.size() - 1;
+        if (probing_exact_cost)
+            lbl.time_limit = std::min(lbl.time_limit, Duration(dssr_auto_s, DurationUnit::Seconds));
         lbl.theta_local = theta_local;
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
         last_negative = lbl.last_negative_count;
+        // (ms61) A plain Exact pass cut short by the cost probe, not by the
+        // solve deadline: switch to the relaxation for good.
+        exact_pass_interrupted = probing_exact_cost && lbl_log.status == BLBStatus::TimeLimitReached
+            && !bcp.deadline.Reached();
+        if (exact_pass_interrupted) {
+            dssr_active = true;
+            dssr_auto_switch_exact_call = exact_calls;
+        }
         last_exact_finished = heuristic_level == levels.size() - 1 && lbl_log.status == BLBStatus::Finished;
         if (last_exact_finished) ++exact_finished;
 
@@ -483,7 +504,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             const size_t negative = std::min<size_t>(R.size(), (size_t) std::max(last_negative, 0));
             added = add_columns(R, 0, negative);
             if (at_exact) exact_productive_since_cuts = added > 0 && last_exact_finished;
-            if (added > 0 && at_exact && dssr == 2 && lbl.last_nonelementary_count > 0) {
+            if (added > 0 && at_exact && dssr_active && dssr == 2 && lbl.last_nonelementary_count > 0) {
                 if (grow_relaxation()) ++theta_growths;
             }
             if (added > 0) {
@@ -503,7 +524,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 break;
             }
             near_columns_discarded += (long long) (R.size() - negative);
-            if (at_exact && dssr > 0 && lbl.last_nonelementary_count > 0) {
+            if (at_exact && exact_pass_interrupted) {
+                // (ms61) The cost probe interrupted a plain Exact pass that
+                // produced no new column. Nothing was proven: run the level
+                // again, now under the relaxation.
+                ++dssr_reruns;
+                continue;
+            }
+            if (at_exact && dssr_active && lbl.last_nonelementary_count > 0) {
                 // (ms61) The relaxed pass met negative routes that repeat a
                 // vertex and produced no new column: tighten the relaxation
                 // and run the Exact level again. A route of the relaxed space
@@ -603,12 +631,12 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"]["ms61"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
-        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}};
+        {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},
         {"near_columns_discarded", near_columns_discarded},
-        {"theta_size", relaxation_size()}, {"theta_growths", theta_growths}, {"dssr_reruns", dssr_reruns}};
+        {"theta_size", relaxation_size()}, {"theta_growths", theta_growths}, {"dssr_active", dssr_active}, {"dssr_auto_switch_exact_call", dssr_auto_switch_exact_call}, {"dssr_reruns", dssr_reruns}};
     result["exact_log"] = log;
     result["bound_events"] = bound_events;
     result["closure_census"] = closure_census();
