@@ -5,6 +5,8 @@
 //
 
 #include "bcp/bcp.h"
+#include "bcp/branch_trace.h"
+#include "bcp/ordered_valuation.h"
 
 #include <climits>
 
@@ -288,7 +290,7 @@ void BCP::BranchNode(Node* node)
 	
 	// Calculate z[x_ij] values.
 	Matrix<double> x(D.NbVertices(), D.NbVertices(), 0.0);
-	for (auto& y_val: node->opt)
+	for (const auto& y_val: ordered_valuation(node->opt))
 	{
 		auto& r = spf->RouteOf(y_val.first);
 		for (int k = 1; k < (int)r.path.size()-2; ++k) x[r.path[k]][r.path[k+1]] += y_val.second;
@@ -302,9 +304,33 @@ void BCP::BranchNode(Node* node)
 			x_most.push_back(e);
 	sort(x_most.begin(), x_most.end(), [&] (Arc e, Arc f) { return fabs(0.5-x[e.tail][e.head]) < fabs(0.5-x[f.tail][f.head]); });
 	while (x_most.size() > STRONG_BRANCH_SIZE) x_most.pop_back();
+
+    FirstBranchTrace branch_trace;
+    if (branch_trace)
+    {
+        Matrix<double> raw_x(D.NbVertices(), D.NbVertices(), 0.0);
+        for (const auto& y_val : node->opt)
+        {
+            const auto& route = spf->RouteOf(y_val.first);
+            for (int k = 1; k < (int) route.path.size() - 2; ++k)
+                raw_x[route.path[k]][route.path[k + 1]] += y_val.second;
+        }
+        vector<Arc> legacy_candidates;
+        for (Arc arc : D.Arcs())
+            if (epsilon_bigger(raw_x[arc.tail][arc.head], 0.0)
+                    && epsilon_smaller(raw_x[arc.tail][arc.head], 1.0))
+                legacy_candidates.push_back(arc);
+        sort(legacy_candidates.begin(), legacy_candidates.end(), [&](Arc a, Arc b) {
+            return fabs(0.5 - raw_x[a.tail][a.head]) < fabs(0.5 - raw_x[b.tail][b.head]);
+        });
+        while (legacy_candidates.size() > STRONG_BRANCH_SIZE) legacy_candidates.pop_back();
+        branch_trace.Begin(node->index, node->bound, x_most, x, legacy_candidates, raw_x, node->opt);
+    }
 	
 	// Calculate all candidate estimate bounds and keep the best one.
 	vector<Node> best_candidate;
+    int selected_tail = -1, selected_head = -1;
+    double selected_estimate = -INFTY;
     int selected_infeasible = 0;
     if (x_most.empty()) ++unbranched_fractional_count;
 	if (!x_most.empty())
@@ -332,6 +358,9 @@ void BCP::BranchNode(Node* node)
 			if (min(left.bound, right.bound) > best_estimate)
 			{
 				best_estimate = min(left.bound, right.bound);
+                selected_tail = e.tail;
+                selected_head = e.head;
+                selected_estimate = best_estimate;
 				best_candidate = {};
                 selected_infeasible = int(left.rmp_infeasible) + int(right.rmp_infeasible);
 				if (left.bound < INFTY) best_candidate.push_back(left);
@@ -340,6 +369,7 @@ void BCP::BranchNode(Node* node)
 		}
 	}
 	
+    branch_trace.Finish(selected_tail, selected_head, selected_estimate);
     if (log.status == BCStatus::DidNotStart) selected_rmp_infeasible_count += selected_infeasible;
 	*log.branching_time += rolex_branch.Pause();
 	// Process new children to the queue.
@@ -374,7 +404,7 @@ bool BCP::SeparateCuts(const Valuation& z)
 	// Parse basis variables.
 	vector<VertexSet> z_visited; // z_visited[i] = vertices visited by basis variable i.
 	vector<double> z_values; // z_values[i] = value of basis variable i.
-	for (auto& y_val: z)
+	for (const auto& y_val: ordered_valuation(z))
 	{
 		auto route = spf->RouteOf(y_val.first);
 		z_visited.push_back(create_bitset<MAX_N>(route.path));
