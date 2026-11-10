@@ -2,6 +2,27 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.7.0] — unreleased
+
+An exact-solver release. It repairs a soundness defect of the partial-dominance routine inherited from the upstream branch-price-and-cut code, and makes the proof phase faster. Certificates produced by earlier versions came from the defective routine: see the first entry below. The heuristic component is unchanged.
+
+### Fixed
+
+- **Partial dominance could discard an undominated part of a label, so the exact solver could close above the optimum.** When a stored label dominates a candidate on an interval lying strictly inside one linear piece of the candidate's duration function, the piece is split and its right part rebuilt. The right part was built with the maximum of the piece as its value at the right end. That is only correct on a non-decreasing piece. On a decreasing piece, the common case where a later arrival means less waiting, the rebuilt part was too high, and a later comparison could erase it although it was not dominated. The Exact pricing level could then finish without reporting a route of negative reduced cost that exists, and a node bound could exceed the optimum. The defect is in the upstream code this component derives from. It only ever removes labels: every column the solver finds is feasible and exactly priced, and incumbents are unaffected. Bounds and optimality claims are what could be wrong. The reproducer is Dabia2013 with 50 customers, instance RC107, which closed at 10632.144948 on one pricing trajectory while the optimum is 10614.011180. `tests/test_lera_partial_dominance.py` pins it. On the instances re-run with both builds so far (33 Dabia2013 instances with 100 customers, and 72 smaller Vu2020, Ari2018 and Rifki2020 instances at a 45 s limit) no proven optimum changed. That is a sample, not a clearance of earlier certificates.
+
+### Added
+
+- **Near-zero reduced-cost columns** (`solve_duration(near_rel=0.10)`, `0` disables). An Exact pricing pass that found at least one new negative column also contributes up to 3,000 routes whose reduced cost lies in `[0, near_rel * mean customer dual)`. The labeling never prunes on reduced cost, so these routes cost only merges, and they spare Exact passes near convergence, where each pass used to return a handful of columns. A pass without a new negative column discards them, so "no new column" keeps its meaning for termination.
+- **Cut-blind dominance at the heuristic elementarity level** (`solve_duration(heuristic_cut_blind=True)`). With many active subset-row cuts the cut-memory correction blocks nearly every dominance, and a heuristic pass became slower than an Exact one (from 2 s to several minutes per pass with about 200 cuts). The level is a heuristic, and the columns it finds are still priced exactly.
+- **`KAYROS_BPC_VERIFY_FINAL`**, a diagnostic bit mask. Before a node is declared optimal, the Exact pass that found nothing is run again with the masked features changed (label correction, merge state, cost sorting, unreachable sets, partial dominance, limited extension, execution filters, relaxation). A column found by the second pass is a column the first one lost. This is how the defect above was located.
+- Experimental pricing levers, off by default and reachable through `KAYROS_BPC_*` environment variables only: restart at a heuristic level after a productive Exact pass, early cut separation, gating of these on the cost of the last Exact pass, and the Exact level as a decremental state-space relaxation. None changes the termination rule. None showed a consistent gain after the fix above.
+
+### Changed
+
+- **Faster Exact pricing with identical search.** A contiguous copy of each stored label's sort key and unreachable set serves the dominance and correction scans (packed dominance filter). A merge is rejected before its duration function is built when a lower bound including the shared cut penalties already fails the test. The branch-price-and-cut library is built with `-fno-semantic-interposition` and link-time optimization (CMake option `KAYROS_LERA_IPO`, on by default), which lets the compiler inline the small accessors of the piecewise-linear classes. Measured on Dabia2013 C104 with 100 customers: 358 s to 196 s per Exact pass for the filter, then 172 s to 143 s for the build settings, with identical label counts.
+- **The last-arc merge walks the leftover forward queue instead of popping it.** Same merges, in a different order, which can change which routes fill a saturated pool.
+- The result records the effective options in `effective_algorithm_settings["pricing_options"]` and work counters in `pricing_counters`. Each pricing iteration of the root log carries `pricing_*` fields (negative and near-zero routes, extended labels).
+
 ## [1.6.1] — 2026-10-14
 
 A checker-compatibility patch. Solver algorithms and numerical evaluation are unchanged. New installations require `mamut-routing-lib>=0.6.0,<0.12`, matching the historical TD contract implemented by KAYROS.

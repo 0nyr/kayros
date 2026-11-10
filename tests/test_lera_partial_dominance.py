@@ -7,11 +7,11 @@ decreasing piece that over-estimates the label, and a later comparison could the
 erase an undominated part of it: the Exact pricing level missed columns and a
 node bound could exceed the optimum.
 
-Reproducer: Dabia2013 n=50 RC107. With the pricing ladder restarted at the first
-heuristic level after each productive Exact pass (``KAYROS_BPC_DROPBACK_LEVEL=0``),
-the pre-fix solver closed at the root at 10632.144948 (10625.511174 with
-cut-blind heuristics added), above the optimum 10614.011180 that the default
-ladder proves. The switches only change the column-generation trajectory. They
+Reproducer: Dabia2013 n=50 RC107, on the pricing ladder of releases before 1.7.0.
+With that ladder restarted at the first heuristic level after each productive
+Exact pass (``KAYROS_BPC_DROPBACK_LEVEL=0``), the pre-fix solver closed at the root
+at 10632.144948 (10625.511174 with cut-blind heuristics added), above the optimum
+10614.011180 that the other ladders prove. The switches only change the column-generation trajectory. They
 are sound by construction, so every setting must prove the same optimum.
 """
 
@@ -23,13 +23,25 @@ from conftest import family_instances
 RC107_50 = [p for p in family_instances("TDVRPTW", "Dabia2013", ["n=50"]) if p.name == "RC107.vrp.json"]
 RC107_50_OPTIMUM = 10614.011179781175
 
+# The pricing ladder of releases before 1.7.0, on which the defect was found.
+LEGACY = {
+    "KAYROS_BPC_NEAR_REL": "0",
+    "KAYROS_BPC_HE_CUTBLIND": "0",
+    "KAYROS_BPC_PACKED": "0",
+    "KAYROS_BPC_MERGE_PREFILTER": "0",
+    "KAYROS_BPC_LAM_ITERATE": "0",
+}
+
 SETTINGS = {
     "default": {},
-    "dropback": {"KAYROS_BPC_DROPBACK_LEVEL": "0"},
-    "dropback-cutblind": {"KAYROS_BPC_DROPBACK_LEVEL": "0", "KAYROS_BPC_HE_CUTBLIND": "1"},
+    "legacy": dict(LEGACY),
+    # The two trajectories that closed above the optimum before the fix.
+    "legacy-dropback": {**LEGACY, "KAYROS_BPC_DROPBACK_LEVEL": "0"},
+    "legacy-dropback-cutblind": {**LEGACY, "KAYROS_BPC_DROPBACK_LEVEL": "0", "KAYROS_BPC_HE_CUTBLIND": "1"},
     # Re-runs every empty final Exact pass without partial dominance: a column
     # found there is a column partial dominance lost.
-    "dropback-verified": {"KAYROS_BPC_DROPBACK_LEVEL": "0", "KAYROS_BPC_VERIFY_FINAL": "16"},
+    "legacy-dropback-verified": {**LEGACY, "KAYROS_BPC_DROPBACK_LEVEL": "0", "KAYROS_BPC_VERIFY_FINAL": "16"},
+    "default-verified": {"KAYROS_BPC_VERIFY_FINAL": "16"},
 }
 
 
@@ -47,5 +59,5 @@ def test_rc107_n50_closes_at_the_optimum_under_every_ladder(instance_path, setti
     assert result["value"] == pytest.approx(RC107_50_OPTIMUM, rel=1e-9)
     routes = [r[1:-1] for r in routes_to_mamut(result["routes"], loaded.instance.num_customers)]
     assert result["value"] == compute_solution_cost(loaded.instance, loaded.atfs, routes)
-    counters = result.get("ms61_counters", {})
+    counters = result.get("pricing_counters", {})
     assert counters.get("verify_final_catches", 0) == 0

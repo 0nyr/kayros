@@ -30,7 +30,9 @@ PYBIND11_MODULE(_lera, m) {
         [](const std::string& payload, double time_limit_s, int cut_limit, int node_limit,
            int solution_limit, py::object on_incumbent,
            std::vector<std::vector<int>> initial_routes, double stab_alpha,
-           double memory_limit_mb, py::object on_event) {
+           double memory_limit_mb, py::object on_event, double near_rel, int near_limit,
+           bool heuristic_cut_blind, bool packed_filter, bool merge_prefilter,
+           bool last_arc_merge_iterate) {
             kayros::lera::SolveParams params;
             params.time_limit_s = time_limit_s;
             params.cut_limit = cut_limit;
@@ -39,6 +41,12 @@ PYBIND11_MODULE(_lera, m) {
             params.initial_routes = std::move(initial_routes);
             params.stab_alpha = stab_alpha;
             params.memory_limit_mb = memory_limit_mb;
+            params.near_rel = near_rel;
+            params.near_limit = near_limit;
+            params.heuristic_cut_blind = heuristic_cut_blind;
+            params.packed_filter = packed_filter;
+            params.merge_prefilter = merge_prefilter;
+            params.last_arc_merge_iterate = last_arc_merge_iterate;
             // The py::object must be captured while the GIL is still held (the
             // copy increfs); the hook itself re-acquires the GIL per call.
             if (!on_incumbent.is_none()) {
@@ -60,7 +68,10 @@ PYBIND11_MODULE(_lera, m) {
         py::arg("node_limit") = INT_MAX, py::arg("solution_limit") = 3000,
         py::arg("on_incumbent") = py::none(),
         py::arg("initial_routes") = std::vector<std::vector<int>>{},
-        py::arg("stab_alpha") = 0.0, py::arg("memory_limit_mb") = 0.0, py::arg("on_event") = py::none());
+        py::arg("stab_alpha") = 0.0, py::arg("memory_limit_mb") = 0.0, py::arg("on_event") = py::none(),
+        py::arg("near_rel") = 0.10, py::arg("near_limit") = 3000,
+        py::arg("heuristic_cut_blind") = true, py::arg("packed_filter") = true,
+        py::arg("merge_prefilter") = true, py::arg("last_arc_merge_iterate") = true);
 
     // --- nyr NDCPWLF test surface (M5.9 exact stepwise labeling) -----------
     // Direct pytest access to the step-capable PWL primitives while they are

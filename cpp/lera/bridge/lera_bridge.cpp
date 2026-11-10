@@ -215,13 +215,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     lbl.solution_limit = params.solution_limit;
     lbl.closing_state = false;
 
-    // (ms61) Column-generation control switches, all inert by default (private
-    // development candidates, read from the environment so that one binary
-    // serves every arm of a comparison). None of them touches the label
-    // arithmetic or the termination rule: a node is only ever declared
-    // optimal after an Exact pricing pass on true duals that finishes without
-    // a new negative column, followed by a cut round that finds no violated
-    // cut.
+    // (ms61, 1.7.0) Pricing options. The defaults come from SolveParams (the
+    // configuration validated in ms61). Every option, and the experimental
+    // levers that stay off by default, can be overridden from the
+    // environment so that one binary serves every arm of a comparison. None
+    // of them touches the label arithmetic or the termination rule: a node
+    // is only ever declared optimal after an Exact pricing pass on true
+    // duals that finishes without a new negative column, followed by a cut
+    // round that finds no violated cut.
     //  - DROPBACK_LEVEL (-1 off, 0 or 1): after an Exact pass that contributed
     //    at least DROPBACK_MIN_COLS new columns, the next pass restarts at
     //    that heuristic level instead of staying at Exact.
@@ -259,8 +260,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     if (early_cuts < 0 || early_cuts > 2)
         throw std::invalid_argument("KAYROS_BPC_EARLY_CUTS must be 0, 1 or 2");
     bool exact_productive_since_cuts = false;
-    const double near_rel = env_double("KAYROS_BPC_NEAR_REL", 0.0);
-    const int near_limit = env_int("KAYROS_BPC_NEAR_LIMIT", 3000);
+    const double near_rel = env_double("KAYROS_BPC_NEAR_REL", params.near_rel);
+    const int near_limit = env_int("KAYROS_BPC_NEAR_LIMIT", params.near_limit);
     const int correction_switch = env_int("KAYROS_BPC_CORRECTION", -1);
     if (dropback_level < -1 || dropback_level > 1)
         throw std::invalid_argument("KAYROS_BPC_DROPBACK_LEVEL must be -1, 0 or 1");
@@ -269,12 +270,12 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     if (correction_switch >= 0) lbl.correcting = correction_switch != 0;
     //  - PACKED (0 off, 1 on, 2 on with self-check): packed dominance filter,
     //    a pure execution change (same labels, same order, same verdicts).
-    const int packed_filter = env_int("KAYROS_BPC_PACKED", 0);
+    const int packed_filter = env_int("KAYROS_BPC_PACKED", params.packed_filter ? 1 : 0);
     if (packed_filter < 0 || packed_filter > 2) throw std::invalid_argument("KAYROS_BPC_PACKED must be 0, 1 or 2");
     lbl.packed_filter = packed_filter;
     //  - LAM_ITERATE (0/1): last-arc merge walks the leftover queue instead
     //    of popping it (same merges, different order).
-    const bool lam_iterate = env_int("KAYROS_BPC_LAM_ITERATE", 0) != 0;
+    const bool lam_iterate = env_int("KAYROS_BPC_LAM_ITERATE", params.last_arc_merge_iterate ? 1 : 0) != 0;
     lbl.last_arc_merge_iterate = lam_iterate;
     //  - ADAPT_S (>= 0): when positive, drop-back, early cuts (mode 2) and
     //    near-zero columns only act after an Exact pass that lasted at least
@@ -298,7 +299,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         return (adapt_s > 0.0 && last_exact_pass_s >= adapt_s)
             || (adapt_labels > 0 && last_exact_pass_extended >= adapt_labels);
     };
-    const bool merge_prefilter = env_int("KAYROS_BPC_MERGE_PREFILTER", 0) != 0;
+    const bool merge_prefilter = env_int("KAYROS_BPC_MERGE_PREFILTER", params.merge_prefilter ? 1 : 0) != 0;
     lbl.merge_prefilter = merge_prefilter;
     //  - VERIFY_FINAL (0/1): diagnostic and safety net. When an Exact pass
     //    with label correction finishes without a new column, the pass is run
@@ -379,7 +380,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //  - HE_CUTBLIND (0 off, 1, 2): the heuristic elementarity level ignores
     //    cut memory in dominance. Mode 1 replaces the level. Mode 2 inserts
     //    the cut-blind pass before the legacy one (4-level ladder).
-    const int he_cutblind = env_int("KAYROS_BPC_HE_CUTBLIND", 0);
+    const int he_cutblind = env_int("KAYROS_BPC_HE_CUTBLIND", params.heuristic_cut_blind ? 1 : 0);
     if (he_cutblind < 0 || he_cutblind > 2) throw std::invalid_argument("KAYROS_BPC_HE_CUTBLIND must be 0, 1 or 2");
     vector<LabelingLevel> levels = {
         LabelingLevel::HeuristicCost, LabelingLevel::HeuristicElementarity, LabelingLevel::Exact};
@@ -442,14 +443,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         // Add iteration log.
         cg_execution_log->iterations->push_back(lbl_log);
         cg_execution_log->iterations->back()["iteration_name"] = level_names[heuristic_level];
-        cg_execution_log->iterations->back()["ms61_negative_routes"] = lbl.last_negative_count;
-        cg_execution_log->iterations->back()["ms61_near_routes"] = lbl.last_near_count;
-        cg_execution_log->iterations->back()["ms61_near_threshold"] = lbl.near_threshold;
-        cg_execution_log->iterations->back()["ms61_extended"] = lbl.last_extended;
-        cg_execution_log->iterations->back()["ms61_interrupted"] = exact_pass_interrupted;
-        cg_execution_log->iterations->back()["ms61_theta_size"] = relaxation_size();
-        cg_execution_log->iterations->back()["ms61_nonelementary_routes"] = lbl.last_nonelementary_count;
-        cg_execution_log->iterations->back()["ms61_bcp_elapsed_s"] =
+        cg_execution_log->iterations->back()["pricing_negative_routes"] = lbl.last_negative_count;
+        cg_execution_log->iterations->back()["pricing_near_routes"] = lbl.last_near_count;
+        cg_execution_log->iterations->back()["pricing_near_threshold"] = lbl.near_threshold;
+        cg_execution_log->iterations->back()["pricing_extended_labels"] = lbl.last_extended;
+        cg_execution_log->iterations->back()["pricing_interrupted"] = exact_pass_interrupted;
+        cg_execution_log->iterations->back()["pricing_relaxation_size"] = relaxation_size();
+        cg_execution_log->iterations->back()["pricing_nonelementary_routes"] = lbl.last_nonelementary_count;
+        cg_execution_log->iterations->back()["pricing_bcp_elapsed_s"] =
             (bcp.time_limit - bcp.deadline.Remaining()).Amount(DurationUnit::Seconds);
 
         // Update merge_start and closing_state.
@@ -721,13 +722,13 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"] = {{"cut_limit", params.cut_limit}, {"cut_violation_threshold", 0.1}, {"algorithm_epsilon", 1e-6}, {"solution_limit", params.solution_limit}, {"node_limit", params.node_limit}, {"stab_alpha", params.stab_alpha}, {"ng_routes", false}};
     result["effective_algorithm_settings"]["label_correction"] = lbl.correcting;
     result["effective_algorithm_settings"]["lazy_extension"] = lbl.lazy_extension;
-    result["effective_algorithm_settings"]["ms61"] = {
+    result["effective_algorithm_settings"]["pricing_options"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
         {"correction_switch", correction_switch}, {"dssr", dssr}, {"dssr_local", dssr_local}, {"dssr_auto_s", dssr_auto_s}, {"dssr_auto_labels", dssr_auto_labels},
         {"adapt_labels", adapt_labels}, {"dssr_growth", dssr_growth}, {"packed_filter", packed_filter}, {"he_cutblind", he_cutblind}, {"lam_iterate", lam_iterate},
         {"adapt_s", adapt_s}, {"merge_prefilter", merge_prefilter}, {"verify_final", verify_final}};
-    result["ms61_counters"] = {
+    result["pricing_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},
         {"near_columns_discarded", near_columns_discarded},
