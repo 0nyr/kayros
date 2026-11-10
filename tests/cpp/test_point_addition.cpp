@@ -44,6 +44,26 @@ void check(bool step_exact)
     const auto point = goc::PWLFunction::ConstantFunction(3.0, {4.0, 4.0});
     require((ordinary + point).MinValueAt(4.0) == 5.0,
             "Ordinary scalar-point addition must remain unchanged");
+
+    goc::PWLFunction boundary;
+    boundary.AddPiece(goc::LinearFunction({760.0, 43.0}, {770.0, 43.0}));
+    boundary.AddPiece(goc::LinearFunction({770.0, 43.0}, {770.0, 41.0}).as_choice_vertical());
+    for (const auto& sum : {boundary + travel, travel + boundary})
+        require(sum.MinValueAt(770.0) == 60.0,
+                "An ordinary segment followed by a boundary choice must retain the choice");
+
+    goc::PWLFunction jump;
+    jump.AddPiece(goc::LinearFunction({0.0, 2.0}, {1.0, 2.0}));
+    jump.AddPiece(goc::LinearFunction({1.0, 2.0}, {1.0, 8.0}));
+    jump.AddPiece(goc::LinearFunction({1.0, 8.0}, {2.0, 8.0}));
+    const auto at_jump = goc::PWLFunction::ConstantFunction(3.0, {1.0, 1.0});
+    for (const auto& sum : {jump + at_jump, at_jump + jump})
+    {
+        require(sum.PieceCount() == 2 && sum.Piece(1).is_jump_vertical(),
+                "The point-choice repair must leave the unrelated JUMP sweep unchanged");
+        require(sum.Value(1.0) == 5.0,
+                "The attained side of an unrelated JUMP must remain unchanged");
+    }
 }
 }
 

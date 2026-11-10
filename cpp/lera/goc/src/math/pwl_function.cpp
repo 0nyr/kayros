@@ -897,10 +897,10 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
         bool g_stack_next = hold_back_for_stacked_piece(g, j, pg);
         if (g_scalar_point && pf.is_choice_vertical() && i + 1 < f.PieceCount()
             && f.Piece(i + 1).is_choice_vertical()
-            && f.Piece(i + 1).domain.Includes(pg.domain.left)) f_stack_next = true;
+            && f.Piece(i + 1).domain.left == pg.domain.left) f_stack_next = true;
         if (f_scalar_point && pg.is_choice_vertical() && j + 1 < g.PieceCount()
             && g.Piece(j + 1).is_choice_vertical()
-            && g.Piece(j + 1).domain.Includes(pf.domain.left)) g_stack_next = true;
+            && g.Piece(j + 1).domain.left == pf.domain.left) g_stack_next = true;
         if (epsilon_equal(pf.domain.right, pg.domain.right))
         {
             if (f_stack_next) { ++i; }
