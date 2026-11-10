@@ -267,6 +267,11 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     if (near_rel < 0.0 || near_limit < 0)
         throw std::invalid_argument("KAYROS_BPC_NEAR_REL and KAYROS_BPC_NEAR_LIMIT must be non-negative");
     if (correction_switch >= 0) lbl.correcting = correction_switch != 0;
+    //  - PACKED (0 off, 1 on, 2 on with self-check): packed dominance filter,
+    //    a pure execution change (same labels, same order, same verdicts).
+    const int packed_filter = env_int("KAYROS_BPC_PACKED", 0);
+    if (packed_filter < 0 || packed_filter > 2) throw std::invalid_argument("KAYROS_BPC_PACKED must be 0, 1 or 2");
+    lbl.packed_filter = packed_filter;
     const int dssr = env_int("KAYROS_BPC_DSSR", 0);
     if (dssr < 0 || dssr > 2) throw std::invalid_argument("KAYROS_BPC_DSSR must be 0, 1 or 2");
     nyr::VertexSet theta;
@@ -549,7 +554,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"]["ms61"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
-        {"correction_switch", correction_switch}, {"dssr", dssr}};
+        {"correction_switch", correction_switch}, {"dssr", dssr}, {"packed_filter", packed_filter}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},

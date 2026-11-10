@@ -58,6 +58,20 @@ public:
 	typedef goc::VectorMap<nyr::CapacityUnit, BoundLevel> DemandLevel;
 	typedef std::vector<DemandLevel> DominanceStructure;
 	DominanceStructure U; // Indexed by last vertex, demand and sorted by c_min.
+
+	// (ms61) Packed dominance filter. A contiguous copy of the two fields
+	// every dominance scan reads first for each stored label (its sort key
+	// alpha and its unreachable set U), kept index-aligned with U. The scan
+	// then touches the Label itself only for the few labels that pass both
+	// tests, instead of chasing one pointer per stored label. Pure execution
+	// change: same labels, same order, same verdicts.
+	// packed_filter: 0 off, 1 on, 2 on with an alignment self-check on every
+	// scanned entry (validation runs only).
+	struct PackedEntry { double alpha; nyr::VertexSet U; };
+	// One packed bucket per demand key of U[v], in the same (sorted) order.
+	typedef std::vector<std::vector<PackedEntry>> PackedLevel;
+	std::vector<PackedLevel> packed_;
+	int packed_filter;
 	int processed_count; // Number of labels in the dominance structure.
 	
 	std::optional<TDNGNeighborhoods> ng; // Neighborhoods to use for the labeling algorithm.
@@ -111,6 +125,9 @@ private:
 	
 	// Resets the dominance structures and counters.
 	void Clean();
+
+	// (ms61) Rebuilds the packed copy of one bucket from its labels.
+	void RebuildPacked(std::vector<PackedEntry>& packed, const BoundLevel& labels) const;
 	
 	nyr::VRPInstance vrp_;
 	PricingProblem pp_;

@@ -185,6 +185,7 @@ BidirectionalLabeling::BidirectionalLabeling(
 	}
 {
 	solution_limit = INT_MAX;
+	packed_filter = 0;
 	theta_relaxation = false;
 	last_nonelementary_count = 0;
 	theta_growth_routes = 10;
@@ -307,6 +308,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	theta_eff_ = theta_relaxation && level == LabelingLevel::Exact && !step_pool_;
 	lbl_[0].theta_relaxation = lbl_[1].theta_relaxation = theta_eff_;
 	lbl_[0].theta = lbl_[1].theta = theta;
+	lbl_[0].packed_filter = lbl_[1].packed_filter = packed_filter;
 	
 	BLBExecutionLog log(true);
 	Stopwatch rolex(false), merge_rolex(false);

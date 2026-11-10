@@ -125,10 +125,12 @@ MonodirectionalLabeling::MonodirectionalLabeling(
 	partial = limited_extension = lazy_extension = unreachable_strengthened = sort_by_cost = true;
 	elementary_check_relaxation = cost_check_relaxation = ng_routes_relaxation = false;
 	theta_relaxation = false;
+	packed_filter = 0;
 	processed_count = 0;
 	
 	t_m = vrp.T;
 	U = vector<DemandLevel>(vrp.D.NbVertices());
+	packed_ = vector<PackedLevel>(vrp.D.NbVertices());
 	
 	// no-label is a label that represents the empty path.
 	no_label.parent = nullptr;
@@ -435,14 +437,32 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 	double l_beta = beta(l, partial);
 	trace_domination_detail = trace::on() && trace::prefix_len(l) > 0;
 	
+	auto packed_it = packed_[l->v].begin();
 	for (auto& demand_entry : U[l->v])
 	{
 		if (epsilon_bigger(demand_entry.first, l->q)) break;
-		for (auto& m: demand_entry.second)
+		const vector<PackedEntry>* packed = nullptr;
+		if (packed_filter) { packed = &*packed_it; ++packed_it; }
+		const BoundLevel& bucket = demand_entry.second;
+		if (packed && packed->size() != bucket.size())
+			throw std::logic_error("packed dominance filter out of sync with its bucket");
+		for (size_t k = 0; k < bucket.size(); ++k)
 		{
+			Label* m = bucket[k];
 			// We know that q(m) <= q(l), v(m) = v(l).
-			if (sort_by_cost && epsilon_bigger(alpha(m, partial), l_beta)) break;
-			if (!elementary_check_relaxation && !is_subset(m->U, l->U)) continue;
+			if (packed)
+			{
+				const PackedEntry& e = (*packed)[k];
+				if (packed_filter >= 2 && (e.alpha != alpha(m, partial) || e.U != m->U))
+					throw std::logic_error("packed dominance filter entry differs from its label");
+				if (sort_by_cost && epsilon_bigger(e.alpha, l_beta)) break;
+				if (!elementary_check_relaxation && !is_subset(e.U, l->U)) continue;
+			}
+			else
+			{
+				if (sort_by_cost && epsilon_bigger(alpha(m, partial), l_beta)) break;
+				if (!elementary_check_relaxation && !is_subset(m->U, l->U)) continue;
+			}
 			
 			if (!cost_check_relaxation)
 			{
@@ -489,14 +509,26 @@ int MonodirectionalLabeling::CorrectionStep(Label* m)
 {
 	if (cost_check_relaxation) return 0;
 	int removed = 0;
+	auto packed_it = packed_[m->v].rbegin();
 	for (auto it_d = U[m->v].rbegin(); it_d != U[m->v].rend(); ++it_d)
 	{
 		auto& demand_entry = *it_d;
 		if (epsilon_smaller(demand_entry.first, m->q)) break;
+		vector<PackedEntry>* packed = nullptr;
+		if (packed_filter) { packed = &*packed_it; ++packed_it; }
+		if (packed && packed->size() != demand_entry.second.size())
+			throw std::logic_error("packed dominance filter out of sync with its bucket");
 		bool changed_cost = false;
 		for (int j = 0; j < demand_entry.second.size(); ++j)
 		{
+			if (packed)
+			{
+				// Same test as below, read from the packed copy.
+				if (!elementary_check_relaxation && !is_subset(m->U, (*packed)[j].U)) continue;
+			}
 			Label* l = demand_entry.second[j];
+			if (packed_filter >= 2 && packed && (*packed)[j].U != l->U)
+				throw std::logic_error("packed dominance filter entry differs from its label");
 			if (!elementary_check_relaxation && !is_subset(m->U, l->U)) continue;
 			if (!cost_check_relaxation)
 			{
@@ -518,6 +550,7 @@ int MonodirectionalLabeling::CorrectionStep(Label* m)
 					// If l is fully dominated, remove.
 					retired_labels_.push_back(l);
 					demand_entry.second.erase(demand_entry.second.begin()+j);
+					if (packed) packed->erase(packed->begin()+j);
 					--j;
 					++removed;
 				}
@@ -530,6 +563,8 @@ int MonodirectionalLabeling::CorrectionStep(Label* m)
 				std::stable_sort(demand_entry.second.begin(), demand_entry.second.end(),
 					[&](Label* a, Label* b) { return alpha(a, partial) < alpha(b, partial); });
 			corrected_merge_buckets_.emplace_back(m->v, demand_entry.first);
+			// Sort keys changed and the bucket may have been reordered.
+			if (packed) RebuildPacked(*packed, demand_entry.second);
 		}
 	}
 	return removed;
@@ -538,6 +573,29 @@ int MonodirectionalLabeling::CorrectionStep(Label* m)
 void MonodirectionalLabeling::ProcessStep(Label* l)
 {
 	// (If domination structure) insert label l into the dominance structure U.
+	if (packed_filter)
+	{
+		// (ms61) Same insertion as below, mirrored at the same index in the
+		// packed copy.
+		const CapacityUnit key = floor(l->q);
+		BoundLevel& bucket = U[l->v].Insert(key, {});
+		// Mirror VectorMap::Insert: a new demand key opens an empty packed
+		// bucket at the same sorted position.
+		size_t key_index = 0;
+		for (auto& entry: U[l->v]) { if (entry.first == key) break; ++key_index; }
+		PackedLevel& level = packed_[l->v];
+		if (level.size() < (size_t) (U[l->v].end() - U[l->v].begin())) level.insert(level.begin() + key_index, vector<PackedEntry>());
+		vector<PackedEntry>& packed = level[key_index];
+		if (packed.size() != bucket.size())
+			throw std::logic_error("packed dominance filter out of sync with its bucket");
+		size_t position = bucket.size();
+		if (sort_by_cost)
+			position = std::upper_bound(bucket.begin(), bucket.end(), l,
+				[&](Label* l1, Label* l2) { return alpha(l1, partial) < alpha(l2, partial); }) - bucket.begin();
+		bucket.insert(bucket.begin() + position, l);
+		packed.insert(packed.begin() + position, PackedEntry{alpha(l, partial), l->U});
+		return;
+	}
 	if (sort_by_cost) insert_sorted(U[l->v].Insert(floor(l->q), {}), l, [&](Label* l1, Label* l2) { return alpha(l1, partial) < alpha(l2, partial); });
 	else U[l->v].Insert(floor(l->q), {}).push_back(l); // else, just push it to the end of the list.
 }
@@ -580,5 +638,12 @@ void MonodirectionalLabeling::Clean()
 	retired_labels_.clear();
 	corrected_merge_buckets_.clear();
 	U = vector<DemandLevel>(vrp_.D.NbVertices());
+	packed_ = vector<PackedLevel>(vrp_.D.NbVertices());
+}
+
+void MonodirectionalLabeling::RebuildPacked(vector<PackedEntry>& packed, const BoundLevel& labels) const
+{
+	packed.resize(labels.size());
+	for (size_t k = 0; k < labels.size(); ++k) packed[k] = PackedEntry{alpha(labels[k], partial), labels[k]->U};
 }
 } // solver

@@ -60,6 +60,7 @@ public:
 	// negative ones are reported in last_repeated, for the caller to grow
 	// theta. The relaxed pass proves that no negative elementary route exists
 	// only when it Finished with last_nonelementary_count == 0.
+	int packed_filter; // (ms61) see MonodirectionalLabeling::packed_filter.
 	bool theta_relaxation;
 	nyr::VertexSet theta;
 	int last_nonelementary_count;
