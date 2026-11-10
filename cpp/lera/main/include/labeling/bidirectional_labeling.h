@@ -53,6 +53,19 @@ public:
 	// only. last_negative_count is the number of leading negative routes in
 	// the R of the last Run. Inactive (bit-identical legacy behaviour) when
 	// near_threshold <= 0 or on the path-keyed step pool.
+	// (ms61) Decremental state-space relaxation for the Exact level. When
+	// theta_relaxation is set, both labelings enforce elementarity on theta
+	// only. Negative routes that repeat a vertex are NOT returned: they are
+	// counted (last_nonelementary_count) and the vertices repeated by the most
+	// negative ones are reported in last_repeated, for the caller to grow
+	// theta. The relaxed pass proves that no negative elementary route exists
+	// only when it Finished with last_nonelementary_count == 0.
+	bool theta_relaxation;
+	nyr::VertexSet theta;
+	int last_nonelementary_count;
+	nyr::VertexSet last_repeated;
+	int theta_growth_routes; // number of most negative non-elementary routes feeding last_repeated.
+
 	double near_threshold;
 	int near_limit;
 	int near_pool_cap; // hard cap on kept near entries (memory guard).
@@ -131,7 +144,14 @@ private:
 	size_t negative_count_ = 0;
 	size_t near_count_ = 0;
 	double near_eff_ = 0.0; // threshold in force for the current Run (0 = legacy).
-	size_t pool_size() const { return step_pool_ ? S_paths.size() : (near_eff_ > 0.0 ? negative_count_ : S.size()); }
+	bool theta_eff_ = false; // relaxation in force for the current Run.
+	size_t nonelementary_count_ = 0;
+	std::vector<std::pair<double, nyr::VertexSet>> nonelementary_best_; // (reduced cost, repeated vertices), bounded.
+	size_t pool_size() const
+	{
+		if (step_pool_) return S_paths.size();
+		return (near_eff_ > 0.0 ? negative_count_ : S.size()) + (theta_eff_ ? nonelementary_count_ : 0);
+	}
 };
 } // namespace
 

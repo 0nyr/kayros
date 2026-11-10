@@ -185,6 +185,9 @@ BidirectionalLabeling::BidirectionalLabeling(
 	}
 {
 	solution_limit = INT_MAX;
+	theta_relaxation = false;
+	last_nonelementary_count = 0;
+	theta_growth_routes = 10;
 	near_threshold = 0.0;
 	near_limit = 0;
 	near_pool_cap = 200000;
@@ -271,6 +274,10 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	negative_count_ = near_count_ = 0;
 	near_eff_ = (!step_pool_ && near_threshold > 0.0 && near_limit > 0) ? near_threshold : 0.0;
 	last_negative_count = last_near_count = 0;
+	nonelementary_count_ = 0;
+	nonelementary_best_.clear();
+	last_nonelementary_count = 0;
+	last_repeated = {};
 	M[0] = M[1] = vector<MonodirectionalLabeling::DemandLevel>(vrp_.D.NbVertices());
 	
 	// Set pricing problem.
@@ -295,6 +302,11 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	lbl_[0].sort_by_cost = lbl_[1].sort_by_cost = sort_by_cost;
 	lbl_[0].unreachable_strengthened = lbl_[1].unreachable_strengthened = unreachable_strengthened;
 	lbl_[0].correcting = lbl_[1].correcting = correcting;
+	// (ms61) The relaxation only ever applies to the Exact level, and never on
+	// the path-keyed step pool.
+	theta_eff_ = theta_relaxation && level == LabelingLevel::Exact && !step_pool_;
+	lbl_[0].theta_relaxation = lbl_[1].theta_relaxation = theta_eff_;
+	lbl_[0].theta = lbl_[1].theta = theta;
 	
 	BLBExecutionLog log(true);
 	Stopwatch rolex(false), merge_rolex(false);
@@ -463,6 +475,14 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		}
 	}
 	if (near_eff_ <= 0.0) last_negative_count = (int) R->size();
+	if (theta_eff_)
+	{
+		last_nonelementary_count = (int) nonelementary_count_;
+		for (auto& entry: nonelementary_best_) last_repeated |= entry.second;
+		// A pass that saw negative non-elementary routes has not explored
+		// the elementary problem exhaustively: never report it as Finished.
+		if (nonelementary_count_ > 0 && log.status == BLBStatus::Finished) log.status = BLBStatus::SolutionLimitReached;
+	}
 	
 	return log;
 }
@@ -673,6 +693,29 @@ void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_dura
 		return;
 	}
 	VertexSet V = create_bitset<MAX_N>(p);
+	if (theta_eff_ && V.count() != p.size())
+	{
+		// (ms61) Negative (or near-zero) route of the relaxed space that
+		// repeats a vertex: not a column. Remember which vertices the most
+		// negative ones repeat.
+		if (!epsilon_smaller(reduced_cost, 0.0)) return;
+		++nonelementary_count_;
+		VertexSet seen, repeated;
+		for (auto v: p) { if (seen.test(v)) repeated.set(v); seen.set(v); }
+		auto worse = [](const pair<double, VertexSet>& a, const pair<double, VertexSet>& b) { return a.first < b.first; };
+		if ((int) nonelementary_best_.size() < theta_growth_routes)
+		{
+			nonelementary_best_.push_back({reduced_cost, repeated});
+			std::push_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
+		}
+		else if (reduced_cost < nonelementary_best_.front().first)
+		{
+			std::pop_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
+			nonelementary_best_.back() = {reduced_cost, repeated};
+			std::push_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
+		}
+		return;
+	}
 	if (near_eff_ > 0.0)
 	{
 		// (ms61) Same keying and same best-duration replacement rule as the

@@ -236,6 +236,15 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //    new negative column also contributes up to NEAR_LIMIT routes whose
     //    labeling reduced cost lies in [0, NEAR_REL * mean customer dual).
     //  - CORRECTION (-1 keep default, 0 off, 1 on): label correction step.
+    //  - DSSR (0 off, 1, 2): the Exact level runs as a decremental
+    //    state-space relaxation. Elementarity is enforced on a critical
+    //    vertex set theta only, which starts empty, persists for the whole
+    //    solve and grows with the vertices repeated by the most negative
+    //    non-elementary routes. Only elementary routes become columns. A pass
+    //    proves the absence of negative elementary routes only when it
+    //    Finished without any negative route of the relaxed space, repeated
+    //    vertices or not. Mode 1 grows theta when a pass yields no new
+    //    column, mode 2 after every pass that met a non-elementary route.
     auto env_int = [](const char* name, int fallback) {
         const char* v = std::getenv(name);
         return v && *v ? std::atoi(v) : fallback;
@@ -258,6 +267,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     if (near_rel < 0.0 || near_limit < 0)
         throw std::invalid_argument("KAYROS_BPC_NEAR_REL and KAYROS_BPC_NEAR_LIMIT must be non-negative");
     if (correction_switch >= 0) lbl.correcting = correction_switch != 0;
+    const int dssr = env_int("KAYROS_BPC_DSSR", 0);
+    if (dssr < 0 || dssr > 2) throw std::invalid_argument("KAYROS_BPC_DSSR must be 0, 1 or 2");
+    nyr::VertexSet theta;
+    int theta_growths = 0, dssr_reruns = 0;
     int dropback_count = 0, early_cut_rounds = 0, early_cut_count = 0;
     long long near_columns_added = 0, near_columns_discarded = 0;
     bool exact_state_saved = false, saved_closing_state = false;
@@ -287,6 +300,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             }
             if (dual_count > 0) lbl.near_threshold = near_rel * dual_sum / dual_count;
         }
+        lbl.theta_relaxation = dssr > 0;
+        lbl.theta = theta;
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
         last_negative = lbl.last_negative_count;
         last_exact_finished = heuristic_level == levels.size() - 1 && lbl_log.status == BLBStatus::Finished;
@@ -298,6 +313,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         cg_execution_log->iterations->back()["ms61_negative_routes"] = lbl.last_negative_count;
         cg_execution_log->iterations->back()["ms61_near_routes"] = lbl.last_near_count;
         cg_execution_log->iterations->back()["ms61_near_threshold"] = lbl.near_threshold;
+        cg_execution_log->iterations->back()["ms61_theta_size"] = (int) theta.count();
+        cg_execution_log->iterations->back()["ms61_nonelementary_routes"] = lbl.last_nonelementary_count;
         cg_execution_log->iterations->back()["ms61_bcp_elapsed_s"] =
             (bcp.time_limit - bcp.deadline.Remaining()).Amount(DurationUnit::Seconds);
 
@@ -408,6 +425,11 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             const size_t negative = std::min<size_t>(R.size(), (size_t) std::max(last_negative, 0));
             added = add_columns(R, 0, negative);
             if (at_exact) exact_productive_since_cuts = added > 0 && last_exact_finished;
+            if (added > 0 && at_exact && dssr == 2 && lbl.last_nonelementary_count > 0) {
+                const nyr::VertexSet before = theta;
+                theta |= lbl.last_repeated;
+                if (theta != before) ++theta_growths;
+            }
             if (added > 0) {
                 // (ms61) Near-zero routes ride along with a productive pass
                 // only. A pass without a new negative column discards them,
@@ -425,6 +447,19 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 break;
             }
             near_columns_discarded += (long long) (R.size() - negative);
+            if (at_exact && dssr > 0 && lbl.last_nonelementary_count > 0) {
+                // (ms61) The relaxed pass met negative routes that repeat a
+                // vertex and produced no new column: tighten the relaxation
+                // and run the Exact level again. A route of the relaxed space
+                // never repeats a vertex of theta, so theta strictly grows.
+                const nyr::VertexSet before = theta;
+                theta |= lbl.last_repeated;
+                if (theta == before)
+                    throw std::logic_error("DSSR: non-elementary route without a vertex to add to theta");
+                ++theta_growths;
+                ++dssr_reruns;
+                continue;
+            }
             if (at_exact) {
                 // The Exact level contributed nothing new: pricing exhausted.
                 // (If it still REPORTED a negative-reduced-cost duplicate, the
@@ -514,11 +549,12 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"]["ms61"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},
-        {"correction_switch", correction_switch}};
+        {"correction_switch", correction_switch}, {"dssr", dssr}};
     result["ms61_counters"] = {
         {"dropbacks", dropback_count}, {"early_cut_rounds", early_cut_rounds},
         {"early_cut_count", early_cut_count}, {"near_columns_added", near_columns_added},
-        {"near_columns_discarded", near_columns_discarded}};
+        {"near_columns_discarded", near_columns_discarded},
+        {"theta_size", (int) theta.count()}, {"theta_growths", theta_growths}, {"dssr_reruns", dssr_reruns}};
     result["exact_log"] = log;
     result["bound_events"] = bound_events;
     result["closure_census"] = closure_census();

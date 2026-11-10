@@ -46,6 +46,12 @@ public:
 	bool elementary_check_relaxation; // Indicates if dominance S(M) \subseteq S(L) should be ignored (heuristically).
 	bool cost_check_relaxation; // Indicates if dominance c_M(t) <= c_L(t) should be ignored (heuristically).
 	bool ng_routes_relaxation; // Indicates if NG-routes relaxation is be used.
+	// (ms61) Decremental state-space relaxation: elementarity is enforced on
+	// the vertices of theta only, i.e. S(l) = (visited(l) ∩ theta) ∪ {v(l)}.
+	// A valid relaxation of the elementary pricing problem, exact when
+	// theta holds every customer.
+	bool theta_relaxation;
+	nyr::VertexSet theta;
 
 	// Dominance structure.
 	typedef std::vector<Label*> BoundLevel;
