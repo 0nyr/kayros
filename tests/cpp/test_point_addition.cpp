@@ -49,7 +49,16 @@ void check(bool step_exact)
 
 int main()
 {
-    check(false);
-    check(true);
-    std::cout << "Point-addition and tight-extension invariants pass in legacy and step-exact modes\n";
+    try
+    {
+        check(false);
+        check(true);
+        std::cout << "Point-addition and tight-extension invariants pass in legacy and step-exact modes\n";
+        return 0;
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr << error.what() << '\n';
+        return 1;
+    }
 }
