@@ -16,6 +16,7 @@
 #include "goc/linear_programming/cplex/cplex_solver.h"
 #include "goc/linear_programming/cplex/cplex_wrapper.h"
 #include "goc/linear_programming/cplex/cplex_formulation.h"
+#include "cplex_variable_domains.h"
 
 using namespace std;
 using namespace nlohmann;
@@ -482,9 +483,7 @@ LPExecutionLog solve_lp(CplexFormulation* formulation, ostream* screen_output, D
 	
 	// Change problem to LP, but before save the domain of variables, because changing the problem type to LP erases
 	// them.
-	vector<VariableDomain> variable_domains(formulation->VariableCount());
-	for (int i = 0; i < formulation->VariableCount(); ++i)
-		variable_domains[i] = formulation->GetVariableDomain(formulation->VariableAtIndex(i));
+	detail::VariableDomains variable_domains(formulation);
 	cplex::chgprobtype(formulation->Environment(), formulation->Problem(), CPXPROB_LP);
 	
 	// Optimize.
@@ -502,8 +501,7 @@ LPExecutionLog solve_lp(CplexFormulation* formulation, ostream* screen_output, D
 	extract_cplex_lp_execution_info(formulation, &execution_log, options);
 	
 	// Return the variable domain to all variables.
-	for (int i = 0; i < formulation->VariableCount(); ++i)
-		formulation->SetVariableDomain(formulation->VariableAtIndex(i), variable_domains[i]);
+	variable_domains.Restore(formulation);
 	
 	return execution_log;
 }

@@ -108,3 +108,10 @@ target_compile_options(_lera PRIVATE -ffp-contract=off)
 target_link_libraries(_lera PRIVATE lera)
 
 install(TARGETS _lera DESTINATION kayros)
+
+if(LERA_LP_BACKEND STREQUAL "cplex")
+    add_executable(ms58_cplex_domain_fixture EXCLUDE_FROM_ALL
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/cpp/test_cplex_variable_domains.cpp)
+    target_compile_options(ms58_cplex_domain_fixture PRIVATE -ffp-contract=off)
+    target_link_libraries(ms58_cplex_domain_fixture PRIVATE lera)
+endif()
