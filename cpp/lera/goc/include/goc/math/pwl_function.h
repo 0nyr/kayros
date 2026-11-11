@@ -26,16 +26,20 @@ namespace goc
 //           hold an operand back for any stacked boundary piece. These rules
 //           are what the exact value-jump labeling needs on step-carrying
 //           (stepwise-ATF) instances.
-//   false = the pre-M13.0 (kayros 1.0.0) rules, which preserve only JUMP
+//   false = the pre-M13.0 (kayros 1.0.0) rules with the scalar-point addition
+//           repair, which preserve only JUMP
 //           verticals in Compose, pair operator+ verticals by image order, and
 //           hold back only for a boundary vertical after a non-vertical piece.
+//           Addition also retains a single nonvertical point operand across
+//           stacked CHOICE pieces at exactly the same abscissa.
 //
 // Why the switch exists: CHOICE verticals (from Inverse of a departure
 // plateau) and set-valued label durations occur on JUMP-FREE instances too, so
 // the M13.0 rules were never confined to the exact path the way M13.0 assumed.
 // On jump-free instances they change the audited v1.0.0 arithmetic and
-// over-certify (M13.3). The flag restores the documented intent: jump-free
-// solves take the v1.0.0 arithmetic bit-identically.
+// over-certify (M13.3). The flag retains the legacy arithmetic on jump-free
+// solves, except for the scalar-point addition repair needed to preserve all
+// attainable departure choices on a tight connection.
 //
 // Process-global, defaulting to the M13.0 rules (the library semantics the goc
 // unit tests pin). `kayros::lera::solve_duration_json` sets it per solve from

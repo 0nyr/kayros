@@ -5,6 +5,7 @@
 //
 
 #include <mutex>
+#include "goc/linear_programming/solver/ablation_settings.h"
 
 #include "goc/collection/collection_utils.h"
 #include "goc/string/string_utils.h"
@@ -15,6 +16,7 @@
 #include "goc/linear_programming/cplex/cplex_solver.h"
 #include "goc/linear_programming/cplex/cplex_wrapper.h"
 #include "goc/linear_programming/cplex/cplex_formulation.h"
+#include "cplex_variable_domains.h"
 
 using namespace std;
 using namespace nlohmann;
@@ -59,6 +61,11 @@ void apply_configuration(CplexFormulation* formulation, const json& config)
 {
 	// Reset parameters of the formulation to the default values.
 	cplex::setdefaults(formulation->Environment());
+	cplex::setintparam(formulation->Environment(), CPX_PARAM_THREADS, 1);
+    cplex::setdblparam(formulation->Environment(), CPX_PARAM_EPRHS, 1e-7);
+    cplex::setdblparam(formulation->Environment(), CPX_PARAM_EPOPT, 1e-7);
+    cplex::setdblparam(formulation->Environment(), CPX_PARAM_EPINT, 1e-6);
+    cplex::setdblparam(formulation->Environment(), CPX_PARAM_EPGAP, 0.0);
 	
 	// Add new parameters.
 	for (auto it_param = config.begin(); it_param != config.end(); ++it_param)
@@ -78,6 +85,25 @@ void apply_configuration(CplexFormulation* formulation, const json& config)
 			cplex::setstrparam(formulation->Environment(), whichparam, STR(it_param.value()).c_str());
 		else fail("Unrecognized CPLEX parameter: " + param_name);
 	}
+}
+
+void record_ablation_settings(CplexFormulation* formulation, const string& phase)
+{
+    auto env = formulation->Environment();
+    json record = {{"backend", "CPLEX"}, {"version", CPXversion(env)}};
+    for (auto item : vector<pair<string,int>>{{"threads", CPX_PARAM_THREADS}, {"lp_method", CPX_PARAM_LPMETHOD},
+            {"presolve", CPX_PARAM_PREIND}, {"reduction", CPX_PARAM_REDUCE}, {"scaling", CPX_PARAM_SCAIND},
+            {"parallel", CPX_PARAM_PARALLELMODE}, {"random_seed", CPX_PARAM_RANDOMSEED}}) {
+        CPXINT value; cplex::getintparam(env, item.second, &value); record[item.first] = value;
+    }
+    for (auto item : vector<pair<string,int>>{{"primal_feasibility_tolerance", CPX_PARAM_EPRHS},
+            {"dual_feasibility_tolerance", CPX_PARAM_EPOPT}, {"integrality_tolerance", CPX_PARAM_EPINT},
+            {"mip_relative_gap", CPX_PARAM_EPGAP}}) {
+        double value; cplex::getdblparam(env, item.second, &value); record[item.first] = value;
+    }
+    auto& all = ablation_backend_settings();
+    int count = all.find(phase) != all.end() ? all[phase].value("calls", 0) : 0;
+    record["calls"] = count+1; all[phase] = record;
 }
 
 // Adds the initial solutions provided to the formulation as MIPstarts.
@@ -457,13 +483,12 @@ LPExecutionLog solve_lp(CplexFormulation* formulation, ostream* screen_output, D
 	
 	// Change problem to LP, but before save the domain of variables, because changing the problem type to LP erases
 	// them.
-	vector<VariableDomain> variable_domains(formulation->VariableCount());
-	for (int i = 0; i < formulation->VariableCount(); ++i)
-		variable_domains[i] = formulation->GetVariableDomain(formulation->VariableAtIndex(i));
+	detail::VariableDomains variable_domains(formulation);
 	cplex::chgprobtype(formulation->Environment(), formulation->Problem(), CPXPROB_LP);
 	
 	// Optimize.
 	Stopwatch rolex(true);
+	record_ablation_settings(formulation, "lp");
 	cplex::lpopt(formulation->Environment(), formulation->Problem());
 	rolex.Pause();
 	
@@ -476,8 +501,7 @@ LPExecutionLog solve_lp(CplexFormulation* formulation, ostream* screen_output, D
 	extract_cplex_lp_execution_info(formulation, &execution_log, options);
 	
 	// Return the variable domain to all variables.
-	for (int i = 0; i < formulation->VariableCount(); ++i)
-		formulation->SetVariableDomain(formulation->VariableAtIndex(i), variable_domains[i]);
+	variable_domains.Restore(formulation);
 	
 	return execution_log;
 }
@@ -531,6 +555,7 @@ BCExecutionLog solve_bc(CplexFormulation* formulation, ostream* screen_output, D
 	
 	// Optimize.
 	Stopwatch rolex(true);
+	record_ablation_settings(formulation, "mip");
 	cplex::mipopt(formulation->Environment(), formulation->Problem());
 	rolex.Pause();
 	

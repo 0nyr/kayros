@@ -9,7 +9,10 @@
 #include "bcp/pricing_problem.h"
 
 #include <climits>
+#include <algorithm>
 #include <cstdlib>
+#include <stdexcept>
+#include <string>
 
 #include "labeling/trace.h"
 
@@ -182,6 +185,22 @@ BidirectionalLabeling::BidirectionalLabeling(
 	}
 {
 	solution_limit = INT_MAX;
+	packed_filter = 0;
+	last_complete = false;
+	extended_budget = 0;
+	last_budget_exhausted = false;
+	last_extended = 0;
+	merge_prefilter = false;
+	merge_prefilter_hits = 0;
+	heuristic_cut_blind = false;
+	last_arc_merge_iterate = false;
+	theta_relaxation = false;
+	last_nonelementary_count = 0;
+	theta_growth_routes = 10;
+	near_threshold = 0.0;
+	near_limit = 0;
+	near_pool_cap = 200000;
+	last_negative_count = last_near_count = 0;
 	time_limit = Duration::Max();
 	screen_output = nullptr;
 	closing_state = true;
@@ -190,7 +209,8 @@ BidirectionalLabeling::BidirectionalLabeling(
 	lbl_[0].cross = false, lbl_[1].cross = true;
 	partial = limited_extension = lazy_extension = unreachable_strengthened = sort_by_cost = true;
 	elementary_check_relaxation = cost_check_relaxation = ng_routes_relaxation = false;
-	correcting = false;
+	// Experimental private candidate. Native callers can explicitly disable correction.
+	correcting = true;
 	// M5.9: `symmetric` was NEVER initialized (upstream set it from the
 	// experiment JSON, e.g. bpc_lera.json: false; the vendoring dropped that
 	// wiring), so line ~172 read an indeterminate value: per-binary-
@@ -253,9 +273,21 @@ BLBExecutionLog BidirectionalLabeling::Run(
     std::vector<Route>* R,
     LabelingLevel level
 ) {
+	if (correcting && !lazy_extension)
+		throw std::invalid_argument("Label correction requires lazy extension");
+
 	// Clean solution pool.
 	S.clear();
 	S_paths.clear(); // M13.0 path-keyed pool (step-carrying instances)
+	S_rc.clear();
+	negative_count_ = near_count_ = 0;
+	near_eff_ = (!step_pool_ && near_threshold > 0.0 && near_limit > 0) ? near_threshold : 0.0;
+	last_negative_count = last_near_count = 0;
+	nonelementary_count_ = 0;
+	nonelementary_best_.clear();
+	last_nonelementary_count = 0;
+	last_repeated = {};
+	last_nonelementary_paths.clear();
 	M[0] = M[1] = vector<MonodirectionalLabeling::DemandLevel>(vrp_.D.NbVertices());
 	
 	// Set pricing problem.
@@ -280,8 +312,18 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	lbl_[0].sort_by_cost = lbl_[1].sort_by_cost = sort_by_cost;
 	lbl_[0].unreachable_strengthened = lbl_[1].unreachable_strengthened = unreachable_strengthened;
 	lbl_[0].correcting = lbl_[1].correcting = correcting;
+	// (ms61) The relaxation only ever applies to the Exact level, and never on
+	// the path-keyed step pool.
+	theta_eff_ = theta_relaxation && level == LabelingLevel::Exact && !step_pool_;
+	lbl_[0].theta_relaxation = lbl_[1].theta_relaxation = theta_eff_;
+	lbl_[0].theta = lbl_[1].theta = theta;
+	lbl_[0].theta_local = lbl_[1].theta_local = theta_local;
+	lbl_[0].packed_filter = lbl_[1].packed_filter = packed_filter;
+	lbl_[0].cut_blind_dominance = lbl_[1].cut_blind_dominance =
+		heuristic_cut_blind && level != LabelingLevel::Exact && (cost_check_relaxation || elementary_check_relaxation);
 	
 	BLBExecutionLog log(true);
+	last_budget_exhausted = false;
 	Stopwatch rolex(false), merge_rolex(false);
 	run_deadline_ = Deadline::In(time_limit); // (kayros M5.2)
 	
@@ -318,13 +360,29 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			// kayros (M13.2): sticky memory watermark; also catches a
 			// monodirectional Run below that broke on MemoryLimitReached.
 			if (MemoryMonitor::Exceeded()) { log.status = BLBStatus::MemoryLimitReached; break; }
+			if (extended_budget > 0 && (long long) *mlb_log[0]->extended_count + (long long) *mlb_log[1]->extended_count >= extended_budget)
+			{
+				// (ms61) Work budget reached: same exit as a time limit.
+				last_budget_exhausted = true;
+				log.status = BLBStatus::TimeLimitReached;
+				break;
+			}
 			lbl_[d].time_limit = time_limit - rolex.Peek(); // Set time limit.
 			auto P = lbl_[d].Run(&q[d], mlb_log[d]);
+			if (correcting)
+			{
+				merge_rolex.Reset().Resume();
+				RefreshCorrectedMergeLabels(d);
+				*log.merge_time += merge_rolex.Pause();
+			}
 			
 			// If iterative-merge is enabled, then add the labels to the structure.
 			if (!closing_state)
 				for (Label* l: P)
+				{
+					if (correcting && l->duration.Empty()) continue;
 					insert_sorted(M[d][l->v].Insert(floor(l->q), {}), l, [] (Label* l, Label* m) { return l->min_cost < m->min_cost; });
+				}
 			
 			// If iterative-merge is enabled, then try to merge.
 			if (!closing_state && log.forward_log->processed_count >= merge_start)
@@ -341,7 +399,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			// Check if any full route was generated.
 			for (Label* l: P)
 				if (d == 0 && l->v == vrp_.d && epsilon_smaller(l->min_cost, 0.0))
-					AddSolution(l->Path(), min(img(l->duration)));
+					AddSolution(l->Path(), min(img(l->duration)), l->min_cost);
 			
 			// Update t_m.
 			if (q[d].empty()) lbl_[d].t_m = vrp_.T - lbl_[od].t_m; // If d has no more labels in the queue, the middle is t_m
@@ -362,7 +420,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	
 	// Last-edge merge.
 	// kayros (M13.2): a memory-tripped run must not start the merge tail.
-	if (pool_size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached)
+	if (pool_size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached && !last_budget_exhausted)
 	{
 		merge_rolex.Reset().Resume();
 		LastArcMerge(q[0], lbl_[1].U);
@@ -402,6 +460,34 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			reprice_into_R(P_r.second);
 		}
 	}
+	else if (near_eff_ > 0.0)
+	{
+		// (ms61) Negative routes first (pool iteration order), then the best
+		// near-zero ones by labeling reduced cost.
+		vector<pair<double, const Route*>> near;
+		for (auto& V_r: S)
+		{
+			if (run_deadline_.Reached()) break;
+			if (epsilon_smaller(S_rc[V_r.first], 0.0)) reprice_into_R(V_r.second);
+			else near.push_back({S_rc[V_r.first], &V_r.second});
+		}
+		last_negative_count = (int) R->size();
+		if ((int) near.size() > near_limit)
+		{
+			std::nth_element(near.begin(), near.begin() + near_limit, near.end(),
+				[](const pair<double, const Route*>& a, const pair<double, const Route*>& b) { return a.first < b.first; });
+			near.resize(near_limit);
+		}
+		std::sort(near.begin(), near.end(),
+			[](const pair<double, const Route*>& a, const pair<double, const Route*>& b) {
+				return a.first < b.first || (a.first == b.first && a.second->path < b.second->path); });
+		for (auto& n: near)
+		{
+			if (run_deadline_.Reached()) break;
+			reprice_into_R(*n.second);
+		}
+		last_near_count = (int) R->size() - last_negative_count;
+	}
 	else
 	{
 		for (auto& V_r: S)
@@ -410,12 +496,52 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			reprice_into_R(V_r.second);
 		}
 	}
+	if (near_eff_ <= 0.0) last_negative_count = (int) R->size();
+	last_complete = log.status == BLBStatus::Finished;
+	last_extended = (long long) *mlb_log[0]->extended_count + (long long) *mlb_log[1]->extended_count;
+	if (theta_eff_)
+	{
+		last_nonelementary_count = (int) nonelementary_count_;
+		for (auto& entry: nonelementary_best_)
+		{
+			VertexSet seen;
+			for (auto v: entry.second) { if (seen.test(v)) last_repeated.set(v); seen.set(v); }
+			last_nonelementary_paths.push_back(entry.second);
+		}
+		// A pass that saw negative non-elementary routes has not explored
+		// the elementary problem exhaustively: never report it as Finished.
+		if (nonelementary_count_ > 0 && log.status == BLBStatus::Finished) log.status = BLBStatus::SolutionLimitReached;
+	}
 	
 	return log;
 }
 
+void BidirectionalLabeling::RefreshCorrectedMergeLabels(int direction)
+{
+	auto& changed = lbl_[direction].corrected_merge_buckets_;
+	if (!closing_state)
+	{
+		std::sort(changed.begin(), changed.end());
+		changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
+		for (const auto& [vertex, demand] : changed)
+			for (auto& entry : M[direction][vertex])
+			{
+				if (entry.first < demand) continue;
+				if (entry.first > demand) break;
+				auto& labels = entry.second;
+				labels.erase(std::remove_if(labels.begin(), labels.end(),
+					[](Label* label) { return label->duration.Empty(); }), labels.end());
+				std::stable_sort(labels.begin(), labels.end(),
+					[](Label* a, Label* b) { return a->min_cost < b->min_cost; });
+				break;
+			}
+	}
+	changed.clear();
+}
+
 void BidirectionalLabeling::IterativeMerge(Label* l, const MonodirectionalLabeling::DominanceStructure& L)
 {
+	if (correcting && l->duration.Empty()) return;
 	TimeUnit T = vrp_.T;
 	for (auto& demand_entry : L[l->v])
 	{
@@ -425,7 +551,7 @@ void BidirectionalLabeling::IterativeMerge(Label* l, const MonodirectionalLabeli
 		for (auto& m: demand_entry.second)
 		{
 			if (pool_size() >= solution_limit) break; // Do not exceed solution limit.
-			if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, 0.0)) break;
+			if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, near_eff_)) break;
 			Merge(l, m);
 		}
 	}
@@ -442,13 +568,22 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 			for (auto& m: entry.second)
 				insert_sorted(M[m->v][m->parent->v].Insert(entry.first, {}), m, [] (Label* m1, Label* m2) { return m1->min_cost < m2->min_cost; });
 	
-	while (!qf.empty())
+	// (ms61) See last_arc_merge_iterate. The pool never shrinks, so once the
+	// solution limit is reached nothing further can be merged.
+	struct QueueStorage : LBQueue
+	{
+		static const std::vector<LazyLabel>& of(const LBQueue& q) { return q.*&QueueStorage::c; }
+	};
+	const std::vector<LazyLabel>* storage = last_arc_merge_iterate ? &QueueStorage::of(qf) : nullptr;
+	size_t storage_index = 0;
+	while (storage ? storage_index < storage->size() : !qf.empty())
 	{
 		if (run_deadline_.Reached()) break; // (kayros M5.2)
-		LazyLabel ll = qf.top();
-		qf.pop();
+		LazyLabel ll = storage ? (*storage)[storage_index++] : qf.top();
+		if (!storage) qf.pop();
 		Label* l = ll.parent;
-		if (pool_size() >= solution_limit) continue;
+		if (correcting && l->duration.Empty()) continue;
+		if (pool_size() >= solution_limit) { if (storage) break; continue; }
 		
 		// M13.0 trace: is this pop the merge target's frontier arc?
 		bool tr_arc = trace::merge_fwd_prefix(l);
@@ -477,7 +612,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 			for (Label* m: entry.second)
 			{
 				if (pool_size() >= solution_limit) break; // Do not exceed solution limit.
-				if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, 0.0))
+				if (epsilon_bigger_equal(m->min_cost+l->min_cost+pp_.P[l->v] + l->cut_cost - l->parent->cut_cost, near_eff_))
 				{
 					if (tr_arc && trace::merge_bwd_suffix(m))
 						fprintf(stderr, "TRC LAM-CBREAK l=%s m=%s m_min_cost=%.6f l_min_cost=%.6f P=%.6f sum=%.6f\n",
@@ -494,6 +629,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 
 void BidirectionalLabeling::Merge(Label* l, Label* m)
 {
+	if (correcting && (l->duration.Empty() || m->duration.Empty())) return;
 	TimeUnit T = vrp_.T;
 
 	// M13.0 trace: full arithmetic of the witness pair's merge attempt.
@@ -511,6 +647,22 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 		return;
 	}
 	
+	// (ms61) Cut penalty of the merged route, needed by the prefilter below
+	// and by the cost test at the end.
+	double merge_cut_cost = 0.0;
+	for (int i = 0; i < pp_.S.size(); ++i) if (l->parent->cut_visited[i]+m->cut_visited[i] >= 2) merge_cut_cost += pp_.sigma[i];
+	if (merge_prefilter && !tr)
+	{
+		// min(img(duration)) of each label, recovered from its min_cost. The
+		// merged duration is at least their sum in both branches below (the
+		// waiting term is non-negative, and the minimum of a sum is at least
+		// the sum of the minima). The 1e-5 margin covers the rounding of
+		// these recoveries and the epsilon of the waiting test.
+		const double duration_bound = (l->min_cost + l->p + l->cut_cost) + (m->min_cost + m->p + m->cut_cost);
+		const double cost_bound = duration_bound - l->p - m->p + pp_.P[l->v] - merge_cut_cost;
+		if (epsilon_bigger_equal(cost_bound - 1e-5, near_eff_)) { ++merge_prefilter_hits; return; }
+	}
+
 	Route r;
 	// kayros (M5.7): rw and dom(duration) are maintained separately and can
 	// disagree by epsilon (goc's piece arithmetic is epsilon-tolerant, and the
@@ -556,13 +708,11 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 			min(l->rw), max(l->rw), T-max(m->rw), T-min(m->rw));
 	}
 
-	double merge_cut_cost = 0.0;
-	for (int i = 0; i < pp_.S.size(); ++i) if (l->parent->cut_visited[i]+m->cut_visited[i] >= 2) merge_cut_cost += pp_.sigma[i];
 	double merge_cost = r.duration - l->p - m->p + pp_.P[l->v] - merge_cut_cost;
 	if (tr) fprintf(stderr, "TRC MERGE-COST l=%s m=%s dur=%.6f merge_cost=%.6f -> %s\n",
 		trace::path_str(l).c_str(), trace::path_str(m).c_str(), r.duration, merge_cost,
 		epsilon_bigger_equal(merge_cost, 0.0) ? "REJECT" : "ADD");
-	if (epsilon_bigger_equal(merge_cost, 0.0)) return;
+	if (epsilon_bigger_equal(merge_cost, near_eff_)) return;
 	
 	// Merge l and m paths.
 	r.path = l->Path();
@@ -570,10 +720,10 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	if (r.path[0] != vrp_.o) r.path = reverse(r.path);
 	
 	// We have a negative reduced cost route r.
-	AddSolution(r.path, r.duration);
+	AddSolution(r.path, r.duration, merge_cost);
 }
 
-void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_duration)
+void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_duration, double reduced_cost)
 {
 	// M13.0 trace: pool decisions for orderings of the merge target's vertex set.
 	if (trace::merge_on()
@@ -594,6 +744,52 @@ void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_dura
 		return;
 	}
 	VertexSet V = create_bitset<MAX_N>(p);
+	if (theta_eff_ && V.count() != p.size())
+	{
+		// (ms61) Negative (or near-zero) route of the relaxed space that
+		// repeats a vertex: not a column. Remember which vertices the most
+		// negative ones repeat.
+		if (!epsilon_smaller(reduced_cost, 0.0)) return;
+		++nonelementary_count_;
+		auto worse = [](const pair<double, GraphPath>& a, const pair<double, GraphPath>& b) { return a.first < b.first; };
+		if ((int) nonelementary_best_.size() < theta_growth_routes)
+		{
+			nonelementary_best_.push_back({reduced_cost, p});
+			std::push_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
+		}
+		else if (reduced_cost < nonelementary_best_.front().first)
+		{
+			std::pop_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
+			nonelementary_best_.back() = {reduced_cost, p};
+			std::push_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
+		}
+		return;
+	}
+	if (near_eff_ > 0.0)
+	{
+		// (ms61) Same keying and same best-duration replacement rule as the
+		// legacy pool; additionally track each entry's labeling reduced cost
+		// so that the solution limit keeps counting negative routes only.
+		const bool negative = epsilon_smaller(reduced_cost, 0.0);
+		auto it = S.find(V);
+		if (it == S.end())
+		{
+			if (!negative && (int) near_count_ >= near_pool_cap) return; // memory guard.
+			S[V] = Route(p, 0.0, min_duration);
+			S_rc[V] = reduced_cost;
+			if (negative) ++negative_count_; else ++near_count_;
+			return;
+		}
+		if (it->second.duration > min_duration)
+		{
+			double& rc = S_rc[V];
+			const bool was_negative = epsilon_smaller(rc, 0.0);
+			it->second = Route(p, 0.0, min_duration);
+			if (reduced_cost < rc) rc = reduced_cost;
+			if (!was_negative && epsilon_smaller(rc, 0.0)) { ++negative_count_; --near_count_; }
+		}
+		return;
+	}
 	if (!includes_key(S, V)) S[V] = Route({}, 0.0, INFTY);
 	if (S[V].duration > min_duration) S[V] = Route(p, 0.0, min_duration);
 }

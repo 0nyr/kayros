@@ -840,6 +840,15 @@ bool hold_back_for_stacked_piece(const PWLFunction& f, int i, const LinearFuncti
 PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
 {
     PWLFunction h;
+    // Label durations can contain stacked departure choices on jump-free
+    // inputs. At a scalar point operand, advancing after the first choice
+    // discards attainable lower durations. Keep this repair confined to legacy
+    // CHOICE-to-CHOICE tails, leaving JUMP attainment and step-mode rules intact.
+    const bool legacy = !step_exact_arithmetic();
+    const bool f_scalar_point = legacy && f.PieceCount() == 1 && !f.Piece(0).is_vertical()
+        && f.Piece(0).domain.left == f.Piece(0).domain.right;
+    const bool g_scalar_point = legacy && g.PieceCount() == 1 && !g.Piece(0).is_vertical()
+        && g.Piece(0).domain.left == g.Piece(0).domain.right;
     int i = 0, j = 0;
     while (i < f.PieceCount() && j < g.PieceCount())
     {
@@ -886,6 +895,12 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
         // Stacked-boundary hold-back (see hold_back_for_stacked_piece above).
         bool f_stack_next = hold_back_for_stacked_piece(f, i, pf);
         bool g_stack_next = hold_back_for_stacked_piece(g, j, pg);
+        if (g_scalar_point && pf.is_choice_vertical() && i + 1 < f.PieceCount()
+            && f.Piece(i + 1).is_choice_vertical()
+            && f.Piece(i + 1).domain.left == pg.domain.left) f_stack_next = true;
+        if (f_scalar_point && pg.is_choice_vertical() && j + 1 < g.PieceCount()
+            && g.Piece(j + 1).is_choice_vertical()
+            && g.Piece(j + 1).domain.left == pf.domain.left) g_stack_next = true;
         if (epsilon_equal(pf.domain.right, pg.domain.right))
         {
             if (f_stack_next) { ++i; }

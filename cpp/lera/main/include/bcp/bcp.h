@@ -26,6 +26,8 @@ typedef std::function<void(goc::Duration elapsed, const goc::VRPSolution& incumb
 class BCP
 {
 public:
+	int cg_optimum_count = 0, cg_certified_count = 0, cg_unresolved_count = 0;
+    int cg_infeasible_count = 0, strong_rmp_infeasible_count = 0, unbranched_fractional_count = 0, selected_rmp_infeasible_count = 0;
 	goc::Duration time_limit;
 	// (M5.2) Absolute deadline derived from time_limit at Run(). All internal
 	// components and the external pricing_solver take their residual budgets
@@ -34,6 +36,7 @@ public:
 	int node_limit;
 	int cut_limit;
 	BCPPricingFunction pricing_solver;
+	std::function<void(goc::Duration, double, const std::string&)> on_bound;
 	BCPIncumbentCallback on_incumbent; // optional; called on every new UB.
 
 	// Initializes the Branch cut and price solver.
@@ -51,6 +54,20 @@ public:
 	// caller keeps its own solution.
 	void SetInitialIncumbent(double value);
 
+	// (ms61) Cut separation exposed to the pricing driver, so that subset-row
+	// cuts can be separated on the current restricted-master solution before
+	// an Exact pricing call. Cuts are valid inequalities whatever the master's
+	// convergence state, so calling this early never affects soundness: node
+	// optimality is still only ever concluded by an Exact pricing pass that
+	// finishes without a new column, followed by a separation round that
+	// finds no violated cut.
+	// CanSeparateCuts: root node being processed and cut budget left.
+	// SeparateCutRounds: re-solves the master LP and adds the most violated
+	// cut, until none is violated or the cut limit is hit. Returns the number
+	// of cuts added.
+	bool CanSeparateCuts() const;
+	int SeparateCutRounds();
+
 	// Executes a Branch-Cut-Price algorithm on the SPF.
 	// If a solution is found, *solution is filled with the best one.
 	goc::BCPExecutionLog Run(goc::VRPSolution* solution);
@@ -61,6 +78,7 @@ private:
 		int index;
 		double bound;
 		std::vector<goc::Arc> A; // forbidden arcs.
+		bool rmp_infeasible = false;
 		goc::Valuation opt; // relaxation optimum.
 		
 		struct Comparator { inline bool operator() (Node* n1, Node* n2) { return n1->bound > n2->bound; } };

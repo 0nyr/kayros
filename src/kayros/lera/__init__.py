@@ -220,9 +220,12 @@ def solve_duration(
     node_limit: int | None = None,
     solution_limit: int = 3000,
     on_incumbent: Callable[[dict[str, Any]], None] | None = None,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
     initial_routes: list[list[int]] | None = None,
     stab_alpha: float = 0.0,
     memory_limit_mb: float | None = None,
+    near_rel: float = 0.10,
+    heuristic_cut_blind: bool = True,
 ) -> dict[str, Any]:
     """Run the Lera BPC (duration objective) on a loaded MAMUT TD instance.
 
@@ -270,6 +273,20 @@ def solve_duration(
     available memory, capped by the cgroup limit when one is set. ``0``
     disables the guard. The result's ``memory`` record carries the resolved
     limit, the peak RSS and whether the guard tripped.
+
+    ``near_rel`` (1.7.0) lets an Exact pricing pass that found at least one new
+    negative column also contribute the routes whose reduced cost lies in
+    ``[0, near_rel * mean customer dual)``. They cost only merges, because the
+    labeling never prunes on reduced cost, and they spare later Exact passes
+    near convergence. ``0`` disables it. ``heuristic_cut_blind`` (1.7.0) makes
+    the heuristic elementarity pricing level ignore cut memory in dominance,
+    which keeps it cheap once many subset-row cuts are active. Neither changes
+    the termination rule: a node is declared optimal only after an Exact pass
+    on true duals finishes without a new negative column. The effective values
+    are in ``effective_algorithm_settings["pricing_options"]`` and the
+    ``pricing_counters`` record. Further experimental levers and diagnostics
+    are reachable through ``KAYROS_BPC_*`` environment variables (see
+    ``cpp/lera/bridge/lera_bridge.cpp``). They are off by default.
     """
     try:
         from kayros import _lera
@@ -304,6 +321,8 @@ def solve_duration(
         "cut_limit": cut_limit,
         "solution_limit": solution_limit,
         "stab_alpha": float(stab_alpha),
+        "near_rel": float(near_rel),
+        "heuristic_cut_blind": bool(heuristic_cut_blind),
         "memory_limit_mb": (
             _auto_memory_limit_mb() if memory_limit_mb is None else float(memory_limit_mb)
         ),
@@ -315,6 +334,8 @@ def solve_duration(
             on_incumbent(json.loads(incumbent_json))
 
         kwargs["on_incumbent"] = _hook
+    if on_event is not None:
+        kwargs["on_event"] = lambda payload: on_event(json.loads(payload))
     if initial_routes is not None:
         kwargs["initial_routes"] = [[int(c) for c in route] for route in initial_routes]
     result = json.loads(_lera.solve_duration_json(json.dumps(payload), **kwargs))

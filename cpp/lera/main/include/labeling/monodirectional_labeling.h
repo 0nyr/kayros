@@ -46,12 +46,41 @@ public:
 	bool elementary_check_relaxation; // Indicates if dominance S(M) \subseteq S(L) should be ignored (heuristically).
 	bool cost_check_relaxation; // Indicates if dominance c_M(t) <= c_L(t) should be ignored (heuristically).
 	bool ng_routes_relaxation; // Indicates if NG-routes relaxation is be used.
+	// (ms61) Decremental state-space relaxation: elementarity is enforced on
+	// the vertices of theta only, i.e. S(l) = (visited(l) ∩ theta) ∪ {v(l)}.
+	// A valid relaxation of the elementary pricing problem, exact when
+	// theta holds every customer.
+	// With theta_local non-empty the memory is per vertex instead (a dynamic
+	// ng-route relaxation): S(l) = (S(parent) ∩ theta_local[v]) ∪ {v}.
+	bool theta_relaxation;
+	nyr::VertexSet theta;
+	std::vector<nyr::VertexSet> theta_local;
+	// (ms61) Heuristic levels only: dominance ignores the cut memory of the
+	// dominating label (no sigma correction of theta). With many active
+	// subset-row cuts that correction blocks nearly every dominance, and a
+	// heuristic pass then compares each label against hundreds of others.
+	// Never set on the Exact level.
+	bool cut_blind_dominance;
 
 	// Dominance structure.
 	typedef std::vector<Label*> BoundLevel;
 	typedef goc::VectorMap<nyr::CapacityUnit, BoundLevel> DemandLevel;
 	typedef std::vector<DemandLevel> DominanceStructure;
 	DominanceStructure U; // Indexed by last vertex, demand and sorted by c_min.
+
+	// (ms61) Packed dominance filter. A contiguous copy of the two fields
+	// every dominance scan reads first for each stored label (its sort key
+	// alpha and its unreachable set U), kept index-aligned with U. The scan
+	// then touches the Label itself only for the few labels that pass both
+	// tests, instead of chasing one pointer per stored label. Pure execution
+	// change: same labels, same order, same verdicts.
+	// packed_filter: 0 off, 1 on, 2 on with an alignment self-check on every
+	// scanned entry (validation runs only).
+	struct PackedEntry { double alpha; nyr::VertexSet U; };
+	// One packed bucket per demand key of U[v], in the same (sorted) order.
+	typedef std::vector<std::vector<PackedEntry>> PackedLevel;
+	std::vector<PackedLevel> packed_;
+	int packed_filter;
 	int processed_count; // Number of labels in the dominance structure.
 	
 	std::optional<TDNGNeighborhoods> ng; // Neighborhoods to use for the labeling algorithm.
@@ -74,6 +103,14 @@ public:
 	LazyLabel Init() const;
 	
 private:
+	friend class BidirectionalLabeling;
+	friend struct CorrectionInvariantTest;
+	// Removed labels can remain parents of queued or processed labels.
+	// Retain their ownership until the whole pricing call is cleaned.
+	std::vector<Label*> retired_labels_;
+	// Correction changes keys shared with the bidirectional merge index.
+	std::vector<std::pair<goc::Vertex, nyr::CapacityUnit>> corrected_merge_buckets_;
+
 	// The extension step consists in taking a lazy label and building the complete label.
 	// Returns: the extended full label (notice that it may be infeasible, so it may be nullptr).
 	Label* ExtensionStep(const LazyLabel& ll) const;
@@ -97,6 +134,9 @@ private:
 	
 	// Resets the dominance structures and counters.
 	void Clean();
+
+	// (ms61) Rebuilds the packed copy of one bucket from its labels.
+	void RebuildPacked(std::vector<PackedEntry>& packed, const BoundLevel& labels) const;
 	
 	nyr::VRPInstance vrp_;
 	PricingProblem pp_;

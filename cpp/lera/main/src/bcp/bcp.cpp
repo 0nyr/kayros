@@ -5,6 +5,8 @@
 //
 
 #include "bcp/bcp.h"
+#include "bcp/branch_trace.h"
+#include "bcp/ordered_valuation.h"
 
 #include <climits>
 
@@ -43,26 +45,37 @@ BCP::BCP(
 		// If no variable were added and we are in root node, separate cuts.
 		if (node_seq == 1 && variable_count == this->spf->formulation->VariableCount())
 		{
-			int cuts_added = 0;
-			while (this->spf->cuts.size() < cut_limit)
-			{
-				if (deadline.Reached()) break; // (M5.2)
-				Stopwatch cut_rolex(true);
-				lp_solver.time_limit = deadline.Remaining();
-				auto lp_log = lp_solver.Solve(this->spf->formulation, {LPOption::Incumbent});
-				if (lp_log.status != LPStatus::Optimum) break;
-				bool added_cuts = SeparateCuts(lp_log.incumbent);
-				log.cut_family_iteration_count->at("SR")++;
-				log.cut_family_cut_time->at("SR") += cut_rolex.Peek();
-				*log.cut_time += cut_rolex.Peek();
-				if (!added_cuts) break;
-				log.cut_family_cut_count->at("SR")++;
-				log.cut_count++;
-				cuts_added++;
-			}
+			int cuts_added = SeparateCutRounds();
 			if (cuts_added > 0) clog << "\tCuts: " << cuts_added << endl;
 		}
 	};
+}
+
+bool BCP::CanSeparateCuts() const
+{
+	return node_seq == 1 && (int) spf->cuts.size() < cut_limit;
+}
+
+int BCP::SeparateCutRounds()
+{
+	int cuts_added = 0;
+	while (this->spf->cuts.size() < cut_limit)
+	{
+		if (deadline.Reached()) break; // (M5.2)
+		Stopwatch cut_rolex(true);
+		lp_solver.time_limit = deadline.Remaining();
+		auto lp_log = lp_solver.Solve(this->spf->formulation, {LPOption::Incumbent});
+		if (lp_log.status != LPStatus::Optimum) break;
+		bool added_cuts = SeparateCuts(lp_log.incumbent);
+		log.cut_family_iteration_count->at("SR")++;
+		log.cut_family_cut_time->at("SR") += cut_rolex.Peek();
+		*log.cut_time += cut_rolex.Peek();
+		if (!added_cuts) break;
+		log.cut_family_cut_count->at("SR")++;
+		log.cut_count++;
+		cuts_added++;
+	}
+	return cuts_added;
 }
 
 void BCP::SetInitialIncumbent(double value)
@@ -94,6 +107,10 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 	Node* root = new Node{0, INFTY, {}};
 	ProcessNode(root);
 	log.root_time = rolex.Peek();
+	if (log.root_lp_value.IsSet()) {
+		z_lb = *log.root_lp_value;
+		if (on_bound) on_bound(rolex.Peek(), z_lb, "root_complete");
+	}
 
 	if (!q.empty())
 	{
@@ -127,6 +144,10 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 				// Output to console.
 				if (tstream.RegisterAttempt()) tstream.WriteRow({STR(rolex.Peek()), STR(log.nodes_closed), STR(log.nodes_open), STR(z_lb), STR(z_ub), STR(spf->formulation->VariableCount())});
 			}
+			if (log.status == BCStatus::DidNotStart && !q.empty()) {
+				z_lb = std::max(z_lb, std::min(z_ub, q.top()->bound));
+				if (on_bound) on_bound(rolex.Peek(), z_lb, "frontier");
+			}
 			delete bbnode;
 		}
 		// (M5.2) Only close the gap when the tree was fully explored: a branch
@@ -140,7 +161,10 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		// open node's bound (q is best-bound-first), not the last popped one —
 		// report it so the final incumbent's true gap is known. If the TL hit
 		// during root CG there is no valid LB and best_bound stays unset.
-		if (!q.empty()) z_lb = std::max(z_lb, q.top()->bound);
+		// An interrupted active branch can have children absent from q.
+		// Retain its inherited bound rather than advancing to the queue alone.
+		if (!q.empty() && log.status == BCStatus::DidNotStart)
+			z_lb = std::max(z_lb, std::min(z_ub, q.top()->bound));
 
 		// Delete nodes that were not processed.
 		while (!q.empty()) { delete q.top(); q.pop(); }
@@ -153,6 +177,8 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		z_lb = z_ub;
 	}
 	log.time = rolex.Peek();
+	if (on_bound) on_bound(log.time, z_lb,
+		log.status == BCStatus::Optimum && z_ub < INFTY ? "search_closed" : "search_terminated");
 	
 	// Set bounds and solutions found.
 	if (z_ub != INFTY) log.best_int_value = z_ub;
@@ -179,6 +205,8 @@ double BCP::EstimateBound(Node* node)
 	auto lp_log = lp_solver.Solve(spf->formulation);
 	// (M5.2) An aborted probe must poison the run status: dropping both
 	// children of a node silently would let Run() claim optimality later.
+	node->rmp_infeasible = lp_log.status == LPStatus::Infeasible;
+    if (node->rmp_infeasible) ++strong_rmp_infeasible_count;
 	if (lp_log.status == LPStatus::TimeLimitReached) log.status = BCStatus::TimeLimitReached;
 	if (lp_log.status == LPStatus::MemoryLimitReached) log.status = BCStatus::MemoryLimitReached; // kayros (M13.2)
 	return lp_log.status == LPStatus::Optimum ? *lp_log.incumbent_value : INFTY;
@@ -198,6 +226,10 @@ void BCP::ProcessNode(Node* node)
 	// Update node.
 	if (cg_log.status == CGStatus::Optimum)
 	{
+        ++cg_optimum_count;
+        bool certified = cg_log.iterations.IsSet() && !cg_log.iterations->empty()
+            && cg_log.iterations->back().value("ablation_final_pricing_certified", false);
+        if (certified) ++cg_certified_count; else ++cg_unresolved_count;
 		node->bound = cg_log.incumbent_value;
 		node->opt = *cg_log.incumbent;
 	}
@@ -228,6 +260,7 @@ void BCP::ProcessNode(Node* node)
 	}
 	else if (cg_log.status == CGStatus::Infeasible)
 	{
+        ++cg_infeasible_count;
 		log.nodes_closed++;
 		delete node;
 	}
@@ -268,7 +301,7 @@ void BCP::BranchNode(Node* node)
 	
 	// Calculate z[x_ij] values.
 	Matrix<double> x(D.NbVertices(), D.NbVertices(), 0.0);
-	for (auto& y_val: node->opt)
+	for (const auto& y_val: ordered_valuation(node->opt))
 	{
 		auto& r = spf->RouteOf(y_val.first);
 		for (int k = 1; k < (int)r.path.size()-2; ++k) x[r.path[k]][r.path[k+1]] += y_val.second;
@@ -282,9 +315,35 @@ void BCP::BranchNode(Node* node)
 			x_most.push_back(e);
 	sort(x_most.begin(), x_most.end(), [&] (Arc e, Arc f) { return fabs(0.5-x[e.tail][e.head]) < fabs(0.5-x[f.tail][f.head]); });
 	while (x_most.size() > STRONG_BRANCH_SIZE) x_most.pop_back();
+
+    FirstBranchTrace branch_trace;
+    if (branch_trace)
+    {
+        Matrix<double> raw_x(D.NbVertices(), D.NbVertices(), 0.0);
+        for (const auto& y_val : node->opt)
+        {
+            const auto& route = spf->RouteOf(y_val.first);
+            for (int k = 1; k < (int) route.path.size() - 2; ++k)
+                raw_x[route.path[k]][route.path[k + 1]] += y_val.second;
+        }
+        vector<Arc> legacy_candidates;
+        for (Arc arc : D.Arcs())
+            if (epsilon_bigger(raw_x[arc.tail][arc.head], 0.0)
+                    && epsilon_smaller(raw_x[arc.tail][arc.head], 1.0))
+                legacy_candidates.push_back(arc);
+        sort(legacy_candidates.begin(), legacy_candidates.end(), [&](Arc a, Arc b) {
+            return fabs(0.5 - raw_x[a.tail][a.head]) < fabs(0.5 - raw_x[b.tail][b.head]);
+        });
+        while (legacy_candidates.size() > STRONG_BRANCH_SIZE) legacy_candidates.pop_back();
+        branch_trace.Begin(node->index, node->bound, x_most, x, legacy_candidates, raw_x, node->opt);
+    }
 	
 	// Calculate all candidate estimate bounds and keep the best one.
 	vector<Node> best_candidate;
+    int selected_tail = -1, selected_head = -1;
+    double selected_estimate = -INFTY;
+    int selected_infeasible = 0;
+    if (x_most.empty()) ++unbranched_fractional_count;
 	if (!x_most.empty())
 	{
 		double best_estimate = -INFTY;
@@ -310,13 +369,19 @@ void BCP::BranchNode(Node* node)
 			if (min(left.bound, right.bound) > best_estimate)
 			{
 				best_estimate = min(left.bound, right.bound);
+                selected_tail = e.tail;
+                selected_head = e.head;
+                selected_estimate = best_estimate;
 				best_candidate = {};
+                selected_infeasible = int(left.rmp_infeasible) + int(right.rmp_infeasible);
 				if (left.bound < INFTY) best_candidate.push_back(left);
 				if (right.bound < INFTY) best_candidate.push_back(right);
 			}
 		}
 	}
 	
+    branch_trace.Finish(selected_tail, selected_head, selected_estimate);
+    if (log.status == BCStatus::DidNotStart) selected_rmp_infeasible_count += selected_infeasible;
 	*log.branching_time += rolex_branch.Pause();
 	// Process new children to the queue.
 	for (Node& candidate: best_candidate)
@@ -350,7 +415,7 @@ bool BCP::SeparateCuts(const Valuation& z)
 	// Parse basis variables.
 	vector<VertexSet> z_visited; // z_visited[i] = vertices visited by basis variable i.
 	vector<double> z_values; // z_values[i] = value of basis variable i.
-	for (auto& y_val: z)
+	for (const auto& y_val: ordered_valuation(z))
 	{
 		auto route = spf->RouteOf(y_val.first);
 		z_visited.push_back(create_bitset<MAX_N>(route.path));

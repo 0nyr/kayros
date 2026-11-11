@@ -44,6 +44,64 @@ public:
 	bool cost_check_relaxation; // Indicates if dominance c_M(t) <= c_L(t) should be ignored (heuristically).
 	bool ng_routes_relaxation; // Indicates if NG-routes relaxation is be used.
 
+	// (ms61) Near-zero column collection. With near_threshold > 0, merges whose
+	// labeling reduced cost lies in [0, near_threshold) are also kept, in the
+	// same vertex-set-keyed pool, and returned AFTER the negative routes in R
+	// (at most near_limit of them, lowest reduced cost first). The labeling
+	// itself never prunes on reduced cost, so only the merge stage does extra
+	// work. The solution limit and every status still count NEGATIVE routes
+	// only. last_negative_count is the number of leading negative routes in
+	// the R of the last Run. Inactive (bit-identical legacy behaviour) when
+	// near_threshold <= 0 or on the path-keyed step pool.
+	// (ms61) Decremental state-space relaxation for the Exact level. When
+	// theta_relaxation is set, both labelings enforce elementarity on theta
+	// only. Negative routes that repeat a vertex are NOT returned: they are
+	// counted (last_nonelementary_count) and the vertices repeated by the most
+	// negative ones are reported in last_repeated, for the caller to grow
+	// theta. The relaxed pass proves that no negative elementary route exists
+	// only when it Finished with last_nonelementary_count == 0.
+	int packed_filter; // (ms61) see MonodirectionalLabeling::packed_filter.
+	// (ms61) Cut-blind dominance for the current Run. Honoured only on the
+	// heuristic levels (cost or elementarity relaxation).
+	bool heuristic_cut_blind;
+	// (ms61) Last-arc merge walks the leftover forward queue's storage instead
+	// of popping it. The pops only served to empty a queue that dies right
+	// after, at one heap sift per entry over tens of millions of entries. The
+	// set of merges is the same. Their order differs, which can change which
+	// routes fill a saturated pool and which path wins an exact duration tie.
+	bool last_arc_merge_iterate;
+	bool theta_relaxation;
+	nyr::VertexSet theta;
+	std::vector<nyr::VertexSet> theta_local; // per-vertex memories (dynamic ng variant) when non-empty.
+	int last_nonelementary_count;
+	// Whether the last Run explored its whole (relaxed) space: labeling and
+	// merges finished without hitting the pool, time or memory limits.
+	bool last_complete;
+	// (ms61) Deterministic work budget for one Run: when positive, the Run
+	// stops once forward plus backward extended labels reach it, without the
+	// last-arc merge. last_budget_exhausted tells the caller. A Run stopped
+	// this way proves nothing. last_extended is the extended-label count of
+	// the last Run, whatever its outcome.
+	long long extended_budget;
+	bool last_budget_exhausted;
+	long long last_extended;
+	// (ms61) Reject a merge before building the merged duration function when
+	// a lower bound of its reduced cost already fails the acceptance test.
+	// The bound adds the cut penalties shared between the two labels, which
+	// the sorted-scan break ignores. It only skips merges the full test would
+	// reject, so the routes found are unchanged.
+	bool merge_prefilter;
+	long long merge_prefilter_hits;
+	nyr::VertexSet last_repeated;
+	std::vector<goc::GraphPath> last_nonelementary_paths; // the most negative non-elementary routes.
+	int theta_growth_routes; // number of most negative non-elementary routes feeding last_repeated.
+
+	double near_threshold;
+	int near_limit;
+	int near_pool_cap; // hard cap on kept near entries (memory guard).
+	int last_negative_count;
+	int last_near_count;
+
 	BidirectionalLabeling(
 		const nyr::VRPInstance& vrp,
 		const std::optional<TDNGRoutesParams>& ng_routes_params
@@ -58,6 +116,9 @@ public:
 	);
 	
 private:
+	friend struct CorrectionInvariantTest;
+	void RefreshCorrectedMergeLabels(int direction);
+
 	// Sets the labeling level flags based on the given level.
 	void setup_labeling_level_flag(
 		LabelingLevel level
@@ -73,7 +134,7 @@ private:
 	void Merge(Label* l, Label* m);
 
 	// Adds a solution to the pool S if it is the best yet found with those visited vertices.
-	void AddSolution(const goc::GraphPath& p, double min_duration);
+	void AddSolution(const goc::GraphPath& p, double min_duration, double reduced_cost);
 
 	// (kayros M5.2) Deadline of the current Run(), derived from time_limit at
 	// entry; consulted inside IterativeMerge/LastArcMerge so merge loops are
@@ -107,7 +168,20 @@ private:
 	// legacy pool (container, order and size semantics bit-identical).
 	bool step_pool_;
 	std::map<goc::GraphPath, goc::Route> S_paths;
-	size_t pool_size() const { return step_pool_ ? S_paths.size() : S.size(); }
+	// (ms61) Labeling reduced cost of each pool entry and count of negative
+	// ones; maintained only while the near-zero collection is active.
+	std::unordered_map<nyr::VertexSet, double> S_rc;
+	size_t negative_count_ = 0;
+	size_t near_count_ = 0;
+	double near_eff_ = 0.0; // threshold in force for the current Run (0 = legacy).
+	bool theta_eff_ = false; // relaxation in force for the current Run.
+	size_t nonelementary_count_ = 0;
+	std::vector<std::pair<double, goc::GraphPath>> nonelementary_best_; // (reduced cost, route), bounded.
+	size_t pool_size() const
+	{
+		if (step_pool_) return S_paths.size();
+		return (near_eff_ > 0.0 ? negative_count_ : S.size()) + (theta_eff_ ? nonelementary_count_ : 0);
+	}
 };
 } // namespace
 
