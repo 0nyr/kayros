@@ -37,13 +37,39 @@ jobs:
         run: pip install -e . --group dev
       - name: Lera BPC import gate (default install ships the exact component)
         run: python -c "import kayros._lera; from kayros import lera; print('lera OK')"
-      - name: Fetch Dabia2013 n=25 benchmarks (sparse)
+      - name: Fetch Dabia2013 n=25 and n=50 benchmarks (sparse)
+        # n=50 carries RC107, the reproducer of the partial-dominance defect
+        # repaired in 1.7.0 (tests/test_lera_partial_dominance.py). Without it
+        # that regression test is collected with an empty parameter set.
         run: |
           git clone --depth 1 --filter=blob:none --sparse \
             https://github.com/ANR-MAMUT/MAMUT-routing.git "$RUNNER_TEMP/mamut-routing"
           git -C "$RUNNER_TEMP/mamut-routing" sparse-checkout set \
-            benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25
+            benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25 \
+            benchmarks/TDVRPTW/Dabia2013/n=50
       - name: Run tests (incl. checker-equivalence gate on Dabia n=25)
         env:
           MAMUT_ROUTING_ROOT: ${{ runner.temp }}/mamut-routing
         run: pytest
+
+  wheel:
+    # Build one manylinux wheel with the settings of publish.yml, so that a
+    # build failure in the release image shows on the pull request and not
+    # after a release is published. Keep the environment in sync with
+    # publish.yml.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build one manylinux wheel (CPython 3.12)
+        uses: pypa/cibuildwheel@v4.1.0
+        env:
+          CIBW_BUILD: "cp312-*"
+          CIBW_SKIP: "*-musllinux*"
+          CIBW_ARCHS_LINUX: "x86_64"
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_BEFORE_ALL_LINUX: dnf -y install boost-devel
+          CIBW_TEST_COMMAND: python -c "import kayros._core, kayros._lera; from kayros import lera"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-cp312
+          path: wheelhouse/*.whl
