@@ -34,12 +34,26 @@ jobs:
           CIBW_BUILD: "cp311-* cp312-* cp313-* cp314-*"
           CIBW_SKIP: "*-musllinux*"
           CIBW_ARCHS_LINUX: "x86_64"
-          # M5.8: the lera BPC ships in wheels. HiGHS is fetched and built
+          # The lera BPC ships in wheels. HiGHS is fetched and built
           # statically by CMake; Boost.Graph comes from the image and is
           # vendored into the wheel by auditwheel repair.
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-          CIBW_BEFORE_ALL_LINUX: dnf -y install boost-devel
-          CIBW_TEST_COMMAND: python -c "import kayros._core, kayros._lera; from kayros import lera"
+          CIBW_BEFORE_ALL_LINUX: dnf -y install boost-devel git
+          # Each wheel is installed and exercised before upload: imports, then
+          # an anytime solve and a cold exact solve of Dabia2013 C101 with 25
+          # customers (tests/wheel_smoke.py). The instance comes from a sparse
+          # clone of MAMUT-routing, so the upload needs GitHub to be reachable
+          # from the build container. The full test suite runs on the same
+          # wheels in the wheel job of ci.yml.
+          CIBW_BEFORE_TEST: >
+            test -d /tmp/mamut-routing ||
+            (git clone --depth 1 --filter=blob:none --sparse
+            https://github.com/ANR-MAMUT/MAMUT-routing.git /tmp/mamut-routing &&
+            git -C /tmp/mamut-routing sparse-checkout set
+            benchmarks/TDVRPTW/Dabia2013/n=25)
+          CIBW_TEST_COMMAND: >
+            python -c "import kayros._core, kayros._lera; from kayros import lera" &&
+            python {project}/tests/wheel_smoke.py /tmp/mamut-routing
       - uses: actions/upload-artifact@v7
         with:
           name: wheels
