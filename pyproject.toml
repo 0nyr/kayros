@@ -14,11 +14,18 @@ name = "kayros"
 version = "1.7.0"
 description = "KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP)"
 readme = "README.md"
+# The 4 authors in citation order, all in the same form (name only), so that
+# the core metadata lists them together in one Author field. An author with an
+# email would go to Author-email instead and be shown apart from the others.
+# The contact address is the maintainer's.
 authors = [
-    { name = "Florian Rascoussier", email = "onyr.maintainer@gmail.com" },
+    { name = "Florian Rascoussier" },
     { name = "Romain Billot" },
     { name = "Lina Fahed" },
     { name = "Christine Solnon" },
+]
+maintainers = [
+    { name = "Florian Rascoussier", email = "onyr.maintainer@gmail.com" },
 ]
 license = { text = "MIT" }
 # Upper bound is deliberate: kayros ships compiled wheels, so the metadata must
