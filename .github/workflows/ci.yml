@@ -51,6 +51,16 @@ jobs:
         env:
           MAMUT_ROUTING_ROOT: ${{ runner.temp }}/mamut-routing
         run: pytest
+      - name: C++ unit tests of the exact component (tests/cpp, HiGHS backend)
+        # Separate CMake configuration, outside the package build. The
+        # kayros_cpp_tests target builds and runs every test of tests/cpp.
+        # One Python version is enough, since the tests do not use Python.
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip install "pybind11>=2.13"
+          cmake -S . -B "$RUNNER_TEMP/cpp-tests" -DCMAKE_BUILD_TYPE=Release \
+            -Dpybind11_DIR="$(python -m pybind11 --cmakedir)"
+          cmake --build "$RUNNER_TEMP/cpp-tests" --target kayros_cpp_tests -j 4
 
   wheel:
     # Build the manylinux wheel of each supported CPython with the settings of

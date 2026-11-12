@@ -106,7 +106,7 @@ target_include_directories(_lera PRIVATE
 )
 target_compile_options(_lera PRIVATE -ffp-contract=off)
 
-# (ms61) The BPC is built as position-independent code inside a Python module,
+# The BPC is built as position-independent code inside a Python module,
 # so by default GCC must assume every external function can be interposed. It
 # then refuses to inline even the trivial accessors of the piecewise-linear
 # classes across translation units, and calls them through the PLT. Measured
@@ -130,9 +130,40 @@ target_link_libraries(_lera PRIVATE lera)
 
 install(TARGETS _lera DESTINATION kayros)
 
+# C++ unit tests of the vendored BPC (tests/cpp). None of them is part of the
+# default build or of the wheels: build and run them on request with
+#   cmake --build <build dir> --target kayros_cpp_tests
+# which builds every test of the configured backend, then runs each one and
+# fails on the first nonzero exit code. Each test is also a target of its own,
+# kayros_test_<name>. They link the same lera library as _lera and change none
+# of its properties.
+set(KAYROS_CPP_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/cpp)
+set(KAYROS_CPP_TESTS
+    point_addition
+    ordered_valuation
+    label_correction
+    label_correction_pricing
+    partial_dominance
+)
 if(LERA_LP_BACKEND STREQUAL "cplex")
-    add_executable(ms58_cplex_domain_fixture EXCLUDE_FROM_ALL
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/cpp/test_cplex_variable_domains.cpp)
-    target_compile_options(ms58_cplex_domain_fixture PRIVATE -ffp-contract=off)
-    target_link_libraries(ms58_cplex_domain_fixture PRIVATE lera)
+    list(APPEND KAYROS_CPP_TESTS cplex_variable_domains)
 endif()
+set(KAYROS_CPP_TEST_RUNS)
+foreach(name IN LISTS KAYROS_CPP_TESTS)
+    add_executable(kayros_test_${name} EXCLUDE_FROM_ALL ${KAYROS_CPP_TEST_DIR}/test_${name}.cpp)
+    target_compile_options(kayros_test_${name} PRIVATE -ffp-contract=off)
+    target_link_libraries(kayros_test_${name} PRIVATE lera)
+    list(APPEND KAYROS_CPP_TEST_RUNS COMMAND kayros_test_${name})
+endforeach()
+# The ordered-valuation test builds its variables with the solver-agnostic
+# MatrixFormulation, which the CPLEX backend does not compile into lera.
+if(LERA_LP_BACKEND STREQUAL "cplex")
+    target_sources(kayros_test_ordered_valuation PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/goc/src/linear_programming/highs/matrix_formulation.cpp)
+endif()
+add_custom_target(kayros_cpp_tests ${KAYROS_CPP_TEST_RUNS}
+    COMMENT "Running the C++ unit tests of the exact component"
+    VERBATIM)
+foreach(name IN LISTS KAYROS_CPP_TESTS)
+    add_dependencies(kayros_cpp_tests kayros_test_${name})
+endforeach()
