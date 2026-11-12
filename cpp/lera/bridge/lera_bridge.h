@@ -43,7 +43,8 @@ struct SolveParams {
     // negative column, followed by a cut round that finds no violated cut.
     //  - near_rel: a productive Exact pass also contributes up to near_limit
     //    routes whose reduced cost lies in [0, near_rel * mean customer
-    //    dual). 0 disables it. The labeling never prunes on reduced cost, so
+    //    dual), the mean being the sum of the positive customer duals
+    //    divided by the number of customers. 0 disables it. The labeling never prunes on reduced cost, so
     //    these routes cost only merges, and they spare later Exact passes.
     //  - heuristic_cut_blind: the heuristic elementarity level ignores cut
     //    memory in dominance. With many active subset-row cuts that memory
@@ -53,7 +54,8 @@ struct SolveParams {
     //  - last_arc_merge_iterate: the last-arc merge walks the leftover queue
     //    instead of popping it (same merges, different order).
     // Each has a KAYROS_BPC_* environment override for experiments, as do
-    // the experimental levers that stay off (see lera_bridge.cpp).
+    // the experimental levers that stay off (see lera_bridge.cpp). A set
+    // override takes precedence over the value given here, without warning.
     double near_rel = 0.10;
     int near_limit = 3000;
     bool heuristic_cut_blind = true;

@@ -54,7 +54,7 @@ public:
 	// caller keeps its own solution.
 	void SetInitialIncumbent(double value);
 
-	// (ms61) Cut separation exposed to the pricing driver, so that subset-row
+	// Cut separation exposed to the pricing driver, so that subset-row
 	// cuts can be separated on the current restricted-master solution before
 	// an Exact pricing call. Cuts are valid inequalities whatever the master's
 	// convergence state, so calling this early never affects soundness: node

@@ -1,4 +1,4 @@
-"""Session-44 work-based triggers.
+"""Work-based triggers (1.3.0).
 
 LS work units (LsStats.evaluated: candidate pricings entered) are the
 deterministic wall-time proxy behind ``fd_period_work`` and

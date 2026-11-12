@@ -110,7 +110,7 @@ struct IlsParams {
     std::int32_t k_cap = 0;
     std::int32_t fd_route_choice = 0;    // 0 random, 1 smallest
     std::int32_t fd_pop_order = 0;       // 0 LIFO, 1 difficult-first
-    // Work-based triggers (session 44): thresholds in LS work units
+    // Work-based triggers (1.3.0): thresholds in LS work units
     // (LsStats::evaluated, candidate pricings). Deterministic wall-time
     // proxies that self-scale with instance size, unlike the flat iteration
     // counts above (iteration velocity spans n=10 ~1100/s to n=2000 ~0.2/s
@@ -140,7 +140,7 @@ struct IlsParams {
     // down, and is the only setting with a full non-regression sweep behind
     // it. Set 1.0 to recover bitwise 1.4.x trajectories.
     double seed_k_factor = 2.0;
-    // BREAKING default in 1.3.0 (session 45): the flat restart threshold
+    // BREAKING default in 1.3.0: the flat restart threshold
     // above effectively never fired at n >= 500 (dead code on realistic
     // budgets, stalled searches never restarted), so the work-based restart
     // is ON by default with a deliberately long window: ~25 minutes of

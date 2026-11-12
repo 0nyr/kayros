@@ -215,10 +215,13 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     lbl.solution_limit = params.solution_limit;
     lbl.closing_state = false;
 
-    // (ms61, 1.7.0) Pricing options. The defaults come from SolveParams (the
-    // configuration validated in ms61). Every option, and the experimental
+    // (1.7.0) Pricing options. The defaults come from SolveParams (the
+    // configuration selected for 1.7.0). Every option, and the experimental
     // levers that stay off by default, can be overridden from the
-    // environment so that one binary serves every arm of a comparison. None
+    // environment so that one binary serves every arm of a comparison. A set
+    // KAYROS_BPC_* variable takes precedence over the value passed from
+    // Python, without any warning, and the effective value is the one
+    // recorded in effective_algorithm_settings["pricing_options"]. None
     // of them touches the label arithmetic or the termination rule: a node
     // is only ever declared optimal after an Exact pricing pass on true
     // duals that finishes without a new negative column, followed by a cut
@@ -236,6 +239,9 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //  - NEAR_REL (>= 0) and NEAR_LIMIT: an Exact pass that found at least one
     //    new negative column also contributes up to NEAR_LIMIT routes whose
     //    labeling reduced cost lies in [0, NEAR_REL * mean customer dual).
+    //    The mean customer dual is the sum of the positive customer duals
+    //    divided by the number of customers (customers with a non-positive
+    //    dual count in the denominator).
     //  - CORRECTION (-1 keep default, 0 off, 1 on): label correction step.
     //  - DSSR (0 off, 1, 2): the Exact level runs as a decremental
     //    state-space relaxation. Elementarity is enforced on a critical
@@ -301,10 +307,10 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     };
     const bool merge_prefilter = env_int("KAYROS_BPC_MERGE_PREFILTER", params.merge_prefilter ? 1 : 0) != 0;
     lbl.merge_prefilter = merge_prefilter;
-    //  - VERIFY_FINAL (0/1): diagnostic and safety net. When an Exact pass
-    //    with label correction finishes without a new column, the pass is run
-    //    again with correction off before the node is declared optimal. Any
-    //    column it finds is a column the corrected pass missed.
+    //  - VERIFY_FINAL (bit mask, 0 off): diagnostic and safety net. When an
+    //    Exact pass finishes without a new column, the pass is run again with
+    //    the masked features changed before the node is declared optimal. Any
+    //    column it finds is a column the first pass missed.
     // The value is a bit mask of what the verification pass changes:
     // 1 correction off, 2 opening state (iterative merge from the start),
     // 4 no cost sorting, 8 weak unreachable sets, 16 no partial dominance,
@@ -368,7 +374,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     const long long dssr_auto_labels = (long long) env_double("KAYROS_BPC_DSSR_AUTO_LABELS", 0.0);
     if (dssr_auto_labels < 0) throw std::invalid_argument("KAYROS_BPC_DSSR_AUTO_LABELS must be non-negative");
     bool dssr_active = dssr > 0 && dssr_auto_s <= 0.0 && dssr_auto_labels <= 0;
-    bool verifying = false; // (ms61) inside a VERIFY_FINAL pass: no cost probe.
+    bool verifying = false; // inside a VERIFY_FINAL pass: no cost probe.
     bool exact_pass_interrupted = false;
     int dssr_auto_switch_exact_call = -1;
     int theta_growths = 0, dssr_reruns = 0;
@@ -393,14 +399,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         level_cut_blind = {false, true, false, false};
     }
     size_t heuristic_level = 0;
-    int last_negative = 0; // (ms61) leading negative routes in the last R.
+    int last_negative = 0; // leading negative routes in the last R.
     auto run_one_level = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
         vector<Route> R;
         // (M5.2) Residual budget from the BCP's single absolute deadline,
         // not from a per-call stopwatch chain.
         lbl.time_limit = bcp.deadline.Remaining();
         if (heuristic_level == levels.size() - 1) ++exact_calls;
-        // (ms61) Near-zero collection only at the Exact level, scaled by the
+        // Near-zero collection only at the Exact level, scaled by the
         // mean positive customer dual so one setting serves every instance.
         lbl.near_threshold = 0.0;
         lbl.near_limit = near_limit;
@@ -429,7 +435,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             last_exact_pass_extended = lbl.last_extended;
         }
         last_negative = lbl.last_negative_count;
-        // (ms61) A plain Exact pass cut short by the cost probe, not by the
+        // A plain Exact pass cut short by the cost probe, not by the
         // solve deadline: switch to the relaxation for good.
         exact_pass_interrupted = probing_exact_cost && lbl_log.status == BLBStatus::TimeLimitReached
             && !bcp.deadline.Reached();
@@ -531,7 +537,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             if (MemoryMonitor::Exceeded()) break; // kayros (M13.2): don't climb levels on a doomed run
             const bool at_exact = heuristic_level + 1 >= levels.size();
             if (at_exact && exact_state_saved) {
-                // (ms61) Re-entering Exact after a drop-back: resume the
+                // Re-entering Exact after a drop-back: resume the
                 // merge policy the Exact level had when it was left.
                 lbl.closing_state = saved_closing_state;
                 lbl.merge_start = saved_merge_start;
@@ -539,7 +545,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             }
             if (at_exact && true_duals && early_cuts > 0 && bcp.CanSeparateCuts()
                 && (early_cuts == 1 || (exact_productive_since_cuts && levers_active()))) {
-                // (ms61) Try cuts on the current master solution before an
+                // Try cuts on the current master solution before an
                 // Exact pass. Cuts change the master, so the CG loop
                 // re-solves and pricing restarts at the first level. An Exact
                 // pass is still owed before the node can be declared optimal.
@@ -559,7 +565,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             const vector<Route> R = run_one_level(pp, lg);
             const size_t negative = std::min<size_t>(R.size(), (size_t) std::max(last_negative, 0));
             added = add_columns(R, 0, negative);
-            // (ms61) "Near converged" for early cuts mode 2: the last Exact
+            // "Near converged" for early cuts mode 2: the last Exact
             // pass explored its whole space and found something, new columns
             // or, under the relaxation, routes that repeat a vertex.
             if (at_exact) exact_productive_since_cuts = lbl.last_complete
@@ -568,7 +574,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 if (grow_relaxation()) ++theta_growths;
             }
             if (added > 0) {
-                // (ms61) Near-zero routes ride along with a productive pass
+                // Near-zero routes ride along with a productive pass
                 // only. A pass without a new negative column discards them,
                 // so "no new column" keeps its meaning for termination.
                 if (negative < R.size()) near_columns_added += add_columns(R, negative, R.size());
@@ -585,14 +591,14 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             }
             near_columns_discarded += (long long) (R.size() - negative);
             if (at_exact && exact_pass_interrupted) {
-                // (ms61) The cost probe interrupted a plain Exact pass that
+                // The cost probe interrupted a plain Exact pass that
                 // produced no new column. Nothing was proven: run the level
                 // again, now under the relaxation.
                 ++dssr_reruns;
                 continue;
             }
             if (at_exact && dssr_active && lbl.last_nonelementary_count > 0) {
-                // (ms61) The relaxed pass met negative routes that repeat a
+                // The relaxed pass met negative routes that repeat a
                 // vertex and produced no new column: tighten the relaxation
                 // and run the Exact level again. A route of the relaxed space
                 // never repeats a vertex of theta, so theta strictly grows.
@@ -603,7 +609,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 continue;
             }
             if (at_exact && verify_final && last_exact_finished && !bcp.deadline.Reached()) {
-                // (ms61) Re-run the empty Exact pass with the masked features changed.
+                // Re-run the empty Exact pass with the masked features changed.
                 const bool s_corr = lbl.correcting, s_closing = lbl.closing_state, s_sort = lbl.sort_by_cost,
                     s_unreach = lbl.unreachable_strengthened, s_partial = lbl.partial, s_limited = lbl.limited_extension,
                     s_prefilter = lbl.merge_prefilter;
@@ -722,6 +728,11 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["effective_algorithm_settings"] = {{"cut_limit", params.cut_limit}, {"cut_violation_threshold", 0.1}, {"algorithm_epsilon", 1e-6}, {"solution_limit", params.solution_limit}, {"node_limit", params.node_limit}, {"stab_alpha", params.stab_alpha}, {"ng_routes", false}};
     result["effective_algorithm_settings"]["label_correction"] = lbl.correcting;
     result["effective_algorithm_settings"]["lazy_extension"] = lbl.lazy_extension;
+    // The keys are the names of the environment overrides, which differ from
+    // the parameter names in two places: "he_cutblind" is the mode (0, 1 or
+    // 2) of SolveParams::heuristic_cut_blind, and "lam_iterate" records
+    // SolveParams::last_arc_merge_iterate. "verify_final" is true when
+    // KAYROS_BPC_VERIFY_FINAL is nonzero, whatever the mask.
     result["effective_algorithm_settings"]["pricing_options"] = {
         {"dropback_level", dropback_level}, {"dropback_min_cols", dropback_min_cols},
         {"early_cuts", early_cuts}, {"near_rel", near_rel}, {"near_limit", near_limit},

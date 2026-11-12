@@ -36,7 +36,7 @@ void assert_same_state(const json& expected, const json& actual, const std::stri
         throw std::runtime_error(context + "\nlegacy=" + expected.dump() + "\ncandidate=" + actual.dump());
 }
 
-// These are the original snapshot and restoration loops from best327e481.
+// These are the per-variable snapshot and restoration loops of solve_lp before 1.7.0.
 class LegacyDomains
 {
 public:

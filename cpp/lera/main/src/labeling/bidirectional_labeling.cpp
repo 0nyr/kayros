@@ -209,7 +209,9 @@ BidirectionalLabeling::BidirectionalLabeling(
 	lbl_[0].cross = false, lbl_[1].cross = true;
 	partial = limited_extension = lazy_extension = unreachable_strengthened = sort_by_cost = true;
 	elementary_check_relaxation = cost_check_relaxation = ng_routes_relaxation = false;
-	// Experimental private candidate. Native callers can explicitly disable correction.
+	// Label correction is on by default since 1.7.0 (repaired step, see NOTICE.md
+	// item 13). Native callers can disable it, and the Python bridge does so
+	// when KAYROS_BPC_CORRECTION=0.
 	correcting = true;
 	// M5.9: `symmetric` was NEVER initialized (upstream set it from the
 	// experiment JSON, e.g. bpc_lera.json: false; the vendoring dropped that
@@ -312,7 +314,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	lbl_[0].sort_by_cost = lbl_[1].sort_by_cost = sort_by_cost;
 	lbl_[0].unreachable_strengthened = lbl_[1].unreachable_strengthened = unreachable_strengthened;
 	lbl_[0].correcting = lbl_[1].correcting = correcting;
-	// (ms61) The relaxation only ever applies to the Exact level, and never on
+	// The relaxation only ever applies to the Exact level, and never on
 	// the path-keyed step pool.
 	theta_eff_ = theta_relaxation && level == LabelingLevel::Exact && !step_pool_;
 	lbl_[0].theta_relaxation = lbl_[1].theta_relaxation = theta_eff_;
@@ -362,7 +364,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			if (MemoryMonitor::Exceeded()) { log.status = BLBStatus::MemoryLimitReached; break; }
 			if (extended_budget > 0 && (long long) *mlb_log[0]->extended_count + (long long) *mlb_log[1]->extended_count >= extended_budget)
 			{
-				// (ms61) Work budget reached: same exit as a time limit.
+				// Work budget reached: same exit as a time limit.
 				last_budget_exhausted = true;
 				log.status = BLBStatus::TimeLimitReached;
 				break;
@@ -462,7 +464,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	}
 	else if (near_eff_ > 0.0)
 	{
-		// (ms61) Negative routes first (pool iteration order), then the best
+		// Negative routes first (pool iteration order), then the best
 		// near-zero ones by labeling reduced cost.
 		vector<pair<double, const Route*>> near;
 		for (auto& V_r: S)
@@ -568,7 +570,7 @@ void BidirectionalLabeling::LastArcMerge(LBQueue& qf, const MonodirectionalLabel
 			for (auto& m: entry.second)
 				insert_sorted(M[m->v][m->parent->v].Insert(entry.first, {}), m, [] (Label* m1, Label* m2) { return m1->min_cost < m2->min_cost; });
 	
-	// (ms61) See last_arc_merge_iterate. The pool never shrinks, so once the
+	// See last_arc_merge_iterate. The pool never shrinks, so once the
 	// solution limit is reached nothing further can be merged.
 	struct QueueStorage : LBQueue
 	{
@@ -647,7 +649,7 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 		return;
 	}
 	
-	// (ms61) Cut penalty of the merged route, needed by the prefilter below
+	// Cut penalty of the merged route, needed by the prefilter below
 	// and by the cost test at the end.
 	double merge_cut_cost = 0.0;
 	for (int i = 0; i < pp_.S.size(); ++i) if (l->parent->cut_visited[i]+m->cut_visited[i] >= 2) merge_cut_cost += pp_.sigma[i];
@@ -746,7 +748,7 @@ void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_dura
 	VertexSet V = create_bitset<MAX_N>(p);
 	if (theta_eff_ && V.count() != p.size())
 	{
-		// (ms61) Negative (or near-zero) route of the relaxed space that
+		// Negative (or near-zero) route of the relaxed space that
 		// repeats a vertex: not a column. Remember which vertices the most
 		// negative ones repeat.
 		if (!epsilon_smaller(reduced_cost, 0.0)) return;
@@ -767,7 +769,7 @@ void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_dura
 	}
 	if (near_eff_ > 0.0)
 	{
-		// (ms61) Same keying and same best-duration replacement rule as the
+		// Same keying and same best-duration replacement rule as the
 		// legacy pool; additionally track each entry's labeling reduced cost
 		// so that the solution limit keeps counting negative routes only.
 		const bool negative = epsilon_smaller(reduced_cost, 0.0);

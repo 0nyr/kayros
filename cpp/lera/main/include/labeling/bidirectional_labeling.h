@@ -44,7 +44,7 @@ public:
 	bool cost_check_relaxation; // Indicates if dominance c_M(t) <= c_L(t) should be ignored (heuristically).
 	bool ng_routes_relaxation; // Indicates if NG-routes relaxation is be used.
 
-	// (ms61) Near-zero column collection. With near_threshold > 0, merges whose
+	// Near-zero column collection. With near_threshold > 0, merges whose
 	// labeling reduced cost lies in [0, near_threshold) are also kept, in the
 	// same vertex-set-keyed pool, and returned AFTER the negative routes in R
 	// (at most near_limit of them, lowest reduced cost first). The labeling
@@ -53,18 +53,18 @@ public:
 	// only. last_negative_count is the number of leading negative routes in
 	// the R of the last Run. Inactive (bit-identical legacy behaviour) when
 	// near_threshold <= 0 or on the path-keyed step pool.
-	// (ms61) Decremental state-space relaxation for the Exact level. When
+	// Decremental state-space relaxation for the Exact level. When
 	// theta_relaxation is set, both labelings enforce elementarity on theta
 	// only. Negative routes that repeat a vertex are NOT returned: they are
 	// counted (last_nonelementary_count) and the vertices repeated by the most
 	// negative ones are reported in last_repeated, for the caller to grow
 	// theta. The relaxed pass proves that no negative elementary route exists
 	// only when it Finished with last_nonelementary_count == 0.
-	int packed_filter; // (ms61) see MonodirectionalLabeling::packed_filter.
-	// (ms61) Cut-blind dominance for the current Run. Honoured only on the
+	int packed_filter; // See MonodirectionalLabeling::packed_filter.
+	// Cut-blind dominance for the current Run. Honoured only on the
 	// heuristic levels (cost or elementarity relaxation).
 	bool heuristic_cut_blind;
-	// (ms61) Last-arc merge walks the leftover forward queue's storage instead
+	// Last-arc merge walks the leftover forward queue's storage instead
 	// of popping it. The pops only served to empty a queue that dies right
 	// after, at one heap sift per entry over tens of millions of entries. The
 	// set of merges is the same. Their order differs, which can change which
@@ -77,7 +77,7 @@ public:
 	// Whether the last Run explored its whole (relaxed) space: labeling and
 	// merges finished without hitting the pool, time or memory limits.
 	bool last_complete;
-	// (ms61) Deterministic work budget for one Run: when positive, the Run
+	// Deterministic work budget for one Run: when positive, the Run
 	// stops once forward plus backward extended labels reach it, without the
 	// last-arc merge. last_budget_exhausted tells the caller. A Run stopped
 	// this way proves nothing. last_extended is the extended-label count of
@@ -85,7 +85,7 @@ public:
 	long long extended_budget;
 	bool last_budget_exhausted;
 	long long last_extended;
-	// (ms61) Reject a merge before building the merged duration function when
+	// Reject a merge before building the merged duration function when
 	// a lower bound of its reduced cost already fails the acceptance test.
 	// The bound adds the cut penalties shared between the two labels, which
 	// the sorted-scan break ignores. It only skips merges the full test would
@@ -168,7 +168,7 @@ private:
 	// legacy pool (container, order and size semantics bit-identical).
 	bool step_pool_;
 	std::map<goc::GraphPath, goc::Route> S_paths;
-	// (ms61) Labeling reduced cost of each pool entry and count of negative
+	// Labeling reduced cost of each pool entry and count of negative
 	// ones; maintained only while the near-zero collection is active.
 	std::unordered_map<nyr::VertexSet, double> S_rc;
 	size_t negative_count_ = 0;

@@ -148,7 +148,7 @@ class Params:
     fd_period: int = 0
     fd_route_choice: int = 0  # 0 uniform random victim, 1 smallest
     fd_pop_order: int = 0  # 0 LIFO, 1 difficult-first
-    # Work-based triggers (session 44): thresholds in LS work units (candidate
+    # Work-based triggers (1.3.0): thresholds in LS work units (candidate
     # pricings, see Solution.work_units). Deterministic wall-time proxies that
     # self-scale with instance size, where the flat iteration counts above fit
     # one size class only (Blauth2024 iteration velocity spans ~1100/s at n=10
@@ -263,7 +263,7 @@ class Solution:
     routes: list[list[int]]
     # TODO(2.0): rename to an objective-neutral `cost` (with a compat alias);
     # under FleetCostDuration this already holds the full objective value
-    # including fleet_fixed_cost * num_routes (decided with Onyr, session 41).
+    # including fleet_fixed_cost * num_routes.
     duration: float
     route_durations: list[float]
     route_departures: list[float]
@@ -287,7 +287,7 @@ class Solution:
     # Plan-15 S3 K-cap diagnostics (core KCapStats fields). None when the cap
     # is off or the objective is Duration (the cap is F-gated dead code there).
     k_cap_stats: dict[str, int] | None = None
-    # Work-trigger diagnostics (session 44, ILS only; 0 for pure ACO): total
+    # Work-trigger diagnostics (1.3.0, ILS only; 0 for pure ACO): total
     # LS work units spent (candidate pricings; work_units / wall seconds is
     # the machine's work rate, the calibration source for the *_work
     # thresholds) and restart-to-best count.

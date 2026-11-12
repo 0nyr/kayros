@@ -84,7 +84,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     SolveResult result;
 
-    // Work-unit accounting (session 44): candidate pricings across every
+    // Work-unit accounting (1.3.0): candidate pricings across every
     // descent this solve runs. Integer increments only, so streams and priced
     // values are byte-identical with or without the counter. Declared before
     // the publication point so the S3 first-capped-work stamp can read it.

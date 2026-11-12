@@ -233,13 +233,13 @@ def test_symmetric_rifki14_k15_is_sound():
     assert res["value"] == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
 
 
-# --- M13.0: the 3 exact-arm incompleteness reproducers (session 24) ----------
+# --- M13.0: the 3 exact-arm incompleteness reproducers (1.1.0) ---------------
 # Under KAYROS_STEP_EXACT=1 (the exact tagged-vertical path, which also
 # bypasses the reverse-side normalizer) the cold
 # solve used to certify ABOVE the checker-valid optimum (7451 > 7378,
 # 21330 > 21319; dropped negative-reduced-cost columns), while warm-starting
 # with the witness routes certified the truth: pure pricing incompleteness
-# (the 13.7 signature). FIXED by the session-24 three-layer repair (extension
+# (the 13.7 signature). FIXED by the 1.1.0 three-layer repair (extension
 # elapsed-time identity, path-keyed solution pool, operator+ stacked-tail
 # hold-back): Rifki-2 and Rifki-17 certify their truths cold == warm and are
 # hard certification gates. Rifki-18 finds the true optimum as its incumbent

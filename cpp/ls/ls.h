@@ -75,7 +75,7 @@ struct LsStats {
     // unit: same seed => same count, and at a fixed instance the rate per
     // wall second is near-constant, so work-based triggers (fd_period_work,
     // restart_no_improvement_work) self-scale across instance sizes where
-    // flat iteration counts span orders of magnitude (session 44).
+    // flat iteration counts span orders of magnitude.
     std::int64_t evaluated = 0;
 };
 

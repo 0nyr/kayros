@@ -192,7 +192,7 @@ bool PWLDominationFunction::DominatePieces(const PWLFunction& f2, double delta)
 				// We first create the rightmost piece [rd, max(dom(p1))].
 				// Move i1 to this piece.
 				prev_i1 = i1;
-				// (ms61) Upstream built this piece with p1.image.right as its
+				// Upstream built this piece with p1.image.right as its
 				// value at the right end. image.right is the MAXIMUM of the
 				// piece, which is its value at the right end only when the
 				// piece is non-decreasing. On a decreasing piece (duration

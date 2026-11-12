@@ -354,7 +354,7 @@ def test_scalar_ops_preserve_tags():
     assert len(verts2) == 1 and verts2[0][5] == "jump"
 
 
-# --- M13.0 exact value-jump completeness fixes (session 24) -----------------
+# --- M13.0 exact value-jump completeness fixes (1.1.0) ----------------------
 # Root cause of the 3 exact-arm incompleteness reproducers: the labeling's
 # composed/added functions lost attained values and choice spans in three
 # spots, letting backward-label durations under-estimate mandatory waiting

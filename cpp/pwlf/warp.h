@@ -38,7 +38,7 @@ Pwlf make_return_clamp(double due, double t_end);
 Pwlf make_return_warp(double due, double t_end);
 
 // Remove interior points of exactly-flat runs (equal ys) and exactly-vertical
-// runs (equal xs) in place — the session-7 "safe" dedup class, value-neutral:
+// runs (equal xs) in place. This "safe" dedup class is value-neutral:
 // interpolation on a flat/vertical segment reproduces every removed point
 // bitwise, a flat-run interior can never be a strict minimum of ys[k]-xs[k]
 // (same y, smaller x than the kept run end), and zero-prefix detection keeps

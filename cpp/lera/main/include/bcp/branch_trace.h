@@ -7,8 +7,15 @@
 
 namespace solver
 {
-// A private first-branch diagnostic. With no environment path this does no IO.
-// The file is exclusive and flushed before any strong-branching probe.
+// An opt-in diagnostic of the first branching decision of a solve. When the
+// environment variable KAYROS_FIRST_BRANCH_TRACE holds a file path, the first
+// node that branches writes 2 JSON lines to that file. The first, before the
+// probes, holds the master values in valuation order and the strong-branching
+// candidates computed from arc flows summed in variable order (the 1.7.0
+// rule, NOTICE.md item 12) and in valuation order (the earlier rule). The
+// second holds the selected arc and its estimate. The file must not exist (it is created
+// exclusively) and is flushed before any strong-branching probe. Without the
+// variable this does no IO.
 class FirstBranchTrace
 {
 public:

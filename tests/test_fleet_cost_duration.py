@@ -390,7 +390,7 @@ def test_blauth_berlin_n10_smoke() -> None:
     """Kickstart-named smoke on the real family: exact contract facts (F is
     the 10 h upstream fixed cost, unlimited fleet), bitwise checker equality,
     and a fleet no worse than the Duration solve's. Berlin is fleet-minimal
-    under BOTH objectives (session-41 probe: K = 1 each), so the strict
+    under BOTH objectives (earlier probe: K = 1 each), so the strict
     trade-off legs live on cincinnati/san_francisco below."""
     loaded = load_td_instance(_blauth_pick("Blauth-berlin"))
     assert loaded.instance.fleet_fixed_cost == BLAUTH_F
@@ -421,7 +421,7 @@ def test_blauth_berlin_n10_smoke() -> None:
 @pytest.mark.parametrize("prefix", ["Blauth-cincinnati", "Blauth-san_francisco"])
 def test_blauth_n10_fleet_tradeoff_exercised(prefix) -> None:
     """The fleet trade-off, strictly: on these cities the Duration optimum
-    uses MORE routes than the FleetCostDuration optimum (session-41 probe:
+    uses MORE routes than the FleetCostDuration optimum (earlier probe:
     cincinnati 2 vs 1, san_francisco 3 vs 2), so the FCD solve must have
     dissolved a route the Duration objective keeps — paying a duration
     penalty that stays under the 10 h fixed cost, exactly the mechanism the

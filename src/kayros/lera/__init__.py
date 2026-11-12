@@ -276,9 +276,11 @@ def solve_duration(
 
     ``near_rel`` (1.7.0) lets an Exact pricing pass that found at least one new
     negative column also contribute the routes whose reduced cost lies in
-    ``[0, near_rel * mean customer dual)``. They cost only merges, because the
-    labeling never prunes on reduced cost, and they spare later Exact passes
-    near convergence. ``0`` disables it. ``heuristic_cut_blind`` (1.7.0) makes
+    ``[0, near_rel * mean customer dual)``, where the mean customer dual is the
+    sum of the positive customer duals divided by the number of customers
+    (customers with a non-positive dual count in the denominator). They cost
+    only merges, because the labeling never prunes on reduced cost, and they
+    spare later Exact passes near convergence. ``0`` disables it. ``heuristic_cut_blind`` (1.7.0) makes
     the heuristic elementarity pricing level ignore cut memory in dominance,
     which keeps it cheap once many subset-row cuts are active. Neither changes
     the termination rule: a node is declared optimal only after an Exact pass
@@ -287,6 +289,16 @@ def solve_duration(
     ``pricing_counters`` record. Further experimental levers and diagnostics
     are reachable through ``KAYROS_BPC_*`` environment variables (see
     ``cpp/lera/bridge/lera_bridge.cpp``). They are off by default.
+
+    A set ``KAYROS_BPC_*`` variable takes precedence over the matching argument
+    of this function without any warning: ``KAYROS_BPC_NEAR_REL`` and
+    ``KAYROS_BPC_NEAR_LIMIT`` over ``near_rel``, ``KAYROS_BPC_HE_CUTBLIND`` over
+    ``heuristic_cut_blind``. Check the recorded
+    ``effective_algorithm_settings["pricing_options"]``, which holds the values
+    in force. Its keys are the names of the environment overrides, so two of
+    them differ from the parameter names: ``he_cutblind`` is the mode of
+    ``heuristic_cut_blind`` (0 off, 1 on, 2 an extra cut-blind level before the
+    ordinary one) and ``lam_iterate`` records the queue-iterating last-arc merge.
     """
     try:
         from kayros import _lera

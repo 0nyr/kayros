@@ -367,7 +367,7 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	}
 	else
 		lv->duration = (l->duration + vrp_.tau[u][v]).Compose(vrp_.dep[u][v]);
-	// (ms61) Upstream has a `lv->duration.RestrictDomain({0.0, t_m})` call here
+	// Upstream has a `lv->duration.RestrictDomain({0.0, t_m})` call here
 	// for limited extension without crossing. RestrictDomain is const and its
 	// result was discarded, so the call only built and freed a copy of the
 	// function on every extension. Removed, behaviour unchanged.
@@ -380,7 +380,7 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	lv->rw = dom(lv->duration);
 	
 	if (theta_relaxation)
-		lv->S = unite(intersection(l->S, theta_local.empty() ? theta : theta_local[v]), {v}); // (ms61) S := (S(parent) ∩ theta) ∪ {v}
+		lv->S = unite(intersection(l->S, theta_local.empty() ? theta : theta_local[v]), {v}); // S := (S(parent) ∩ theta) ∪ {v}
 	else if (ng_routes_relaxation && ng.has_value())
 	{
 		const VertexSet& ng_v = ng->neighbors(v, lv->rw.left);
@@ -579,7 +579,7 @@ void MonodirectionalLabeling::ProcessStep(Label* l)
 	// (If domination structure) insert label l into the dominance structure U.
 	if (packed_filter)
 	{
-		// (ms61) Same insertion as below, mirrored at the same index in the
+		// Same insertion as below, mirrored at the same index in the
 		// packed copy.
 		const CapacityUnit key = floor(l->q);
 		BoundLevel& bucket = U[l->v].Insert(key, {});

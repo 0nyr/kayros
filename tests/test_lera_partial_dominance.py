@@ -1,4 +1,4 @@
-"""Regression gate for the partial-dominance right-piece defect (ms61).
+"""Regression gate for the partial-dominance right-piece defect repaired in 1.7.0.
 
 ``PWLDominationFunction::DominatePieces`` splits a piece when the dominated
 interval lies strictly inside it. Upstream rebuilt the surviving right part with
