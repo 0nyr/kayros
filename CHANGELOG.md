@@ -2,6 +2,41 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
+## [1.7.1] — 2026-11-12
+
+A maintenance release that changes no behaviour. Search, pricing, numerical code paths, default values and the keys of the result dictionaries are those of 1.7.0, and on the 15 Dabia2013 instances compared with both LP backends the exact component returns the same results as 1.7.0 (see Validation below). The release edits comments, documentation, test and build-target names and package metadata, and it adds tests and CI steps. The component study of the exact solver used 1.7.0, and its run records store the content hash of `cpp/` and `src/` of that version (`44c84cdb…bf69`). The hash of these trees in 1.7.1 is `88f25689…83d4`, because comments and build targets changed.
+
+### Added
+
+- **The C++ unit tests of `tests/cpp` are built and run.** They were compiled by no target although `cpp/lera/NOTICE.md` cites them. Each test is a CMake target `kayros_test_<name>`, excluded from the default build and from the wheels, and `cmake --build <build dir> --target kayros_cpp_tests` builds and runs all of them for the configured LP backend. CI runs them on the HiGHS backend.
+- **A unit test of `PWLDominationFunction::DominatePieces` on a decreasing piece** (`tests/cpp/test_partial_dominance.cpp`), the routine repaired in 1.7.0. It fails when the repaired line is reverted to `p1.image.right`.
+- **The publish workflow solves an instance with each wheel before upload** (`tests/wheel_smoke.py`: an anytime solve and a cold exact solve of Dabia2013 C101 with 25 customers). It used to import the modules only. The wheel job of CI runs the same script after the test suite.
+
+### Changed
+
+- **Package metadata.** The 4 authors are listed in the same form, names without email, so that the `Author` field of the core metadata holds all of them in citation order. Florian Rascoussier is the maintainer, with the contact address. In 1.7.0 the first author was the only one with an email and appeared apart from the others, in `Author-email`.
+- The CMake target `ms58_cplex_domain_fixture` is renamed `kayros_test_cplex_variable_domains`.
+- `README.md`: a short status statement and a `Versions` section with one entry per release, absolute links (the README is the PyPI description), and the version and commit used by the component study.
+
+### Documentation
+
+- A set `KAYROS_BPC_*` environment variable takes precedence over the matching argument of `solve_duration` without any warning. The recorded `effective_algorithm_settings["pricing_options"]` holds the values in force, under the names of the variables, so `he_cutblind` is the mode of `heuristic_cut_blind` and `lam_iterate` records the queue-iterating last-arc merge. The keys are unchanged.
+- The mean customer dual that scales `near_rel` is the sum of the positive customer duals divided by the number of customers.
+- `KAYROS_FIRST_BRANCH_TRACE`, a diagnostic that writes the first branching decision of a solve to a file, is documented in `cpp/lera/main/include/bcp/branch_trace.h`.
+- How to check that link-time optimization took effect in a source build (`README.md`, Install). CMake turns it off with a status line when the toolchain does not support it, and the solver records nothing about it.
+- `cpp/lera/NOTICE.md` item 14 now describes the CPLEX batching correctly, as the restoration of variable types after an LP relaxation. The comment on `KAYROS_BPC_VERIFY_FINAL` describes the bit mask the code reads. Development labels are removed from comments.
+
+### Known issues
+
+- **The order of the returned routes is not reproducible.** `result["routes"]` and the routes of the incumbent records are listed in the iteration order of a hash container keyed by memory addresses, so the order can differ between two runs of the same build, and between 1.7.0 and 1.7.1 when the Python files allocate differently. The routes themselves are the same, and `value` is summed in the canonical route order. This predates 1.7.1 and is left unchanged here, since sorting the routes would change the output.
+
+### Validation
+
+- Equivalence with 1.7.0. Both versions were built in separate environments, with the CPLEX 12.10 backend and with the HiGHS 1.14.0 backend, and the exact component was run cold on 15 Dabia2013 TDVRPTW instances: C101, C104, C109, R101, R105, R111, RC102 and RC105 with 25 customers, and C101, C102, R103, R106, R110, RC101 and RC107 with 50 customers. All 30 pairs end with the status `Optimum` at the same value, and 9 of them branch (3 to 15 nodes). In every pair the result dictionaries have the same keys, and every value is equal (node counts, cut counts, pricing counters, label counts of each pricing iteration, bound events, columns) except timing and memory fields and the order of the returned routes (see Known issues).
+- The comment-stripped C++ of every changed source file is identical to 1.7.0, the Python modules have the same syntax tree once documentation strings are removed, and the compile and link flags of `_core`, `lera` and `_lera` are those of 1.7.0 except the version string compiled into `_core`.
+- Test suite on the CPLEX build with a full local copy of the benchmark store: 1,026 passed and 3 opt-in skipped, the same counts as 1.7.0 on the same store. Exact-component tests on the HiGHS build (`tests/test_lera*.py`, `tests/test_prover_fuzz_soundness.py`, `tests/test_goc_pwl_stepwise.py`): 66 passed and 3 opt-in skipped, the same as 1.7.0.
+- `kayros_cpp_tests` passes on both backends (5 tests on HiGHS, 6 on CPLEX). `tests/wheel_smoke.py` passes on a locally built HiGHS wheel. The cibuildwheel jobs of `ci.yml` and `publish.yml` were not run locally.
+
 ## [1.7.0] — 2026-11-11
 
 An exact-solver release. It repairs two soundness defects of the exact component, the partial-dominance routine inherited from the upstream branch-price-and-cut code and the addition of a scalar point to a duration function. It also turns the repaired label correction on and makes the proof phase faster. Certificates produced by earlier versions came from the defective routines, as the first two entries below explain. The heuristic component is unchanged.
