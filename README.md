@@ -6,7 +6,7 @@
 
 The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime-**Y**ielding **R**outing **O**ptimization **S**olver.
 
-> Status: **beta (v1.7.0)**, developed as part of a PhD. Two solving modes on one exact time-dependent engine: an anytime time-dependent iterated local search that produced the large majority of the MAMUT store's best-known solutions (minimizing Duration or, since 1.2.0, FleetCostDuration — a fleet fixed cost plus duration, as priced by the Blauth2024 family; since 1.3.0 a fleet-descent route-elimination phase contests the fleet size itself, the mechanism behind the first best-known solutions beaten on that family; since 1.4.0 the first solution is published within a fraction of a second at every instance size, where it used to take minutes at n = 1000; since 1.5.0 the search starts from a deliberately over-provisioned fleet and shrinks it, which is worth double-digit percentages where waiting dominates; 1.6.0 adds an opt-in penalty-tolerant time-window squeeze and a K-capped confined search, the campaign tools behind the warm-started refresh that leaves all thirty Blauth2024 records kayros-held), and an audited exact branch-price-and-cut component (`kayros.lera`) whose multi-gate certification protocol stands behind the store's proven-optimal solutions (704 as of 2026-08-08: one certificate was retracted after a checker-valid counterexample and the pricing defect behind it repaired in 1.5.1, the 2026-08-06 re-certification re-derived 466 of 468 earlier stamps four-way bit-exactly on the repaired build with one withdrawn on a protocol disagreement, and the Poryos2026 families received their first 238 certificates). Version 1.7.0 repairs two further defects under which the exact component could close above the optimum. The certificates counted above were issued by earlier versions and have not all been re-derived since (see the 1.7.0 entry of the [changelog](CHANGELOG.md)). Every run ends with an honest verdict (optimum, time limit, or resource limit), never a silent kill.
+> Status: **beta (v1.7.1)**, developed as part of a PhD. KAYROS offers two solving modes on one exact time-dependent engine: an anytime iterated local search, which produced most of the best-known solutions of the MAMUT-routing store, and an exact branch-price-and-cut component (`kayros.lera`) that issues checker-exact optimality certificates. Every run ends with an honest verdict (optimum, time limit, or resource limit), never a silent kill.
 
 ## Install
 
@@ -21,7 +21,7 @@ git clone https://github.com/0nyr/kayros && cd kayros
 pip install -e . --group dev    # pip >= 25.1 (or: uv pip install -e . --group dev)
 ```
 
-Requirements: Python ≥ 3.11. Building from source (sdist or checkout) additionally needs a C++23 compiler, CMake ≥ 3.26 (fetched automatically by the build backend when missing) and Boost.Graph headers+library; the HiGHS LP solver is fetched and built statically by CMake when no install is found.
+Requirements: Python ≥ 3.11. Building from source (sdist or checkout) additionally needs a C++23 compiler, CMake ≥ 3.26 (fetched automatically by the build backend when missing) and Boost.Graph headers+library; the HiGHS LP solver is fetched and built statically by CMake when no install is found. The exact component is built with link-time optimization when the toolchain supports it (CMake option `KAYROS_LERA_IPO`, on by default). CMake turns it off with the status line `Lera BPC: link-time optimization unavailable` when the toolchain lacks it, and the solver gives no other sign. To check a source build, keep its build directory (e.g. `pip install . -C build-dir=build`) and look for `-flto` in `build/build.ninja`, or for that status line in the build output.
 
 ## Usage
 
@@ -71,6 +71,8 @@ print(result["exact_log"]["status"], result["value"])
 
 `solution.duration` and `result["value"]` are always values computed by the reference checker (`mamut_routing_lib.td.check_td_solution`), never an internal approximation.
 
+The exact component reads `KAYROS_BPC_*` environment variables, meant for experiments (they are documented in `cpp/lera/bridge/lera_bridge.cpp`). A set variable takes precedence over the matching argument of `solve_duration` without any warning, e.g. `KAYROS_BPC_NEAR_REL` over `near_rel` and `KAYROS_BPC_HE_CUTBLIND` over `heuristic_cut_blind`. The values in force are recorded in `result["effective_algorithm_settings"]["pricing_options"]`, under the names of the variables, so two keys differ from the parameter names: `he_cutblind` is the mode of `heuristic_cut_blind` and `lam_iterate` records the queue-iterating last-arc merge. The threshold of `near_rel` is relative to the mean customer dual, i.e. the sum of the positive customer duals divided by the number of customers.
+
 Resource limits are verdicts, not crashes: besides the hard time-limit deadline, the exact solve carries a **memory self-guard**: an RSS watermark polled at the same interruption points as the deadline. When pricing would outgrow the machine (full-horizon TDVRP labeling can exceed any node's RAM), the solve unwinds cleanly with `exact_log.status == "MemoryLimitReached"`, honest bounds, and no certificate. The default limit is resolved from the machine (own RSS + ~80% of available memory, capped by the cgroup limit); `solve_duration(memory_limit_mb=...)` overrides it, `0` disables.
 
 ## Design
@@ -91,9 +93,32 @@ KAYROS is two solving modes on one exact time-dependent engine:
 - **One run is one thread.** No intra-run parallelism; parallelism belongs to the experiment layer above.
 - **POD core.** The fresh C++ is plain structs, flat arrays and free functions: optimization-kernel style, no framework (the vendored BPC keeps its upstream style, contained under `cpp/lera/`).
 
+## Versions
+
+Most recent first. The [changelog](https://github.com/0nyr/kayros/blob/main/CHANGELOG.md) gives the details and the evidence behind each entry.
+
+- **1.7.1** (2026-11-12). Documentation, tests and packaging metadata only. Solver behaviour and results are identical to 1.7.0.
+- **1.7.0** (2026-11-11). Repairs two defects under which the exact component could close above the optimum: a partial-dominance step inherited from the upstream branch-price-and-cut code, and the addition of a scalar point to a duration function. The lower bound reported at a limit no longer ignores an interrupted branch. Label correction is repaired and on by default, branching is reproducible, and Exact pricing is faster (near-zero reduced-cost columns, cut-blind dominance at the heuristic elementarity level, a packed dominance filter, link-time optimization).
+- **1.6.1** (2026-10-14). Requires `mamut-routing-lib>=0.6.0,<0.12`, the checker versions that implement the `td-fold/1` contract of KAYROS.
+- **1.6.0** (2026-08-08). An opt-in penalty-tolerant time-window squeeze and a K-capped confined search, both inert by default. Armed and warm-started, this build refreshed 29 of the 30 Blauth2024 FleetCostDuration best-known solutions, and all 30 are now held by KAYROS. The fleet-descent drain is capped by work instead of wall-clock time (breaking: `fd_time_cap_seconds` is replaced by `fd_work_cap`).
+- **1.5.2** (2026-08-07). Loading no longer re-verifies the artifact digests by default. `verify=True` runs the check.
+- **1.5.1** (2026-08-05). Repairs an over-certification of jump-free instances by the exact component of 1.1.0 to 1.5.0. A re-certification campaign on the repaired build re-derived 466 of the 468 stored certificates at their stored values. The 2 others are a certificate retracted after a checker-valid counterexample and an instance refused by the protocol.
+- **1.5.0** (2026-08-04). K-diverse seeding (`seed_k_factor=2.0`). Under Duration the search starts from a fleet twice as large as the constructed one and shrinks it. At a fixed time limit on a dense family with tight time windows, this lowers the duration by 5.2 % on average, with gains of up to 27 % on single instances.
+- **1.4.0** (2026-08-04). The first solution is published in well under a second at every instance size, where 1.3.0 published nothing for about 100 s at n = 1000.
+- **1.3.0** (2026-07-29). A fleet-descent route-elimination phase for FleetCostDuration, the mechanism behind the first best-known solutions beaten on Blauth2024, and work-based triggers.
+- **1.2.0 and 1.2.1** (2026-07-26 and 2026-07-27). The FleetCostDuration objective (a fleet fixed cost plus duration, as priced by the Blauth2024 family) with a route-dissolve perturbation, and wheels for CPython 3.14.
+- **1.1.0 to 1.1.3** (2026-07-18 to 2026-07-20). Exact pricing on stepwise travel-time functions (1.1.0), then documentation releases (corrected attribution of the vendored solver, references, `AUTHORS.md`).
+- **1.0.0** (2026-07-17). First beta, with the memory self-guard of the exact component.
+- **0.5.0** (2026-07-15). Audited optimality certificates and the multi-gate certification protocol, under which the store was re-certified at 468 proven optima.
+- **0.1.0 to 0.4.0** (2026-07-06 to 2026-07-08). The engine, the anytime solver, the exact component on HiGHS, and iterated local search as the default strategy.
+
+The proven optima of the MAMUT-routing store (704 as of 2026-08-08, among them the first 238 certificates of the Poryos2026 families) were issued by versions before 1.7.0, and they have not all been re-derived since the 1.7.0 repairs (see the 1.7.0 entry of the changelog).
+
 ## Archival and reproducibility
 
 `kayros` is archived by [Software Heritage](https://www.softwareheritage.org/); the badge above tracks the archive status of the GitHub origin ([archived origin](https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/0nyr/kayros), [archival visits](https://archive.softwareheritage.org/browse/origin/visits/?origin_url=https://github.com/0nyr/kayros)). For academic referencing, prefer Software Heritage identifiers (SWHIDs) of the exact archived revision or release tag over the moving repository origin; when reporting computational results, cite both the kayros release used and the MAMUT-routing benchmark artifacts it was run on.
+
+The component study of the exact solver consists of 1,400 runs on the 56 Dabia2013 instances with 100 customers, 1,120 of them with KAYROS 1.7.0 and the others with the repaired upstream solver. The KAYROS run records identify the sources by commit `25d8f00`, whose `cpp/` and `src/` trees are those of the `v1.7.0` release. Version 1.7.1 changes no behaviour of the solver. Its changes to these trees are comments, documentation strings, names of tests and of build targets, and new tests, and the results of the exact component are identical to those of 1.7.0 on the instances compared (see the 1.7.1 entry of the changelog).
 
 ## Branches
 
@@ -101,7 +126,7 @@ Development happens on `main`. One long-lived branch is deliberately **not** mer
 
 ## Provenance
 
-KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as part of a [PhD in Informatics and Operations Research](https://theses.fr/s386454) (IMT Atlantique / INSA Lyon), with scientific supervision by Romain Billot, Lina Fahed and Christine Solnon. The authors, in citation order, are Florian Rascoussier, Romain Billot, Lina Fahed and Christine Solnon. Their ORCID identifiers are recorded in [CITATION.cff](CITATION.cff). The NDCPWLF composition engine follows Visser & Spliet (2020)'s move-evaluation theorems; the local-search move evaluation follows Blauth et al. (2024); the exact component vendors the branch-price-and-cut solver of Lera-Romero, Miranda Bront & Soulignac (2020, MIT-licensed; provenance and local modifications documented in `cpp/lera/NOTICE.md`); the TD-ACO is a rewrite of Florian Rascoussier's heuristic layer originally built on that same solver. MIT license.
+KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as part of a [PhD in Informatics and Operations Research](https://theses.fr/s386454) (IMT Atlantique / INSA Lyon), with scientific supervision by Romain Billot, Lina Fahed and Christine Solnon. The authors, in citation order, are Florian Rascoussier, Romain Billot, Lina Fahed and Christine Solnon. Their ORCID identifiers are recorded in [CITATION.cff](https://github.com/0nyr/kayros/blob/main/CITATION.cff). The NDCPWLF composition engine follows Visser & Spliet (2020)'s move-evaluation theorems; the local-search move evaluation follows Blauth et al. (2024); the exact component vendors the branch-price-and-cut solver of Lera-Romero, Miranda Bront & Soulignac (2020, MIT-licensed; provenance and local modifications documented in `cpp/lera/NOTICE.md`); the TD-ACO is a rewrite of Florian Rascoussier's heuristic layer originally built on that same solver. MIT license.
 
 ### References
 
@@ -111,7 +136,7 @@ KAYROS is developed by [Florian Rascoussier (Onyr)](https://github.com/0nyr) as 
 
 ## Acknowledgements
 
-Full authorship, supervision, and contributor policy: [`AUTHORS.md`](AUTHORS.md).
+Full authorship, supervision, and contributor policy: [`AUTHORS.md`](https://github.com/0nyr/kayros/blob/main/AUTHORS.md).
 
 - **[Romain Billot](https://www.imt-atlantique.fr/fr/personne/romain-billot), [Christine Solnon](http://perso.citi.insa-lyon.fr/csolnon/) and [Lina Fahed](https://www.imt-atlantique.fr/fr/personne/lina-fahed)**, coauthors of KAYROS who supervise the PhD this solver is built for. A special mention to **Christine** for her guidance and for her decade-long involvement around Time-Dependent routing problems that goes as far back as the [PhD of Pénélope Aguiar Melgarejo](https://hal.science/hal-01514369) (more info on [Christine's page](http://perso.citi.insa-lyon.fr/csolnon/)).
 - **[Adrien Pichon](https://github.com/Anzury), [Marc Sevaux](http://www-labsticc.univ-ubs.fr/~sevaux/) and [Alexandru-Liviu Olteanu](http://www-labsticc.univ-ubs.fr/~olteanu/)** as members of the [ANR-MAMUT project](https://anr.fr/Projet-ANR-22-CE22-0016) and its [MAMUT-routing benchmark catalog](https://github.com/ANR-MAMUT/MAMUT-routing).
