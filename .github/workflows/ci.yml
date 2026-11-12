@@ -96,7 +96,8 @@ jobs:
             benchmarks/TDVRPTW/Dabia2013/n=50)
           CIBW_TEST_COMMAND: >
             python -c "import kayros._core, kayros._lera; from kayros import lera" &&
-            MAMUT_ROUTING_ROOT=/tmp/mamut-routing pytest {project}/tests
+            MAMUT_ROUTING_ROOT=/tmp/mamut-routing pytest {project}/tests &&
+            python {project}/tests/wheel_smoke.py /tmp/mamut-routing
       - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.cp }}
