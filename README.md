@@ -106,11 +106,18 @@ Most recent first. The [changelog](https://github.com/0nyr/kayros/blob/main/CHAN
 - **1.5.0** (2026-08-04). K-diverse seeding (`seed_k_factor=2.0`). Under Duration the search starts from a fleet twice as large as the constructed one and shrinks it. At a fixed time limit on a dense family with tight time windows, this lowers the duration by 5.2 % on average, with gains of up to 27 % on single instances.
 - **1.4.0** (2026-08-04). The first solution is published in well under a second at every instance size, where 1.3.0 published nothing for about 100 s at n = 1000.
 - **1.3.0** (2026-07-29). A fleet-descent route-elimination phase for FleetCostDuration, the mechanism behind the first best-known solutions beaten on Blauth2024, and work-based triggers.
-- **1.2.0 and 1.2.1** (2026-07-26 and 2026-07-27). The FleetCostDuration objective (a fleet fixed cost plus duration, as priced by the Blauth2024 family) with a route-dissolve perturbation, and wheels for CPython 3.14.
-- **1.1.0 to 1.1.3** (2026-07-18 to 2026-07-20). Exact pricing on stepwise travel-time functions (1.1.0), then documentation releases (corrected attribution of the vendored solver, references, `AUTHORS.md`).
+- **1.2.1** (2026-07-27). The default share of route-dissolve kicks (`dissolve_pct`) rises from 25 to 50 %, the best setting of a tuning grid on Blauth2024.
+- **1.2.0** (2026-07-26). The FleetCostDuration objective (a fleet fixed cost plus duration, as priced by the Blauth2024 family) with a route-dissolve perturbation, and wheels for CPython 3.14.
+- **1.1.3** (2026-07-20). Documentation only: `AUTHORS.md`, for the HAL and Software Heritage deposit, and extended acknowledgements.
+- **1.1.2** (2026-07-18). Documentation only: install commands for `uv`, acknowledgements, funding, and `date-released` in `CITATION.cff`.
+- **1.1.1** (2026-07-18). Documentation only: corrected attribution of the vendored branch-price-and-cut solver, and a References section.
+- **1.1.0** (2026-07-18). Exact pricing on stepwise travel-time functions, which carries the value jumps through the labeling instead of smoothing them, and optimality stamping on stepwise instances.
 - **1.0.0** (2026-07-17). First beta, with the memory self-guard of the exact component.
 - **0.5.0** (2026-07-15). Audited optimality certificates and the multi-gate certification protocol, under which the store was re-certified at 468 proven optima.
-- **0.1.0 to 0.4.0** (2026-07-06 to 2026-07-08). The engine, the anytime solver, the exact component on HiGHS, and iterated local search as the default strategy.
+- **0.4.0** (2026-07-08). Iterated local search becomes the default anytime strategy, with granular candidate lists in every local search.
+- **0.3.0** (2026-07-07). The exact branch-price-and-cut component ships in the default build on the HiGHS LP backend.
+- **0.2.0** (2026-07-06). The anytime solver: greedy construction, a time-dependent ant colony and the granular local search.
+- **0.1.0** (2026-07-06). The NDCPWLF composition engine, a bit-identical C++ port of the arithmetic of the reference checker.
 
 The proven optima of the MAMUT-routing store (704 as of 2026-08-08, among them the first 238 certificates of the Poryos2026 families) were issued by versions before 1.7.0, and they have not all been re-derived since the 1.7.0 repairs (see the 1.7.0 entry of the changelog).
 

@@ -4,7 +4,7 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 
 ## [1.7.1] — 2026-11-12
 
-A maintenance release that changes no behaviour. Search, pricing, numerical code paths, default values and the keys of the result dictionaries are those of 1.7.0, and on the 15 Dabia2013 instances compared with both LP backends the exact component returns the same results as 1.7.0 (see Validation below). The release edits comments, documentation, test and build-target names and package metadata, and it adds tests and CI steps. The component study of the exact solver used 1.7.0, and its run records store the content hash of `cpp/` and `src/` of that version (`44c84cdb…bf69`). The hash of these trees in 1.7.1 is `88f25689…83d4`, because comments and build targets changed.
+A maintenance release that changes no behaviour. Search, pricing, numerical code paths, default values and the keys of the result dictionaries are those of 1.7.0, and on the 15 Dabia2013 instances compared with both LP backends the exact component returns the same results as 1.7.0 (see Validation below). The release edits comments, documentation, test and build-target names and package metadata, and it adds tests and CI steps. The component study of the exact solver used 1.7.0, and its run records store the content hash of `cpp/` and `src/` of that version (`44c84cdb…bf69`). The hash of these trees in 1.7.1 is `0bd3a8d9…785b`, because comments and build targets changed.
 
 ### Added
 
@@ -15,14 +15,14 @@ A maintenance release that changes no behaviour. Search, pricing, numerical code
 ### Changed
 
 - **Package metadata.** The 4 authors are listed in the same form, names without email, so that the `Author` field of the core metadata holds all of them in citation order. Florian Rascoussier is the maintainer, with the contact address. In 1.7.0 the first author was the only one with an email and appeared apart from the others, in `Author-email`.
-- The CMake target `ms58_cplex_domain_fixture` is renamed `kayros_test_cplex_variable_domains`.
+- The CMake target of the CPLEX variable-domain test is renamed `kayros_test_cplex_variable_domains`.
 - `README.md`: a short status statement and a `Versions` section with one entry per release, absolute links (the README is the PyPI description), and the version and commit used by the component study.
 
 ### Documentation
 
 - A set `KAYROS_BPC_*` environment variable takes precedence over the matching argument of `solve_duration` without any warning. The recorded `effective_algorithm_settings["pricing_options"]` holds the values in force, under the names of the variables, so `he_cutblind` is the mode of `heuristic_cut_blind` and `lam_iterate` records the queue-iterating last-arc merge. The keys are unchanged.
 - The mean customer dual that scales `near_rel` is the sum of the positive customer duals divided by the number of customers.
-- `KAYROS_FIRST_BRANCH_TRACE`, a diagnostic that writes the first branching decision of a solve to a file, is documented in `cpp/lera/main/include/bcp/branch_trace.h`.
+- `KAYROS_FIRST_BRANCH_TRACE`, a diagnostic that writes the first branching decision of a process to a file, is documented in `cpp/lera/main/include/bcp/branch_trace.h`.
 - How to check that link-time optimization took effect in a source build (`README.md`, Install). CMake turns it off with a status line when the toolchain does not support it, and the solver records nothing about it.
 - `cpp/lera/NOTICE.md` item 14 now describes the CPLEX batching correctly, as the restoration of variable types after an LP relaxation. The comment on `KAYROS_BPC_VERIFY_FINAL` describes the bit mask the code reads. Development labels are removed from comments.
 
