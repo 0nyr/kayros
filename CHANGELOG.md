@@ -16,7 +16,7 @@ A maintenance release that changes no behaviour. Search, pricing, numerical code
 
 - **Package metadata.** The 4 authors are listed in the same form, names without email, so that the `Author` field of the core metadata holds all of them in citation order. Florian Rascoussier is the maintainer, with the contact address. In 1.7.0 the first author was the only one with an email and appeared apart from the others, in `Author-email`.
 - The CMake target of the CPLEX variable-domain test is renamed `kayros_test_cplex_variable_domains`.
-- `README.md`: a short status statement and a `Versions` section with one entry per release, absolute links (the README is the PyPI description), and the version and commit used by the component study.
+- `README.md`: a short status statement and a `Versions` section with one entry per release, absolute links (the README is the PyPI description), and the version and commit used by the component study, with links to its dataset (DOI 10.5281/zenodo.24153428), to the repaired upstream solver and to the harness.
 
 ### Documentation
 
