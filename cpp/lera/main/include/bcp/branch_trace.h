@@ -7,9 +7,10 @@
 
 namespace solver
 {
-// An opt-in diagnostic of the first branching decision of a solve. When the
+// An opt-in diagnostic of the first branching decision of a process. When the
 // environment variable KAYROS_FIRST_BRANCH_TRACE holds a file path, the first
-// node that branches writes 2 JSON lines to that file. The first, before the
+// node that branches in the process writes 2 JSON lines to that file (later
+// solves in the same process write nothing). The first, before the
 // probes, holds the master values in valuation order and the strong-branching
 // candidates computed from arc flows summed in variable order (the 1.7.0
 // rule, NOTICE.md item 12) and in valuation order (the earlier rule). The

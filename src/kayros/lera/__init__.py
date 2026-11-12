@@ -291,9 +291,8 @@ def solve_duration(
     ``cpp/lera/bridge/lera_bridge.cpp``). They are off by default.
 
     A set ``KAYROS_BPC_*`` variable takes precedence over the matching argument
-    of this function without any warning: ``KAYROS_BPC_NEAR_REL`` and
-    ``KAYROS_BPC_NEAR_LIMIT`` over ``near_rel``, ``KAYROS_BPC_HE_CUTBLIND`` over
-    ``heuristic_cut_blind``. Check the recorded
+    of this function without any warning: ``KAYROS_BPC_NEAR_REL`` over
+    ``near_rel`` and ``KAYROS_BPC_HE_CUTBLIND`` over ``heuristic_cut_blind``. Check the recorded
     ``effective_algorithm_settings["pricing_options"]``, which holds the values
     in force. Its keys are the names of the environment overrides, so two of
     them differ from the parameter names: ``he_cutblind`` is the mode of
