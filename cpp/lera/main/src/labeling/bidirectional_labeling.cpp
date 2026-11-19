@@ -287,6 +287,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	S.clear();
 	S_paths.clear(); // M13.0 path-keyed pool (step-carrying instances)
 	S_rc.clear();
+	last_pool_durations.clear();
 	negative_count_ = near_count_ = 0;
 	near_eff_ = (!step_pool_ && near_threshold > 0.0 && near_limit > 0) ? near_threshold : 0.0;
 	last_negative_count = last_near_count = 0;
@@ -458,6 +459,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			fprintf(stderr, "TRC POOL-EXIT path_len=%zu pool_dur=%.6f best_dur=%.6f best_empty=%d\n",
 				r.path.size(), r.duration, best.value, (int) best.path.empty());
 		R->push_back(Route(best.path, best.t0, best.value));
+		last_pool_durations.push_back(r.duration);
 	};
 	if (step_pool_)
 	{

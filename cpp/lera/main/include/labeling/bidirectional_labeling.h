@@ -100,6 +100,9 @@ public:
 	int near_limit;
 	int near_pool_cap; // hard cap on kept near entries (memory guard).
 	int last_negative_count;
+	// (1.8.0) Merge-time (labeling) duration of each route of the R of the last
+	// Run, in the same order. Read by the bridge integrity counters only.
+	std::vector<double> last_pool_durations;
 	int last_near_count;
 
 	BidirectionalLabeling(
