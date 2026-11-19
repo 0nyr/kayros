@@ -325,18 +325,24 @@ def solve_duration(
     cost is above ``epsilon``, and ``max_phantom_reduced_cost`` is the largest
     such reduced cost. ``labeling_below_checker_columns`` counts new columns
     whose labeling duration is below the checker duration
-    (``max_labeling_below_checker`` is the largest gap), and
-    ``route_duration_mismatches`` those on which the solver's route evaluation
-    and the checker differ (``max_route_duration_gap``).
+    (``max_labeling_below_checker`` is the largest gap).
+    ``route_duration_mismatches`` counts those on which the solver's own route
+    evaluation and the checker differ (``max_route_duration_gap`` is the
+    largest difference and ``route_duration_below_checker`` counts those where
+    the solver's value is the smaller one). That evaluation does not set the
+    cost of a column, which comes from the checker, so the counter is
+    information. It is non-zero on Poryos2026 road-graph instances.
     ``verify_final_negative_columns`` counts the columns added by a
     verification pass whose checker reduced cost is below ``-epsilon``, i.e.
     the columns that the verified pass really missed, where
     ``pricing_counters["verify_final_columns"]`` counts all of them.
     ``negative_duplicates`` counts master columns whose checker reduced cost at
     the duals of the pass is below ``-epsilon``, which an optimal LP on true
-    duals excludes. A sound pricing leaves every counter at 0. A non-zero
-    phantom count means that the labeling arithmetic is optimistic on that
-    instance, and a certificate obtained from such a run should not be trusted.
+    duals excludes. A sound pricing leaves the phantom counters,
+    ``labeling_below_checker_columns`` and ``verify_final_negative_columns``
+    at 0. A non-zero phantom count means that the labeling arithmetic is
+    optimistic on that instance, and a certificate obtained from such a run
+    should not be trusted.
     """
     try:
         from kayros import _lera

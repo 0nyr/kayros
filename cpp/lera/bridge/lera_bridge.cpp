@@ -419,7 +419,11 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //  - labeling below checker: the merge-time duration is below the checker
     //    duration by more than epsilon (the cause of a phantom).
     //  - route duration mismatch: Lera's BestDurationRoute and the checker
-    //    disagree by more than epsilon.
+    //    disagree by more than epsilon (route_duration_below_checker counts
+    //    those where BestDurationRoute is the smaller one). The bridge takes the
+    //    cost of a column from the checker, so this value is not used. It is
+    //    non-zero, by up to a few 1e-2, on Poryos2026 road-graph instances,
+    //    whose arrival functions carry gaps of about 1e-3 at period boundaries.
     //  - verify negative columns: columns added by a VERIFY_FINAL pass whose
     //    checker reduced cost is below -epsilon, i.e. columns the pass under
     //    verification really missed. verify_final_columns counts every column
@@ -433,7 +437,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     const PricingProblem* integrity_pp = nullptr;
     const std::vector<double>* integrity_pool = nullptr;
     bool integrity_verifying = false;
-    long long phantom_columns = 0, phantom_duplicates = 0, labeling_below_checker = 0, route_duration_mismatches = 0;
+    long long phantom_columns = 0, phantom_duplicates = 0, labeling_below_checker = 0, route_duration_mismatches = 0, route_duration_below = 0;
     long long verify_negative_columns = 0, negative_duplicates = 0;
     double max_phantom_reduced_cost = 0.0, max_labeling_gap = 0.0, max_route_duration_gap = 0.0;
     auto checker_reduced_cost = [&](const GraphPath& path, double duration, const PricingProblem& pp) {
@@ -586,6 +590,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 if (integrity_verifying && rc < -integrity_eps) ++verify_negative_columns;
                 const double route_gap = std::abs(r.duration - ev.duration);
                 if (route_gap > integrity_eps) { ++route_duration_mismatches; max_route_duration_gap = std::max(max_route_duration_gap, route_gap); }
+                if (r.duration < ev.duration - integrity_eps) ++route_duration_below;
                 if (integrity_pool && route_index < integrity_pool->size()) {
                     const double gap = ev.duration - (*integrity_pool)[route_index];
                     if (gap > integrity_eps) { ++labeling_below_checker; max_labeling_gap = std::max(max_labeling_gap, gap); }
@@ -833,7 +838,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         {"phantom_columns", phantom_columns}, {"phantom_duplicates", phantom_duplicates},
         {"max_phantom_reduced_cost", max_phantom_reduced_cost},
         {"labeling_below_checker_columns", labeling_below_checker}, {"max_labeling_below_checker", max_labeling_gap},
-        {"route_duration_mismatches", route_duration_mismatches}, {"max_route_duration_gap", max_route_duration_gap},
+        {"route_duration_mismatches", route_duration_mismatches}, {"route_duration_below_checker", route_duration_below},
+        {"max_route_duration_gap", max_route_duration_gap},
         {"verify_final_negative_columns", verify_negative_columns},
         {"negative_duplicates", negative_duplicates}};
     // (1.8.0) The conditions under which every node closure of this solve was
