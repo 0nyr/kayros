@@ -6,7 +6,7 @@
 
 The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime-**Y**ielding **R**outing **O**ptimization **S**olver.
 
-> Status: **beta (v1.7.1)**, developed as part of a PhD. KAYROS offers two solving modes on one exact time-dependent engine: an anytime iterated local search, which produced most of the best-known solutions of the MAMUT-routing store, and an exact branch-price-and-cut component (`kayros.lera`) that issues checker-exact optimality certificates. Every run ends with an honest verdict (optimum, time limit, or resource limit), never a silent kill.
+> Status: **beta (v1.8.0)**, developed as part of a PhD. KAYROS offers two solving modes on one exact time-dependent engine: an anytime iterated local search, which produced most of the best-known solutions of the MAMUT-routing store, and an exact branch-price-and-cut component (`kayros.lera`) that issues checker-exact optimality certificates. Every run ends with an honest verdict (optimum, time limit, or resource limit), never a silent kill.
 
 ## Install
 
@@ -99,6 +99,7 @@ KAYROS is two solving modes on one exact time-dependent engine:
 
 Most recent first. The [changelog](https://github.com/0nyr/kayros/blob/main/CHANGELOG.md) gives the details and the evidence behind each entry.
 
+- **1.8.0** (unreleased). Repairs the exact component on instances with stepwise travel times (value jumps), where releases 1.1.0 to 1.7.1 could miss improving columns and report a node bound above its true value. Optimality certificates and lower bounds obtained on such instances with an earlier version are to be derived again. Results on instances without value jumps are unchanged. The result of an exact solve gains two records, `pricing_integrity` and `closure_conditions`.
 - **1.7.1** (2026-11-12). Documentation, tests and packaging metadata only. Solver behaviour and results are identical to 1.7.0.
 - **1.7.0** (2026-11-11). Repairs two defects under which the exact component could close above the optimum: a partial-dominance step inherited from the upstream branch-price-and-cut code, and the addition of a scalar point to a duration function. The lower bound reported at a limit no longer ignores an interrupted branch. Label correction is repaired and on by default, branching is reproducible, and Exact pricing is faster (near-zero reduced-cost columns, cut-blind dominance at the heuristic elementarity level, a packed dominance filter, link-time optimization).
 - **1.6.1** (2026-10-14). Requires `mamut-routing-lib>=0.6.0,<0.12`, the checker versions that implement the `td-fold/1` contract of KAYROS.
@@ -121,7 +122,7 @@ Most recent first. The [changelog](https://github.com/0nyr/kayros/blob/main/CHAN
 - **0.2.0** (2026-07-06). The anytime solver: greedy construction, a time-dependent ant colony and the granular local search.
 - **0.1.0** (2026-07-06). The NDCPWLF composition engine, a bit-identical C++ port of the arithmetic of the reference checker.
 
-The proven optima of the MAMUT-routing store (704 as of 2026-08-08, among them the first 238 certificates of the Poryos2026 families) were issued by versions before 1.7.0, and they have not all been re-derived since the 1.7.0 repairs (see the 1.7.0 entry of the changelog).
+The proven optima of the MAMUT-routing store (704 as of 2026-08-08, among them the first 238 certificates of the Poryos2026 families) were issued by versions before 1.7.0, and they have not all been re-derived since the 1.7.0 repairs (see the 1.7.0 entry of the changelog). Of these, the 107 certificates of the Rifki2020 families concern instances with stepwise travel times, on which the exact component of versions 1.1.0 to 1.7.1 could miss improving columns (see the 1.8.0 entry). No optimum of these 107 is known to be wrong, and the 60 with 10 customers are confirmed by an exhaustive enumeration, but all 107 are to be derived again with 1.8.0 or later.
 
 ## Archival and reproducibility
 
