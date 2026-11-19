@@ -165,14 +165,31 @@ bool LinearFunction::operator!=(const LinearFunction& f) const
     return !(*this == f);
 }
 
+// A piece is written as its two endpoints. A vertical piece (1.8.0) is written
+// with both ends of its span, the attained (incoming) one first, so that
+// reading it back rebuilds the same vertical: the two-point constructor makes a
+// JUMP vertical whose attained value is the first point. A CHOICE vertical
+// carries a third element, the string "choice". Before 1.8.0 a vertical was
+// written as its attained value twice, i.e. as a single point, and every value
+// jump lost its vertical in a JSON round trip (see NOTICE.md item 18).
 void from_json(const json& j, LinearFunction& f)
 {
     f = LinearFunction(j[0], j[1]);
+    if (j.size() > 2 && j[2].is_string() && j[2].get<std::string>() == "choice" && f.is_vertical())
+        f = f.as_choice_vertical();
 }
 
 void to_json(json& j, const LinearFunction& f)
 {
-    j = vector<Point2D>();
+    j = json::array();
+    if (f.is_vertical())
+    {
+        const std::pair<double, double> ends = f.sweep_endpoints();
+        j.push_back(Point2D(f.domain.left, ends.first));
+        j.push_back(Point2D(f.domain.right, ends.second));
+        if (f.is_choice_vertical()) j.push_back("choice");
+        return;
+    }
     j.push_back(Point2D(f.domain.left, f.Value(f.domain.left)));
     j.push_back(Point2D(f.domain.right, f.Value(f.domain.right)));
 }
