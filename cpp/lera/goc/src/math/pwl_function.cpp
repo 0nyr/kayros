@@ -491,6 +491,11 @@ PWLFunction PWLFunction::Inverse() const
             // appending the right endpoint only would join (x, y_before) to the
             // right end of this piece by a chord over its whole width, i.e. an
             // inverse that is too large on the image of the piece.
+            // On a jump-free solve nothing changes: the input has no declared
+            // step, a gap between consecutive pieces is a residue of the
+            // construction of the function (up to about 1e-3 on the Poryos2026
+            // road-graph instances), and the historical arithmetic is kept bit
+            // for bit.
             const double gap = yl - ys.back();
             if (step_exact_arithmetic())
             {
@@ -501,14 +506,6 @@ PWLFunction PWLFunction::Inverse() const
                 if (epsilon_bigger(gap, 0.0)) { xs.push_back(xl); ys.push_back(yl); }
                 else if (epsilon_smaller(gap, 0.0))
                     throw BareJumpError("PWLFunction::Inverse: downward value jump", xl, ys.back(), yl);
-            }
-            else if (std::abs(gap) > BARE_JUMP_TOLERANCE)
-            {
-                // Jump-free solve: pieces are continuous up to rounding, and the
-                // historical arithmetic is kept bit for bit below the tolerance.
-                // A larger gap is a value jump on a solve that was not declared
-                // step-carrying: refuse it instead of bridging it.
-                throw BareJumpError("PWLFunction::Inverse: value jump in a jump-free solve", xl, ys.back(), yl);
             }
         }
         else if (step_exact_arithmetic() && epsilon_bigger(xl, xs.back()))

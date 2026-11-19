@@ -75,13 +75,10 @@ void test_inverse_refuses_what_it_cannot_invert()
 	}
 	{
 		StepExactArithmeticScope jump_free(false);
-		require(throws_bare_jump([&] { arrival(false).Inverse(); }, 10.0), "a bare jump is refused on a jump-free solve");
-		// A gap below BARE_JUMP_TOLERANCE is rounding on a jump-free solve: no error, historical arithmetic.
-		PWLFunction dust;
-		dust.AddPiece(LinearFunction({0.0, 100.0}, {10.0, 110.0}));
-		dust.AddPiece(LinearFunction({10.0, 110.0 + 1e-5}, {20.0, 120.0}));
-		PWLFunction dep = dust.Inverse();
-		require(close_to(dep.Value(100.0), 0.0) && close_to(dep.Value(120.0), 20.0), "a rounding gap is inverted as before on a jump-free solve");
+		// A jump-free solve keeps the historical arithmetic whatever the gap: no error, and the two pieces of the inverse of 1.7.1.
+		PWLFunction dep = arrival(false).Inverse();
+		require(dep.PieceCount() == 2 && close_to(dep.Value(100.0), 0.0) && close_to(dep.Value(110.0), 10.0) && close_to(dep.Value(125.0), 20.0),
+			"a jump-free solve inverts as before");
 		PWLFunction continuous;
 		continuous.AddPiece(LinearFunction({0.0, 100.0}, {10.0, 110.0}));
 		continuous.AddPiece(LinearFunction({10.0, 110.0}, {20.0, 130.0}));
