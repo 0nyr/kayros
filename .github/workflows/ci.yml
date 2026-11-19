@@ -47,6 +47,15 @@ jobs:
           git -C "$RUNNER_TEMP/mamut-routing" sparse-checkout set \
             benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25 \
             benchmarks/TDVRPTW/Dabia2013/n=50
+      - name: Fetch Rifki2020 TDVRPTW n=10 (stepwise travel times, sparse)
+        # Rifki-30 carries the value-jump defect repaired in 1.8.0
+        # (tests/test_lera_stepwise_jumps.py). The family is a submodule of
+        # the store, so it is cloned on its own at the path the store gives it.
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/ANR-MAMUT/MAMUT-routing-TDVRPTW-Rifki2020.git \
+            "$RUNNER_TEMP/mamut-routing/benchmarks/TDVRPTW/Rifki2020"
+          git -C "$RUNNER_TEMP/mamut-routing/benchmarks/TDVRPTW/Rifki2020" sparse-checkout set n=10
       - name: Run tests (incl. checker-equivalence gate on Dabia n=25)
         env:
           MAMUT_ROUTING_ROOT: ${{ runner.temp }}/mamut-routing
@@ -93,7 +102,11 @@ jobs:
             https://github.com/ANR-MAMUT/MAMUT-routing.git /tmp/mamut-routing &&
             git -C /tmp/mamut-routing sparse-checkout set
             benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25
-            benchmarks/TDVRPTW/Dabia2013/n=50)
+            benchmarks/TDVRPTW/Dabia2013/n=50 &&
+            git clone --depth 1 --filter=blob:none --sparse
+            https://github.com/ANR-MAMUT/MAMUT-routing-TDVRPTW-Rifki2020.git
+            /tmp/mamut-routing/benchmarks/TDVRPTW/Rifki2020 &&
+            git -C /tmp/mamut-routing/benchmarks/TDVRPTW/Rifki2020 sparse-checkout set n=10)
           CIBW_TEST_COMMAND: >
             python -c "import kayros._core, kayros._lera; from kayros import lera" &&
             MAMUT_ROUTING_ROOT=/tmp/mamut-routing pytest {project}/tests &&
