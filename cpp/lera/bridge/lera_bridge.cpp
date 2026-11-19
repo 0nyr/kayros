@@ -3,6 +3,7 @@
 #include "lera_bridge.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <cstdlib>
@@ -307,10 +308,18 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     };
     const bool merge_prefilter = env_int("KAYROS_BPC_MERGE_PREFILTER", params.merge_prefilter ? 1 : 0) != 0;
     lbl.merge_prefilter = merge_prefilter;
-    //  - VERIFY_FINAL (bit mask, 0 off): diagnostic and safety net. When an
-    //    Exact pass finishes without a new column, the pass is run again with
-    //    the masked features changed before the node is declared optimal. Any
-    //    column it finds is a column the first pass missed.
+    //  - VERIFY_FINAL (bit mask, 0 off): diagnostic. When an Exact pass
+    //    finishes without a new column, the pass is run again with the masked
+    //    features changed before the node is declared optimal, and any new
+    //    column it returns is added. It is a differential test of the masked
+    //    features only: both passes share the label arithmetic, the merge and
+    //    whatever the mask leaves on, so an error common to both is not seen.
+    //    The counters are no guarantee by themselves. verify_final_runs is
+    //    incremented before the pass runs, counts passes that did not finish,
+    //    and is global to the solve. A column counted in verify_final_columns
+    //    is not always a missed column (pricing_integrity tells them apart).
+    //    Whether every node closure was covered is what closure_conditions
+    //    reports, from the closure census.
     // The value is a bit mask of what the verification pass changes:
     // 1 correction off, 2 opening state (iterative merge from the start),
     // 4 no cost sorting, 8 weak unreachable sets, 16 no partial dominance,
@@ -398,6 +407,46 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         level_names = {"Heuristic Cost", "Heuristic Elementarity Blind", "Heuristic Elementarity", "Exact"};
         level_cut_blind = {false, true, false, false};
     }
+    // (1.8.0) Pricing integrity counters. They only observe: no decision reads
+    // them. A pricing pass returns routes that the labeling prices as negative
+    // at the duals of the pass. The checker-exact reduced cost of each of them
+    // is recomputed here at the same duals (vertex duals of the customers, and
+    // the dual of every subset-row cut that the route crosses at least twice).
+    //  - phantom: the labeling says negative, the checker says > +epsilon. The
+    //    labeling arithmetic is optimistic on that route. A new phantom column
+    //    is still added (it cannot hurt the master), an existing one is the
+    //    duplicate that the 1.7 census already counted without explaining it.
+    //  - labeling below checker: the merge-time duration is below the checker
+    //    duration by more than epsilon (the cause of a phantom).
+    //  - route duration mismatch: Lera's BestDurationRoute and the checker
+    //    disagree by more than epsilon.
+    //  - verify negative columns: columns added by a VERIFY_FINAL pass whose
+    //    checker reduced cost is below -epsilon, i.e. columns the pass under
+    //    verification really missed. verify_final_columns counts every column
+    //    such a pass adds, phantoms included.
+    //  - negative duplicates: routes already in the master that a pass returns
+    //    and whose checker reduced cost at the duals of the pass is below
+    //    -epsilon. On true duals (stab_alpha = 0, the default) an optimal LP
+    //    has none, so a non-zero value points at the LP solve. With dual
+    //    smoothing they are expected.
+    const double integrity_eps = 1e-6;
+    const PricingProblem* integrity_pp = nullptr;
+    const std::vector<double>* integrity_pool = nullptr;
+    bool integrity_verifying = false;
+    long long phantom_columns = 0, phantom_duplicates = 0, labeling_below_checker = 0, route_duration_mismatches = 0;
+    long long verify_negative_columns = 0, negative_duplicates = 0;
+    double max_phantom_reduced_cost = 0.0, max_labeling_gap = 0.0, max_route_duration_gap = 0.0;
+    auto checker_reduced_cost = [&](const GraphPath& path, double duration, const PricingProblem& pp) {
+        double rc = duration;
+        for (size_t k = 1; k + 1 < path.size(); ++k) rc -= pp.P[path[k]];
+        for (size_t i = 0; i < pp.S.size(); ++i) {
+            int visited = 0;
+            for (size_t k = 1; k + 1 < path.size(); ++k) if (pp.S[i].test(path[k])) ++visited;
+            if (visited >= 2) rc -= pp.sigma[i];
+        }
+        return rc;
+    };
+
     size_t heuristic_level = 0;
     int last_negative = 0; // leading negative routes in the last R.
     auto run_one_level = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
@@ -429,6 +478,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         if (probing_exact_cost && dssr_auto_labels > 0) lbl.extended_budget = dssr_auto_labels;
         lbl.theta_local = theta_local;
         Stopwatch pass_rolex(true);
+        integrity_pp = &pp;
+        integrity_pool = &lbl.last_pool_durations;
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
         if (heuristic_level == levels.size() - 1) {
             last_exact_pass_s = pass_rolex.Peek().Amount(DurationUnit::Seconds);
@@ -468,6 +519,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
 
     int checker_infeasible_count = 0; // M5.9 (19/n): poisons the certificate.
 
+
     // Column adds, shared by both pricing passes below. Checker-exact costs
     // (M5.6 stage A): a route the labeling prices but the checker rejects
     // would break certification integrity — fail loudly, never drop silently
@@ -480,7 +532,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     // no-new-columns outcome is the misprice signal instead). (M5.2) The
     // adds are deadline-checked per route: a full pool is thousands of ~1 ms
     // formulation inserts, the dominant non-interruptible tail otherwise.
-    auto add_columns = [&](const vector<Route>& R, size_t begin, size_t end) {
+    auto add_columns = [&](const vector<Route>& R, size_t begin, size_t end, bool priced_negative) {
         int added = 0;
         for (size_t route_index = begin; route_index < end && route_index < R.size(); ++route_index) {
             const auto& r = R[route_index];
@@ -493,7 +545,18 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             // skipped rather than certified — the loud-fail below is for real
             // routes the checker rejects.
             if (r.path.size() < 3) continue;
-            if (!column_keys.insert(path_key(r.path)).second) { ++duplicate_columns; continue; }
+            if (!column_keys.insert(path_key(r.path)).second) {
+                ++duplicate_columns;
+                if (priced_negative && integrity_pp) {
+                    auto dup = checker_eval(checker_inst, r.path);
+                    if (dup.feasible) {
+                        const double rc = checker_reduced_cost(r.path, dup.duration, *integrity_pp);
+                        if (rc > integrity_eps) { ++phantom_duplicates; max_phantom_reduced_cost = std::max(max_phantom_reduced_cost, rc); }
+                        else if (rc < -integrity_eps) ++negative_duplicates;
+                    }
+                }
+                continue;
+            }
             auto ev = checker_eval(checker_inst, r.path);
             if (!ev.feasible)
             {
@@ -517,6 +580,17 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             }
             spf.AddRoute(Route(r.path, ev.departure, ev.duration));
             ++added;
+            if (priced_negative && integrity_pp) {
+                const double rc = checker_reduced_cost(r.path, ev.duration, *integrity_pp);
+                if (rc > integrity_eps) { ++phantom_columns; max_phantom_reduced_cost = std::max(max_phantom_reduced_cost, rc); }
+                if (integrity_verifying && rc < -integrity_eps) ++verify_negative_columns;
+                const double route_gap = std::abs(r.duration - ev.duration);
+                if (route_gap > integrity_eps) { ++route_duration_mismatches; max_route_duration_gap = std::max(max_route_duration_gap, route_gap); }
+                if (integrity_pool && route_index < integrity_pool->size()) {
+                    const double gap = ev.duration - (*integrity_pool)[route_index];
+                    if (gap > integrity_eps) { ++labeling_below_checker; max_labeling_gap = std::max(max_labeling_gap, gap); }
+                }
+            }
         }
         return added;
     };
@@ -564,7 +638,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             }
             const vector<Route> R = run_one_level(pp, lg);
             const size_t negative = std::min<size_t>(R.size(), (size_t) std::max(last_negative, 0));
-            added = add_columns(R, 0, negative);
+            added = add_columns(R, 0, negative, true);
             // "Near converged" for early cuts mode 2: the last Exact
             // pass explored its whole space and found something, new columns
             // or, under the relaxation, routes that repeat a vertex.
@@ -577,7 +651,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 // Near-zero routes ride along with a productive pass
                 // only. A pass without a new negative column discards them,
                 // so "no new column" keeps its meaning for termination.
-                if (negative < R.size()) near_columns_added += add_columns(R, negative, R.size());
+                if (negative < R.size()) near_columns_added += add_columns(R, negative, R.size(), false);
                 if (at_exact && dropback_level >= 0 && added >= dropback_min_cols && levers_active()) {
                     saved_closing_state = lbl.closing_state;
                     saved_merge_start = lbl.merge_start;
@@ -632,7 +706,9 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 dssr_active = s_dssr_active;
                 verifying = false;
                 const size_t negative2 = std::min<size_t>(R2.size(), (size_t) std::max(last_negative, 0));
-                const int added2 = add_columns(R2, 0, negative2);
+                integrity_verifying = true;
+                const int added2 = add_columns(R2, 0, negative2, true);
+                integrity_verifying = false;
                 if (added2 > 0) {
                     ++verify_final_catches;
                     verify_final_columns += added2;
@@ -751,6 +827,40 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     result["closure_census"] = closure_census();
     result["exact_pricing"] = {{"calls", exact_calls}, {"finished", exact_finished}};
     result["checker_infeasible_columns"] = checker_infeasible_count;
+    // (1.8.0) See the comment at the declaration of the counters.
+    result["pricing_integrity"] = {
+        {"epsilon", integrity_eps},
+        {"phantom_columns", phantom_columns}, {"phantom_duplicates", phantom_duplicates},
+        {"max_phantom_reduced_cost", max_phantom_reduced_cost},
+        {"labeling_below_checker_columns", labeling_below_checker}, {"max_labeling_below_checker", max_labeling_gap},
+        {"route_duration_mismatches", route_duration_mismatches}, {"max_route_duration_gap", max_route_duration_gap},
+        {"verify_final_negative_columns", verify_negative_columns},
+        {"negative_duplicates", negative_duplicates}};
+    // (1.8.0) The conditions under which every node closure of this solve was
+    // backed by a finished Exact pricing pass (and, with a VERIFY_FINAL mask,
+    // by a finished verification pass) that found no new column. They restate
+    // closure_census as booleans with stable names:
+    //  - status_optimum: the search ended with status Optimum.
+    //  - all_closures_certified: cg_unresolved_final_pricing == 0.
+    //  - no_unpriced_closure: no node was closed without pricing, i.e.
+    //    cg_infeasible_unverified, selected_rmp_infeasible_unverified and
+    //    unbranched_fractional_unverified are all 0.
+    //  - no_checker_infeasible_column: checker_infeasible_columns == 0.
+    // all_hold is their conjunction. It says that the closures were covered,
+    // not that the pricing arithmetic is right: pricing_integrity is the
+    // separate signal for that.
+    {
+        const bool status_optimum = log.status == BCStatus::Optimum;
+        const bool all_certified = bcp.cg_unresolved_count == 0;
+        const bool no_unpriced = bcp.cg_infeasible_count == 0 && bcp.selected_rmp_infeasible_count == 0
+            && bcp.unbranched_fractional_count == 0;
+        const bool no_infeasible = checker_infeasible_count == 0;
+        result["closure_conditions"] = {
+            {"status_optimum", status_optimum}, {"all_closures_certified", all_certified},
+            {"no_unpriced_closure", no_unpriced}, {"no_checker_infeasible_column", no_infeasible},
+            {"all_hold", status_optimum && all_certified && no_unpriced && no_infeasible},
+            {"verify_final_mask", verify_mask}};
+    }
     // kayros (M13.2): guard observability, never used in control flow.
     result["memory"] = {
         {"limit_mb", params.memory_limit_mb},
