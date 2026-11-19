@@ -7,6 +7,8 @@
 #pragma once
 
 #include <iostream>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "goc/lib/json.hpp"
@@ -45,6 +47,20 @@ namespace goc
 // unit tests pin). `kayros::lera::solve_duration_json` sets it per solve from
 // KAYROS_STEP_EXACT through StepExactArithmeticScope and restores it on exit.
 bool step_exact_arithmetic();
+
+// (1.8.0) Raised by PWLFunction::Inverse on a discontinuity that it cannot
+// invert exactly: a downward value jump, a domain gap or a decreasing function
+// on a step-carrying solve, and a value jump larger than BARE_JUMP_TOLERANCE on
+// a jump-free solve. Callers that know the arc add it to the message.
+class BareJumpError : public std::domain_error
+{
+public:
+    BareJumpError(const std::string& what, double abscissa, double value_before, double value_after);
+    double abscissa, value_before, value_after;
+};
+// Largest gap between consecutive pieces that a jump-free solve treats as
+// rounding (the width of the retired 1.0.0 mollifier bridge).
+constexpr double BARE_JUMP_TOLERANCE = 1e-3;
 void set_step_exact_arithmetic(bool on);
 
 // RAII: set the mode for a scope, restore the previous value on exit.

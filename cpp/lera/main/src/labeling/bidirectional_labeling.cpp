@@ -145,7 +145,12 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 			if (!std::getenv("KAYROS_STEP_EXACT")) // M5.9 exact-jump path (13.2 tagged verticals)
 				r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
 			r.tau[v][u] = r.arr[v][u] - PWLFunction::IdentityFunction({0.0, vrp.T});
-			r.dep[v][u] = r.arr[v][u].Inverse();
+			try { r.dep[v][u] = r.arr[v][u].Inverse(); }
+			catch (const goc::BareJumpError& e)
+			{
+				// (1.8.0) See VRPInstance from_json: never bridge, name the arc.
+				throw std::domain_error("reverse arrival function of arc (" + std::to_string(u) + ", " + std::to_string(v) + "): " + e.what());
+			}
 			r.pretau[v][u] = PWLFunction::IdentityFunction(dom(r.dep[v][u])) - r.dep[v][u];
 		}
 	}
