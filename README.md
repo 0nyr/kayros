@@ -16,6 +16,8 @@ pip install kayros    # or: uv add kayros / uv pip install kayros
 
 This pulls everything, including the benchmark loaders and the reference checker ([`mamut-routing-lib`](https://pypi.org/project/mamut-routing-lib/)). Since version 1.6.1, KAYROS requires `mamut-routing-lib>=0.6.0,<0.12`: KAYROS implements the historical `td-fold/1` contract, while checker 0.12 introduced `td-fold/2`. A mixed environment can fail the final objective-equality check even when the values differ by only a final floating-point bit. Upgrade existing environments with `python -m pip install --upgrade kayros`, or pin `mamut-routing-lib==0.11.0` when retaining an older KAYROS release. Newer checker versions will be admitted after numerical compatibility is validated. For development:
 
+**Benchmark data.** This version of KAYROS reads the former MAMUT-routing layout, in which a sidecar sits next to its instance. That layout is kept, read-only, in [MAMUT-routing-archive-2026-11](https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11), and the examples below use its paths. The `main` branch of [MAMUT-routing](https://github.com/ANR-MAMUT/MAMUT-routing) now holds 1 repository per benchmark family, in the layout of `mamut-routing-lib` 0.13, which a later KAYROS release will adopt.
+
 ```sh
 git clone https://github.com/0nyr/kayros && cd kayros
 pip install -e . --group dev    # pip >= 25.1 (or: uv pip install -e . --group dev)

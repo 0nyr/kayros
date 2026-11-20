@@ -38,12 +38,16 @@ jobs:
       - name: Lera BPC import gate (default install ships the exact component)
         run: python -c "import kayros._lera; from kayros import lera; print('lera OK')"
       - name: Fetch Dabia2013 n=25 and n=50 benchmarks (sparse)
+        # The data come from the read-only archive of the former MAMUT-routing
+        # layout (sidecar next to its instance), which the pinned
+        # mamut-routing-lib (<0.12) reads. MAMUT-routing itself now holds the
+        # family layout of mamut-routing-lib 0.13.
         # n=50 carries RC107, the reproducer of the partial-dominance defect
         # repaired in 1.7.0 (tests/test_lera_partial_dominance.py). Without it
         # that regression test is collected with an empty parameter set.
         run: |
           git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/ANR-MAMUT/MAMUT-routing.git "$RUNNER_TEMP/mamut-routing"
+            https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11.git "$RUNNER_TEMP/mamut-routing"
           git -C "$RUNNER_TEMP/mamut-routing" sparse-checkout set \
             benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25 \
             benchmarks/TDVRPTW/Dabia2013/n=50
@@ -90,7 +94,7 @@ jobs:
           CIBW_BEFORE_TEST: >
             test -d /tmp/mamut-routing ||
             (git clone --depth 1 --filter=blob:none --sparse
-            https://github.com/ANR-MAMUT/MAMUT-routing.git /tmp/mamut-routing &&
+            https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11.git /tmp/mamut-routing &&
             git -C /tmp/mamut-routing sparse-checkout set
             benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25
             benchmarks/TDVRPTW/Dabia2013/n=50)

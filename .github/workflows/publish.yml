@@ -48,7 +48,7 @@ jobs:
           CIBW_BEFORE_TEST: >
             test -d /tmp/mamut-routing ||
             (git clone --depth 1 --filter=blob:none --sparse
-            https://github.com/ANR-MAMUT/MAMUT-routing.git /tmp/mamut-routing &&
+            https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11.git /tmp/mamut-routing &&
             git -C /tmp/mamut-routing sparse-checkout set
             benchmarks/TDVRPTW/Dabia2013/n=25)
           CIBW_TEST_COMMAND: >
