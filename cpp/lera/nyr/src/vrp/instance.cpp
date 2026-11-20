@@ -1,3 +1,5 @@
+#include <stdexcept>
+#include <string>
 #include "nyr/vrp/instance.h"
 
 using namespace std;
@@ -170,7 +172,13 @@ void from_json(const json& j, VRPInstance& instance)
 		{
 			instance.tau[u][v] = j["travel_times"][u][v];
 			instance.arr[u][v] = instance.tau[u][v] + PWLFunction::IdentityFunction(instance.tau[u][v].Domain());
-			instance.dep[u][v] = instance.arr[u][v].Inverse();
+			// (1.8.0) Inverse refuses a discontinuity it cannot invert exactly.
+			// Name the arc, so that the failure points at the input.
+			try { instance.dep[u][v] = instance.arr[u][v].Inverse(); }
+			catch (const goc::BareJumpError& e)
+			{
+				throw std::domain_error("arrival function of arc (" + std::to_string(u) + ", " + std::to_string(v) + "): " + e.what());
+			}
 			instance.pretau[u][v] = PWLFunction::IdentityFunction(instance.dep[u][v].Domain()) - instance.dep[u][v];
 		}
 	}

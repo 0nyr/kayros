@@ -145,7 +145,12 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 			if (!std::getenv("KAYROS_STEP_EXACT")) // M5.9 exact-jump path (13.2 tagged verticals)
 				r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
 			r.tau[v][u] = r.arr[v][u] - PWLFunction::IdentityFunction({0.0, vrp.T});
-			r.dep[v][u] = r.arr[v][u].Inverse();
+			try { r.dep[v][u] = r.arr[v][u].Inverse(); }
+			catch (const goc::BareJumpError& e)
+			{
+				// (1.8.0) See VRPInstance from_json: never bridge, name the arc.
+				throw std::domain_error("reverse arrival function of arc (" + std::to_string(u) + ", " + std::to_string(v) + "): " + e.what());
+			}
 			r.pretau[v][u] = PWLFunction::IdentityFunction(dom(r.dep[v][u])) - r.dep[v][u];
 		}
 	}
@@ -282,6 +287,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	S.clear();
 	S_paths.clear(); // M13.0 path-keyed pool (step-carrying instances)
 	S_rc.clear();
+	last_pool_durations.clear();
 	negative_count_ = near_count_ = 0;
 	near_eff_ = (!step_pool_ && near_threshold > 0.0 && near_limit > 0) ? near_threshold : 0.0;
 	last_negative_count = last_near_count = 0;
@@ -453,6 +459,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			fprintf(stderr, "TRC POOL-EXIT path_len=%zu pool_dur=%.6f best_dur=%.6f best_empty=%d\n",
 				r.path.size(), r.duration, best.value, (int) best.path.empty());
 		R->push_back(Route(best.path, best.t0, best.value));
+		last_pool_durations.push_back(r.duration);
 	};
 	if (step_pool_)
 	{

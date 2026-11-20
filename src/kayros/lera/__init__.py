@@ -97,10 +97,12 @@ def _atf_to_travel_time_pieces(xs, ys) -> list[list[list[float]]]:
 
     Each piece is ``[[x1, y1], [x2, y2]]`` (goc ``LinearFunction`` JSON).
     Breakpoints are emitted verbatim: duplicate-x pairs (value jumps of
-    stepwise ATFs) become genuine zero-width vertical pieces handled exactly
-    by the tagged-vertical labeling (M13.0; the exact value-jump path is the
-    production default on step-carrying instances; see
-    :func:`_has_stepwise_atfs` in :func:`solve_duration`). The M5.7 forward
+    stepwise ATFs) become zero-width vertical pieces (M13.0; the exact
+    value-jump path is the production default on step-carrying instances; see
+    :func:`_has_stepwise_atfs` in :func:`solve_duration`). From 1.1.0 to 1.7.1
+    these verticals did not survive the solver's preprocessing, and the
+    departure functions built from the resulting bare jumps were wrong (see
+    ``cpp/lera/NOTICE.md`` item 18). Since 1.8.0 they reach the labeling. The M5.7 forward
     mollifier (``_continuize_breakpoints``, a 1e-3 steep-bridge
     under-approximation) was retired with M13.0: its sliver admitted
     checker-infeasible priced columns (the 23 integrity-guard refusals) and
@@ -298,6 +300,49 @@ def solve_duration(
     them differ from the parameter names: ``he_cutblind`` is the mode of
     ``heuristic_cut_blind`` (0 off, 1 on, 2 an extra cut-blind level before the
     ordinary one) and ``lam_iterate`` records the queue-iterating last-arc merge.
+
+    Two records (since 1.8.0) let a caller judge a result without reading the
+    log. They are written by the solve and read by none of its decisions.
+
+    ``closure_conditions`` states whether every node closure was backed by a
+    finished Exact pricing pass that found no new column:
+    ``status_optimum`` (the search ended with status ``Optimum``),
+    ``all_closures_certified`` (``closure_census["cg_unresolved_final_pricing"]``
+    is 0), ``no_unpriced_closure`` (no node was closed without pricing, i.e.
+    ``cg_infeasible_unverified``, ``selected_rmp_infeasible_unverified`` and
+    ``unbranched_fractional_unverified`` are 0),
+    ``no_checker_infeasible_column`` and their conjunction ``all_hold``.
+    ``verify_final_mask`` repeats ``KAYROS_BPC_VERIFY_FINAL``. With a non-zero
+    mask, ``all_closures_certified`` also requires a finished verification pass
+    at each closure. ``pricing_counters["verify_final_runs"]`` does not say
+    that: it counts passes that were started.
+
+    ``pricing_integrity`` compares the labeling with the checker on every route
+    that a pricing pass returns as negative, at the duals of that pass and with
+    a tolerance ``epsilon`` of 1e-6. ``phantom_columns`` counts new columns
+    whose checker reduced cost is above ``epsilon``, ``phantom_duplicates``
+    counts master columns priced negative again although their checker reduced
+    cost is above ``epsilon``, and ``max_phantom_reduced_cost`` is the largest
+    such reduced cost. ``labeling_below_checker_columns`` counts new columns
+    whose labeling duration is below the checker duration
+    (``max_labeling_below_checker`` is the largest gap).
+    ``route_duration_mismatches`` counts those on which the solver's own route
+    evaluation and the checker differ (``max_route_duration_gap`` is the
+    largest difference and ``route_duration_below_checker`` counts those where
+    the solver's value is the smaller one). That evaluation does not set the
+    cost of a column, which comes from the checker, so the counter is
+    information. It is non-zero on Poryos2026 road-graph instances.
+    ``verify_final_negative_columns`` counts the columns added by a
+    verification pass whose checker reduced cost is below ``-epsilon``, i.e.
+    the columns that the verified pass really missed, where
+    ``pricing_counters["verify_final_columns"]`` counts all of them.
+    ``negative_duplicates`` counts master columns whose checker reduced cost at
+    the duals of the pass is below ``-epsilon``, which an optimal LP on true
+    duals excludes. A sound pricing leaves the phantom counters,
+    ``labeling_below_checker_columns`` and ``verify_final_negative_columns``
+    at 0. A non-zero phantom count means that the labeling arithmetic is
+    optimistic on that instance, and a certificate obtained from such a run
+    should not be trusted.
     """
     try:
         from kayros import _lera

@@ -144,6 +144,7 @@ set(KAYROS_CPP_TESTS
     label_correction
     label_correction_pricing
     partial_dominance
+    jump_representation
 )
 if(LERA_LP_BACKEND STREQUAL "cplex")
     list(APPEND KAYROS_CPP_TESTS cplex_variable_domains)

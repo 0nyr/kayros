@@ -6,8 +6,10 @@
 
 #include "goc/math/pwl_function.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <tuple>
 #include <utility>
 
@@ -30,6 +32,11 @@ bool g_step_exact_arithmetic = true;
 }
 
 bool step_exact_arithmetic() { return g_step_exact_arithmetic; }
+
+BareJumpError::BareJumpError(const std::string& what, double abscissa, double value_before, double value_after)
+    : std::domain_error(what + " at abscissa " + std::to_string(abscissa) + " (value " + std::to_string(value_before)
+        + " before, " + std::to_string(value_after) + " after)"),
+      abscissa(abscissa), value_before(value_before), value_after(value_after) {}
 
 void set_step_exact_arithmetic(bool on) { g_step_exact_arithmetic = on; }
 
@@ -343,6 +350,12 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
             double y_att = g[j].intercept;
             double y_other = (y_att == g[j].image.left) ? g[j].image.right : g[j].image.left;
             double flo = f.Domain().left, fhi = f.Domain().right;
+            // (1.8.0) Clamping is only meaningful when the span meets dom(f).
+            // A jump that lies entirely outside it has no image under f: the
+            // clamp used to emit a point at an end of dom(f) there, which made
+            // fog defined at abscissae where it is not (a route evaluated as
+            // feasible, and shorter, at a departure it cannot use).
+            if (epsilon_bigger(std::min(y_att, y_other), fhi) || epsilon_smaller(std::max(y_att, y_other), flo)) continue;
             double y1 = min(fhi, max(flo, y_att));
             double y2 = min(fhi, max(flo, y_other));
             // Hole-tolerant (M5.9): f may carry interior domain holes
@@ -470,6 +483,33 @@ PWLFunction PWLFunction::Inverse() const
         if (p.is_vertical()) { yl = p.image.left; yr = p.image.right; }
         else { yl = p.slope * xl + p.intercept; yr = p.slope * xr + p.intercept; }
         if (xs.empty()) { xs.push_back(xl); ys.push_back(yl); }
+        else if (xl == xs.back() && yl != ys.back())
+        {
+            // (1.8.0) Bare value jump: this piece starts, at the abscissa where
+            // the previous one ends, at a different value, and no vertical
+            // piece sits in between. The comment above does not hold then, and
+            // appending the right endpoint only would join (x, y_before) to the
+            // right end of this piece by a chord over its whole width, i.e. an
+            // inverse that is too large on the image of the piece.
+            // On a jump-free solve nothing changes: the input has no declared
+            // step, a gap between consecutive pieces is a residue of the
+            // construction of the function (up to about 1e-3 on the Poryos2026
+            // road-graph instances), and the historical arithmetic is kept bit
+            // for bit.
+            const double gap = yl - ys.back();
+            if (step_exact_arithmetic())
+            {
+                // Step-carrying solve: an upward bare jump denotes the same
+                // function as a JUMP vertical (left-continuous, lower value
+                // attained), so its upper endpoint is kept and the inverse gets
+                // the plateau. A downward one is not a non-decreasing function.
+                if (epsilon_bigger(gap, 0.0)) { xs.push_back(xl); ys.push_back(yl); }
+                else if (epsilon_smaller(gap, 0.0))
+                    throw BareJumpError("PWLFunction::Inverse: downward value jump", xl, ys.back(), yl);
+            }
+        }
+        else if (step_exact_arithmetic() && epsilon_bigger(xl, xs.back()))
+            throw BareJumpError("PWLFunction::Inverse: domain gap", xl, ys.back(), yl);
         xs.push_back(xr); ys.push_back(yr);
     }
 
@@ -485,6 +525,15 @@ PWLFunction PWLFunction::Inverse() const
 
     if (!non_decreasing)
     {
+        // (1.8.0) On a step-carrying solve the callers only invert arrival
+        // functions, which are non-decreasing. The fallback below is not exact
+        // on value jumps, so a decreasing function is refused there.
+        if (step_exact_arithmetic())
+        {
+            size_t k = 1;
+            while (k < ys.size() && !epsilon_smaller(ys[k], ys[k - 1])) ++k;
+            throw BareJumpError("PWLFunction::Inverse: function is not non-decreasing", xs[k], ys[k - 1], ys[k]);
+        }
         PWLFunction g;
         for (auto& p: Pieces()) g = Max(g, PWLFunction({p.Inverse()}));
         return g;
