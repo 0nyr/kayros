@@ -2,7 +2,11 @@
 
 All notable changes to KAYROS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Certificate semantics and benchmark provenance are documented in `README.md` and `cpp/lera/NOTICE.md`.
 
-## [1.8.0] — unreleased
+## [Unreleased]
+
+Development towards 2.0.0. Version 1.8.0 was prepared and not released. Its entry is kept below as written and becomes part of the 2.0.0 entry. Its figures are to be checked again before the release.
+
+### Stepwise repair (prepared as 1.8.0)
 
 This release repairs the exact component on instances whose travel times are stepwise, i.e. whose arrival functions carry value jumps (the Rifki2020 families of the MAMUT-routing store). On these instances, releases 1.1.0 to 1.7.1 priced routes with departure functions that were too late after every travel-time up-step. The Exact pricing level could then finish without a new column while an improving column existed, so a node bound could be above its true value. Results on stepwise instances can change with this release. Instances without value jumps are not concerned: on 21 jump-free instances, each solved in 4 configurations, the exact component returns the same results as a build of 1.7.1 (see Validation). The anytime local search does not use the code that changed.
 
