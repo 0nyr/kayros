@@ -103,3 +103,53 @@ def test_solve_quality_band_vs_bks(instance_path) -> None:
     bks = load_bks(bks_path)
     solution = kayros.solve(instance_path, SMALL_BUDGET, seed=1)
     assert solution.cost <= 2.0 * bks.cost, (solution.cost, bks.cost)
+
+
+RIFKI_10 = family_instances("TDVRPTW", "Rifki2020", ["n=10"])[:1]
+
+
+@pytest.mark.parametrize(
+    "instance_path",
+    DABIA_25_TDVRPTW[:2] + DABIA_25_TDVRP[:1] + RIFKI_10,
+    ids=lambda p: f"{p.parent.parent.name}-{p.name.removesuffix('.vrp.json')}",
+)
+def test_solution_cost_contract(instance_path) -> None:
+    """Library 0.13 contract of Solution: ``exact_cost`` is the library's exact
+    Duration cost of the routes, ``cost`` its binary64 display (bitwise), the
+    per-route fields are the exact route durations in the order of ``routes``,
+    and the solver's internal float value ``search_value`` is within TOL of it
+    (no bit-level contract: it can differ from ``cost`` in the last bits)."""
+    from mamut_routing_lib.td import check_td_solution
+
+    from exact_reference import assert_value_close, exact_duration_cost, exact_route
+    from kayros.io import load_instance
+
+    solution = kayros.solve(instance_path, SMALL_BUDGET, seed=1)
+    loaded = load_instance(instance_path, verify=True)
+    want = exact_duration_cost(loaded.instance, loaded.atfs, solution.routes)
+    assert solution.objective == "Duration"
+    assert solution.exact_cost == want
+    assert solution.cost == float(want)
+    assert solution.search_value is not None
+    assert_value_close(solution.search_value, want, instance_path, family="search_value")
+
+    assert len(solution.exact_route_durations) == len(solution.routes)
+    for route, duration, departure, float_duration, float_departure in zip(
+        solution.routes,
+        solution.exact_route_durations,
+        solution.exact_route_departures,
+        solution.route_durations,
+        solution.route_departures,
+    ):
+        evaluation = exact_route(loaded, route)
+        assert evaluation is not None
+        assert duration == evaluation.duration
+        assert departure == evaluation.departure_time
+        assert float_duration == float(duration)
+        assert float_departure == float(departure)
+    assert sum(solution.exact_route_durations) == solution.exact_cost
+
+    artifact = solution.to_benchmark_solution()
+    check = check_td_solution(loaded, artifact, ObjectiveFunction.DURATION)
+    assert check.is_valid(), (check.status, check.error_message)
+    assert check.routing_cost == solution.cost
