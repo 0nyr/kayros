@@ -477,8 +477,15 @@ bool relocate_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchSt
     for (std::size_t a = 0; a < num_routes; ++a) deletion_rankings(inst, states[a]);
 
     // Slots: the flagged clients in (route, position) order.
-    thread_local std::vector<std::int32_t> slot_client, slot_route, slot_pos, slot_of, slot_begin;
-    thread_local std::vector<std::uint64_t> mark;
+    thread_local std::vector<std::int32_t> slot_client_tl, slot_route_tl, slot_pos_tl, slot_of_tl,
+        slot_begin_tl;
+    thread_local std::vector<std::uint64_t> mark_tl;
+    std::vector<std::int32_t>& slot_client = slot_client_tl;
+    std::vector<std::int32_t>& slot_route = slot_route_tl;
+    std::vector<std::int32_t>& slot_pos = slot_pos_tl;
+    std::vector<std::int32_t>& slot_of = slot_of_tl;
+    std::vector<std::int32_t>& slot_begin = slot_begin_tl;
+    std::vector<std::uint64_t>& mark = mark_tl;
     slot_client.clear();
     slot_route.clear();
     slot_pos.clear();
@@ -588,17 +595,110 @@ bool relocate_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchSt
     return false;
 }
 
-// Swap pass of F6. For each route a, the candidates (b, i, j) with b > a, c1 = A[i] flagged and c2 = B[j] a granular neighbour of c1 are collected from the lists of the flagged clients, then sorted into the (b, i, j) order of the F4 loops. Exhaustive lists keep the F4 pass.
+// Orders the candidate keys of 1 donor route into the (b, i, j) order of the F4 loops. The keys arrive with i ascending, so a stable counting sort on b leaves only j out of order within equal (b, i), which the insertion sort fixes in time linear in the key count plus these few inversions.
+void order_keys(std::vector<std::uint64_t>& keys, std::vector<std::uint64_t>& tmp,
+                std::vector<std::int32_t>& cnt, std::size_t num_routes) {
+    cnt.assign(num_routes + 1, 0);
+    for (const std::uint64_t k : keys) ++cnt[static_cast<std::size_t>(k >> (2 * kKeyBits)) + 1];
+    for (std::size_t r = 1; r <= num_routes; ++r) cnt[r] += cnt[r - 1];
+    tmp.resize(keys.size());
+    for (const std::uint64_t k : keys) {
+        tmp[static_cast<std::size_t>(cnt[static_cast<std::size_t>(k >> (2 * kKeyBits))]++)] = k;
+    }
+    for (std::size_t k = 1; k < tmp.size(); ++k) {
+        const std::uint64_t x = tmp[k];
+        std::size_t t = k;
+        while (t > 0 && tmp[t - 1] > x) {
+            tmp[t] = tmp[t - 1];
+            --t;
+        }
+        tmp[t] = x;
+    }
+    keys.swap(tmp);
+}
+
+// The list path of the swap and 2-opt* passes is taken when the neighbour lists it reads are this many times shorter than the scan it replaces. Both paths visit the same candidates in the same order.
+constexpr std::int64_t kListFactor = 4;
+
+inline std::int64_t list_degree(const NeighbourLists& nb, std::int32_t c) {
+    return nb.neighbours_end(c) - nb.neighbours_begin(c);
+}
+
+// Swap pass of F6. For each route a, the candidates (b, i, j) with b > a, c1 = A[i] flagged and c2 = B[j] a granular neighbour of c1 are read from the lists of the flagged clients and put into the (b, i, j) order of the F4 loops. When the lists are not much shorter than the scan (small instances), the F4 scan runs on the same retest mask. Exhaustive lists keep the F4 pass.
 bool swap_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchState& ss,
                     LsStats* stats) {
     if (!nb.restricted()) return swap_pass(inst, nb, ss, stats);
     std::vector<RouteState>& states = ss.states;
+    const std::size_t num_routes = states.size();
     const std::int64_t pass_epoch = ss.epoch;
     const std::vector<char> retest = compute_retest(nb, ss, kSwap);
-    thread_local Positions at;
-    thread_local std::vector<std::uint64_t> cand;
+
+    // Body of the F4 inner loop from the capacity screen on. Returns true on a commit.
+    const auto try_pair = [&](std::size_t a, std::size_t b, std::int64_t i, std::int64_t j) -> bool {
+        const std::int32_t c1 = states[a].vertices[static_cast<std::size_t>(i)];
+        const std::int32_t c2 = states[b].vertices[static_cast<std::size_t>(j)];
+        if (states[a].load - inst.demands[c1] + inst.demands[c2] > inst.vehicle_capacity ||
+            states[b].load - inst.demands[c2] + inst.demands[c1] > inst.vehicle_capacity) {
+            return false;
+        }
+        if (stats) ++stats->evaluated;
+        const RouteEval ea = evaluate_splice(inst, states[a], i, i, states[b], j, j);
+        if (!ea.feasible) return false;
+        const RouteEval eb = evaluate_splice(inst, states[b], j, j, states[a], i, i);
+        if (!eb.feasible) return false;
+        const double delta =
+            (ea.duration - states[a].duration) + (eb.duration - states[b].duration);
+        if (delta < -kScreenEps) {
+            std::vector<std::int32_t> new_a = states[a].vertices;
+            std::vector<std::int32_t> new_b = states[b].vertices;
+            new_a[static_cast<std::size_t>(i)] = c2;
+            new_b[static_cast<std::size_t>(j)] = c1;
+            if (commit_two(inst, ss, a, std::move(new_a), b, std::move(new_b), stats)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    std::int64_t list_cost = 0, scan_cost = 0, suffix = 0;
+    for (const RouteState& s : states) suffix += static_cast<std::int64_t>(s.vertices.size());
+    for (std::size_t a = 0; a < num_routes; ++a) {
+        suffix -= static_cast<std::int64_t>(states[a].vertices.size());
+        for (const std::int32_t c1 : states[a].vertices) {
+            if (!retest[static_cast<std::size_t>(c1)]) continue;
+            list_cost += list_degree(nb, c1);
+            scan_cost += suffix;
+        }
+    }
+
+    if (list_cost * kListFactor >= scan_cost) {
+        // F4 scan.
+        for (std::size_t a = 0; a + 1 < num_routes; ++a) {
+            for (std::size_t b = a + 1; b < num_routes; ++b) {
+                const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
+                const std::int64_t mb = static_cast<std::int64_t>(states[b].vertices.size());
+                for (std::int64_t i = 0; i < ma; ++i) {
+                    const std::int32_t c1 = states[a].vertices[static_cast<std::size_t>(i)];
+                    if (!retest[static_cast<std::size_t>(c1)]) continue;
+                    for (std::int64_t j = 0; j < mb; ++j) {
+                        const std::int32_t c2 = states[b].vertices[static_cast<std::size_t>(j)];
+                        if (!nb.is_neighbour(c1, c2)) continue;
+                        if (try_pair(a, b, i, j)) return true;
+                    }
+                }
+            }
+        }
+        stamp_clean_pass(ss, kSwap, retest, pass_epoch);
+        return false;
+    }
+
+    thread_local Positions at_tl;
+    thread_local std::vector<std::uint64_t> cand_tl, tmp_tl;
+    thread_local std::vector<std::int32_t> cnt_tl;
+    Positions& at = at_tl;
+    std::vector<std::uint64_t>& cand = cand_tl;
     fill_positions(ss, at);
-    for (std::size_t a = 0; a + 1 < states.size(); ++a) {
+    for (std::size_t a = 0; a + 1 < num_routes; ++a) {
         const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
         cand.clear();
         for (std::int64_t i = 0; i < ma; ++i) {
@@ -612,32 +712,12 @@ bool swap_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchState&
                                         static_cast<std::uint64_t>(at.pos_of[static_cast<std::size_t>(*it)])));
             }
         }
-        std::sort(cand.begin(), cand.end());
+        order_keys(cand, tmp_tl, cnt_tl, num_routes);
         for (const std::uint64_t key : cand) {
-            const std::size_t b = static_cast<std::size_t>(key >> (2 * kKeyBits));
-            const std::int64_t i = static_cast<std::int64_t>((key >> kKeyBits) & kKeyMask);
-            const std::int64_t j = static_cast<std::int64_t>(key & kKeyMask);
-            const std::int32_t c1 = states[a].vertices[static_cast<std::size_t>(i)];
-            const std::int32_t c2 = states[b].vertices[static_cast<std::size_t>(j)];
-            if (states[a].load - inst.demands[c1] + inst.demands[c2] > inst.vehicle_capacity ||
-                states[b].load - inst.demands[c2] + inst.demands[c1] > inst.vehicle_capacity) {
-                continue;
-            }
-            if (stats) ++stats->evaluated;
-            const RouteEval ea = evaluate_splice(inst, states[a], i, i, states[b], j, j);
-            if (!ea.feasible) continue;
-            const RouteEval eb = evaluate_splice(inst, states[b], j, j, states[a], i, i);
-            if (!eb.feasible) continue;
-            const double delta =
-                (ea.duration - states[a].duration) + (eb.duration - states[b].duration);
-            if (delta < -kScreenEps) {
-                std::vector<std::int32_t> new_a = states[a].vertices;
-                std::vector<std::int32_t> new_b = states[b].vertices;
-                new_a[static_cast<std::size_t>(i)] = c2;
-                new_b[static_cast<std::size_t>(j)] = c1;
-                if (commit_two(inst, ss, a, std::move(new_a), b, std::move(new_b), stats)) {
-                    return true;
-                }
+            if (try_pair(a, static_cast<std::size_t>(key >> (2 * kKeyBits)),
+                         static_cast<std::int64_t>((key >> kKeyBits) & kKeyMask),
+                         static_cast<std::int64_t>(key & kKeyMask))) {
+                return true;
             }
         }
     }
@@ -645,41 +725,131 @@ bool swap_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchState&
     return false;
 }
 
-// 2-opt* pass of F6. The F4 justification of (i, j) is B[j+1] in N(A[i]) or B[j] in N(A[i+1]), so the candidates of a flagged cut i are read from the lists of A[i] (j = position - 1) and of A[i+1] (j = position), then sorted into the (b, i, j) order of the F4 loops and deduplicated. Prefix loads are computed once per pass. Exhaustive lists keep the F4 pass.
+// 2-opt* pass of F6. The F4 justification of (i, j) is B[j+1] in N(A[i]) or B[j] in N(A[i+1]), so the candidates of a flagged cut i are read from the lists of A[i] (j = position - 1) and of A[i+1] (j = position), put into the (b, i, j) order of the F4 loops and deduplicated. Prefix loads are computed once per pass. When the lists are not much shorter than the scan, the F4 scan runs on the same retest mask. Exhaustive lists keep the F4 pass.
 bool two_opt_star_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchState& ss,
                             LsStats* stats) {
     if (!nb.restricted()) return two_opt_star_pass(inst, nb, ss, stats);
     std::vector<RouteState>& states = ss.states;
+    const std::size_t num_routes = states.size();
     const std::int64_t pass_epoch = ss.epoch;
     const std::vector<char> retest = compute_retest(nb, ss, kTwoOptStar);
-    thread_local Positions at;
-    thread_local std::vector<std::uint64_t> cand;
-    thread_local std::vector<std::int64_t> head_load, head_begin;
-    fill_positions(ss, at);
+
     // head_load[head_begin[r] + i] = load of route r through position i.
-    head_begin.assign(states.size() + 1, 0);
-    for (std::size_t r = 0; r < states.size(); ++r) {
+    thread_local std::vector<std::int64_t> head_load_tl, head_begin_tl;
+    std::vector<std::int64_t>& head_load = head_load_tl;
+    std::vector<std::int64_t>& head_begin = head_begin_tl;
+    head_begin.assign(num_routes + 1, 0);
+    for (std::size_t r = 0; r < num_routes; ++r) {
         head_begin[r + 1] = head_begin[r] + static_cast<std::int64_t>(states[r].vertices.size());
     }
     head_load.resize(static_cast<std::size_t>(head_begin.back()));
-    for (std::size_t r = 0; r < states.size(); ++r) {
+    for (std::size_t r = 0; r < num_routes; ++r) {
         std::int64_t acc_load = 0;
         for (std::size_t i = 0; i < states[r].vertices.size(); ++i) {
             acc_load += inst.demands[states[r].vertices[i]];
             head_load[static_cast<std::size_t>(head_begin[r]) + i] = acc_load;
         }
     }
-    for (std::size_t a = 0; a + 1 < states.size(); ++a) {
+
+    const auto cut_flagged = [&](std::size_t a, std::int64_t i, std::int32_t& ai,
+                                 std::int32_t& ai_next) {
+        const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
+        ai = states[a].vertices[static_cast<std::size_t>(i)];
+        ai_next = i + 1 < ma ? states[a].vertices[static_cast<std::size_t>(i + 1)] : 0;
+        return retest[static_cast<std::size_t>(ai)] ||
+               (ai_next != 0 && retest[static_cast<std::size_t>(ai_next)]);
+    };
+
+    // Body of the F4 inner loop: the no-op skip, then from the capacity screen on. Returns true on a commit.
+    const auto try_cut = [&](std::size_t a, std::size_t b, std::int64_t i, std::int64_t j) -> bool {
+        const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
+        const std::int64_t mb = static_cast<std::int64_t>(states[b].vertices.size());
+        if (i == ma - 1 && j == mb - 1) return false;  // no-op
+        const std::int64_t head_a = head_load[static_cast<std::size_t>(head_begin[a] + i)];
+        const std::int64_t head_b = head_load[static_cast<std::size_t>(head_begin[b] + j)];
+        if (head_a + (states[b].load - head_b) > inst.vehicle_capacity ||
+            head_b + (states[a].load - head_a) > inst.vehicle_capacity) {
+            return false;
+        }
+        if (stats) ++stats->evaluated;
+        const RouteEval ea =
+            evaluate_splice(inst, states[a], i + 1, ma - 1, states[b], j + 1, mb - 1);
+        if (!ea.feasible) return false;
+        const RouteEval eb =
+            evaluate_splice(inst, states[b], j + 1, mb - 1, states[a], i + 1, ma - 1);
+        if (!eb.feasible) return false;
+        const double delta =
+            (ea.duration - states[a].duration) + (eb.duration - states[b].duration);
+        if (delta < -kScreenEps) {
+            std::vector<std::int32_t> new_a(
+                states[a].vertices.begin(),
+                states[a].vertices.begin() + static_cast<std::ptrdiff_t>(i + 1));
+            new_a.insert(new_a.end(),
+                         states[b].vertices.begin() + static_cast<std::ptrdiff_t>(j + 1),
+                         states[b].vertices.end());
+            std::vector<std::int32_t> new_b(
+                states[b].vertices.begin(),
+                states[b].vertices.begin() + static_cast<std::ptrdiff_t>(j + 1));
+            new_b.insert(new_b.end(),
+                         states[a].vertices.begin() + static_cast<std::ptrdiff_t>(i + 1),
+                         states[a].vertices.end());
+            if (commit_two(inst, ss, a, std::move(new_a), b, std::move(new_b), stats)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    std::int64_t list_cost = 0, scan_cost = 0, suffix = head_begin.back();
+    for (std::size_t a = 0; a < num_routes; ++a) {
+        const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
+        suffix -= ma;
+        for (std::int64_t i = 0; i < ma; ++i) {
+            std::int32_t ai, ai_next;
+            if (!cut_flagged(a, i, ai, ai_next)) continue;
+            list_cost += list_degree(nb, ai) + (ai_next != 0 ? list_degree(nb, ai_next) : 0);
+            scan_cost += suffix;
+        }
+    }
+
+    if (list_cost * kListFactor >= scan_cost) {
+        // F4 scan.
+        for (std::size_t a = 0; a + 1 < num_routes; ++a) {
+            for (std::size_t b = a + 1; b < num_routes; ++b) {
+                const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
+                const std::int64_t mb = static_cast<std::int64_t>(states[b].vertices.size());
+                for (std::int64_t i = 0; i < ma; ++i) {
+                    std::int32_t ai, ai_next;
+                    if (!cut_flagged(a, i, ai, ai_next)) continue;
+                    for (std::int64_t j = 0; j < mb; ++j) {
+                        const std::int32_t bj = states[b].vertices[static_cast<std::size_t>(j)];
+                        const std::int32_t bj_next =
+                            j + 1 < mb ? states[b].vertices[static_cast<std::size_t>(j + 1)] : 0;
+                        if (!(bj_next != 0 && nb.is_neighbour(ai, bj_next)) &&
+                            !(ai_next != 0 && nb.is_neighbour(bj, ai_next))) {
+                            continue;
+                        }
+                        if (try_cut(a, b, i, j)) return true;
+                    }
+                }
+            }
+        }
+        stamp_clean_pass(ss, kTwoOptStar, retest, pass_epoch);
+        return false;
+    }
+
+    thread_local Positions at_tl;
+    thread_local std::vector<std::uint64_t> cand_tl, tmp_tl;
+    thread_local std::vector<std::int32_t> cnt_tl;
+    Positions& at = at_tl;
+    std::vector<std::uint64_t>& cand = cand_tl;
+    fill_positions(ss, at);
+    for (std::size_t a = 0; a + 1 < num_routes; ++a) {
         const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
         cand.clear();
         for (std::int64_t i = 0; i < ma; ++i) {
-            const std::int32_t ai = states[a].vertices[static_cast<std::size_t>(i)];
-            const std::int32_t ai_next =
-                i + 1 < ma ? states[a].vertices[static_cast<std::size_t>(i + 1)] : 0;
-            if (!retest[static_cast<std::size_t>(ai)] &&
-                !(ai_next != 0 && retest[static_cast<std::size_t>(ai_next)])) {
-                continue;
-            }
+            std::int32_t ai, ai_next;
+            if (!cut_flagged(a, i, ai, ai_next)) continue;
             for (const std::int32_t* it = nb.neighbours_begin(ai); it != nb.neighbours_end(ai);
                  ++it) {
                 const std::int32_t rb = at.route_of[static_cast<std::size_t>(*it)];
@@ -698,45 +868,13 @@ bool two_opt_star_pass_fast(const Instance& inst, const NeighbourLists& nb, Sear
                 }
             }
         }
-        std::sort(cand.begin(), cand.end());
+        order_keys(cand, tmp_tl, cnt_tl, num_routes);
         cand.erase(std::unique(cand.begin(), cand.end()), cand.end());
         for (const std::uint64_t key : cand) {
-            const std::size_t b = static_cast<std::size_t>(key >> (2 * kKeyBits));
-            const std::int64_t i = static_cast<std::int64_t>((key >> kKeyBits) & kKeyMask);
-            const std::int64_t j = static_cast<std::int64_t>(key & kKeyMask);
-            const std::int64_t mb = static_cast<std::int64_t>(states[b].vertices.size());
-            if (i == ma - 1 && j == mb - 1) continue;  // no-op
-            const std::int64_t head_a = head_load[static_cast<std::size_t>(head_begin[a] + i)];
-            const std::int64_t head_b = head_load[static_cast<std::size_t>(head_begin[b] + j)];
-            if (head_a + (states[b].load - head_b) > inst.vehicle_capacity ||
-                head_b + (states[a].load - head_a) > inst.vehicle_capacity) {
-                continue;
-            }
-            if (stats) ++stats->evaluated;
-            const RouteEval ea =
-                evaluate_splice(inst, states[a], i + 1, ma - 1, states[b], j + 1, mb - 1);
-            if (!ea.feasible) continue;
-            const RouteEval eb =
-                evaluate_splice(inst, states[b], j + 1, mb - 1, states[a], i + 1, ma - 1);
-            if (!eb.feasible) continue;
-            const double delta =
-                (ea.duration - states[a].duration) + (eb.duration - states[b].duration);
-            if (delta < -kScreenEps) {
-                std::vector<std::int32_t> new_a(
-                    states[a].vertices.begin(),
-                    states[a].vertices.begin() + static_cast<std::ptrdiff_t>(i + 1));
-                new_a.insert(new_a.end(),
-                             states[b].vertices.begin() + static_cast<std::ptrdiff_t>(j + 1),
-                             states[b].vertices.end());
-                std::vector<std::int32_t> new_b(
-                    states[b].vertices.begin(),
-                    states[b].vertices.begin() + static_cast<std::ptrdiff_t>(j + 1));
-                new_b.insert(new_b.end(),
-                             states[a].vertices.begin() + static_cast<std::ptrdiff_t>(i + 1),
-                             states[a].vertices.end());
-                if (commit_two(inst, ss, a, std::move(new_a), b, std::move(new_b), stats)) {
-                    return true;
-                }
+            if (try_cut(a, static_cast<std::size_t>(key >> (2 * kKeyBits)),
+                        static_cast<std::int64_t>((key >> kKeyBits) & kKeyMask),
+                        static_cast<std::int64_t>(key & kKeyMask))) {
+                return true;
             }
         }
     }
