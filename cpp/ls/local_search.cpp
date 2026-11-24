@@ -461,7 +461,7 @@ inline std::uint64_t pack_key(std::uint64_t r, std::uint64_t i, std::uint64_t j)
     return (r << (2 * kKeyBits)) | (i << kKeyBits) | j;
 }
 
-// Relocate pass of F6. The donor candidates of a position are the clients flagged for retest, outside the receiver, granular neighbours of before or succ. They are numbered by slot, the rank of the client in the (route, position) order of the F4 loops, so a bitmap over the slots, read in increasing order, yields them in the F4 order without a sort.
+// Relocate pass of F6. The donor candidates of a position are the clients flagged for retest, outside the receiver, granular neighbours of before or succ. They are numbered by slot, the rank of the client in the (route, position) order of the F4 loops, so a bitmap over the slots, read in increasing order, yields them in the F4 order without a sort. When the 2 lists are longer than the slot count (small instances), the F4 loops run instead, on the same retest mask.
 bool relocate_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchState& ss,
                         LsStats* stats) {
     std::vector<RouteState>& states = ss.states;
@@ -524,11 +524,9 @@ bool relocate_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchSt
                 p > 0 ? recv.vertices[static_cast<std::size_t>(p - 1)] : 0;
             const std::int32_t succ =
                 p < mb ? recv.vertices[static_cast<std::size_t>(p)] : 0;
-            // Body of the F4 inner loop from the capacity screen on. Returns true on a commit.
-            const auto try_slot = [&](std::int32_t k) -> bool {
-                const std::size_t a = static_cast<std::size_t>(slot_route[static_cast<std::size_t>(k)]);
-                const std::int64_t i = slot_pos[static_cast<std::size_t>(k)];
-                const std::int32_t c = slot_client[static_cast<std::size_t>(k)];
+            // Body of the F4 inner loop from the capacity screen on, for client c at position i of route a. Returns true on a commit.
+            const auto try_cand = [&](std::size_t a, std::int64_t i,
+                                      std::int32_t c) __attribute__((always_inline)) -> bool {
                 const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
                 const double empty_credit = ma == 1 ? inst.fixed_route_cost : 0.0;
                 if (recv.load + inst.demands[c] > inst.vehicle_capacity) return false;
@@ -559,14 +557,18 @@ bool relocate_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchSt
                         (p < mb ? nb.neighbours_end(succ) - nb.neighbours_begin(succ) : 0) >=
                     num_slots;
             if (scan) {
-                // Slots outside the receiver with the F4 granular test (always true when exhaustive).
-                for (std::int32_t k = 0; k < num_slots; ++k) {
-                    if (k >= b_lo && k < b_hi) continue;
-                    const std::int32_t c = slot_client[static_cast<std::size_t>(k)];
-                    if (!nb.is_neighbour(c, before) && !(p < mb && nb.is_neighbour(c, succ))) {
-                        continue;
+                // The F4 loops (the granular test is always true when exhaustive).
+                for (std::size_t a = 0; a < num_routes; ++a) {
+                    if (a == b) continue;
+                    const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
+                    for (std::int64_t i = 0; i < ma; ++i) {
+                        const std::int32_t c = states[a].vertices[static_cast<std::size_t>(i)];
+                        if (!retest[static_cast<std::size_t>(c)]) continue;
+                        if (!nb.is_neighbour(c, before) && !(p < mb && nb.is_neighbour(c, succ))) {
+                            continue;
+                        }
+                        if (try_cand(a, i, c)) return true;
                     }
-                    if (try_slot(k)) return true;
                 }
                 continue;
             }
@@ -584,7 +586,8 @@ bool relocate_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchSt
                 while (mark[w] != 0) {
                     const int bit = std::countr_zero(mark[w]);
                     mark[w] &= mark[w] - 1;
-                    if (try_slot(static_cast<std::int32_t>(w * 64 + static_cast<std::size_t>(bit)))) {
+                    const std::size_t k = w * 64 + static_cast<std::size_t>(bit);
+                    if (try_cand(static_cast<std::size_t>(slot_route[k]), slot_pos[k], slot_client[k])) {
                         return true;
                     }
                 }
@@ -634,7 +637,8 @@ bool swap_pass_fast(const Instance& inst, const NeighbourLists& nb, SearchState&
     const std::vector<char> retest = compute_retest(nb, ss, kSwap);
 
     // Body of the F4 inner loop from the capacity screen on. Returns true on a commit.
-    const auto try_pair = [&](std::size_t a, std::size_t b, std::int64_t i, std::int64_t j) -> bool {
+    const auto try_pair = [&](std::size_t a, std::size_t b, std::int64_t i,
+                              std::int64_t j) __attribute__((always_inline)) -> bool {
         const std::int32_t c1 = states[a].vertices[static_cast<std::size_t>(i)];
         const std::int32_t c2 = states[b].vertices[static_cast<std::size_t>(j)];
         if (states[a].load - inst.demands[c1] + inst.demands[c2] > inst.vehicle_capacity ||
@@ -752,7 +756,7 @@ bool two_opt_star_pass_fast(const Instance& inst, const NeighbourLists& nb, Sear
     }
 
     const auto cut_flagged = [&](std::size_t a, std::int64_t i, std::int32_t& ai,
-                                 std::int32_t& ai_next) {
+                                 std::int32_t& ai_next) __attribute__((always_inline)) {
         const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
         ai = states[a].vertices[static_cast<std::size_t>(i)];
         ai_next = i + 1 < ma ? states[a].vertices[static_cast<std::size_t>(i + 1)] : 0;
@@ -761,7 +765,8 @@ bool two_opt_star_pass_fast(const Instance& inst, const NeighbourLists& nb, Sear
     };
 
     // Body of the F4 inner loop: the no-op skip, then from the capacity screen on. Returns true on a commit.
-    const auto try_cut = [&](std::size_t a, std::size_t b, std::int64_t i, std::int64_t j) -> bool {
+    const auto try_cut = [&](std::size_t a, std::size_t b, std::int64_t i,
+                             std::int64_t j) __attribute__((always_inline)) -> bool {
         const std::int64_t ma = static_cast<std::int64_t>(states[a].vertices.size());
         const std::int64_t mb = static_cast<std::int64_t>(states[b].vertices.size());
         if (i == ma - 1 && j == mb - 1) return false;  // no-op
