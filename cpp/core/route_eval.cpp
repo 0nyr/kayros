@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <memory>
 
 #include "core/instance.h"
 
@@ -114,7 +115,53 @@ Pwlf route_ready_time_function_cached(const Instance& inst,
     return compose(view(ret), view(acc));
 }
 
+// F7: the F2/F4 fold above with the leaves read from the pool.
+Pwlf route_ready_time_function_pooled(const Instance& inst, const std::int32_t* route,
+                                      std::int64_t len) {
+    double dep_lo, dep_hi;
+    if (!departure_window(inst, dep_lo, dep_hi)) return {};
+    Pwlf acc = identity(dep_lo, dep_hi);
+    std::int32_t prev = 0;
+    for (std::int64_t k = 0; k < len; ++k) {
+        const std::int32_t v = route[k];
+        const PwlfView leaf = pooled_leaf(inst, prev, v);
+        if (leaf.n == 0) return {};
+        acc = compose(leaf, view(acc));
+        if (acc.xs.empty()) return acc;
+        prev = v;
+    }
+    const PwlfView ret = pooled_return_leaf(inst, prev);
+    if (ret.n == 0) return {};
+    return compose(ret, view(acc));
+}
+
 }  // namespace
+
+void build_leaf_pool(Instance& inst) {
+    const std::int32_t nv = inst.num_vertices();
+    const std::size_t num_leaves = static_cast<std::size_t>(nv) * static_cast<std::size_t>(nv);
+    auto pool = std::make_shared<LeafPool>();
+    pool->offset.resize(num_leaves + static_cast<std::size_t>(nv) + 1);
+    pool->data.reserve(2 * inst.atf_xs.size() + 4 * num_leaves);
+    const auto append = [&](const Pwlf& f) {
+        pool->data.insert(pool->data.end(), f.xs.begin(), f.xs.end());
+        pool->data.insert(pool->data.end(), f.ys.begin(), f.ys.end());
+    };
+    std::size_t e = 0;
+    for (std::int32_t i = 0; i < nv; ++i) {
+        for (std::int32_t j = 0; j < nv; ++j) {
+            pool->offset[e++] = static_cast<std::int64_t>(pool->data.size());
+            append(leaf_uncached(inst, i, j));
+        }
+    }
+    for (std::int32_t i = 0; i < nv; ++i) {
+        pool->offset[e++] = static_cast<std::int64_t>(pool->data.size());
+        append(return_leaf_uncached(inst, i));
+    }
+    pool->offset[e] = static_cast<std::int64_t>(pool->data.size());
+    pool->data.shrink_to_fit();
+    inst.leaf_pool = std::move(pool);
+}
 
 Pwlf leaf_uncached(const Instance& inst, std::int32_t from, std::int32_t to) {
     const PwlfView alpha = inst.arc(from, to);
@@ -170,6 +217,7 @@ const Pwlf& cached_return_leaf(const Instance& inst, std::int32_t from) {
 
 Pwlf route_ready_time_function(const Instance& inst, const std::int32_t* route,
                                std::int64_t len) {
+    if (inst.arm_compact_cache()) return route_ready_time_function_pooled(inst, route, len);
     if (inst.arm_leaf_cache()) return route_ready_time_function_cached(inst, route, len);
     if (inst.arm_in_place()) return route_ready_time_function_in_place(inst, route, len);
     return route_ready_time_function_f0(inst, route, len);

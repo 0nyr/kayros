@@ -102,6 +102,10 @@ std::vector<Pwlf> route_leaves(const Instance& inst, const std::int32_t* route,
 }
 
 Pwlf bridge_leaf(const Instance& inst, std::int32_t from, std::int32_t to) {
+    if (inst.arm_compact_cache()) {
+        const PwlfView v = pooled_leaf(inst, from, to);
+        return Pwlf{std::vector<double>(v.xs, v.xs + v.n), std::vector<double>(v.ys, v.ys + v.n)};
+    }
     if (inst.arm_leaf_cache()) return cached_leaf(inst, from, to);
     if (inst.arm_in_place()) return leaf_uncached(inst, from, to);
     const PwlfView alpha = inst.arc(from, to);
@@ -111,6 +115,10 @@ Pwlf bridge_leaf(const Instance& inst, std::int32_t from, std::int32_t to) {
 }
 
 Pwlf return_leaf(const Instance& inst, std::int32_t from) {
+    if (inst.arm_compact_cache()) {
+        const PwlfView v = pooled_return_leaf(inst, from);
+        return Pwlf{std::vector<double>(v.xs, v.xs + v.n), std::vector<double>(v.ys, v.ys + v.n)};
+    }
     if (inst.arm_leaf_cache()) return cached_return_leaf(inst, from);
     if (inst.arm_in_place()) return return_leaf_uncached(inst, from);
     const PwlfView alpha = inst.arc(from, 0);
@@ -125,6 +133,7 @@ Pwlf return_leaf(const Instance& inst, std::int32_t from) {
 
 PwlfView bridge_leaf_view(const Instance& inst, std::int32_t from, std::int32_t to,
                           Pwlf& scratch) {
+    if (inst.arm_compact_cache()) return pooled_leaf(inst, from, to);
     if (inst.arm_leaf_cache()) return view(cached_leaf(inst, from, to));
     if (inst.arm_in_place()) {
         scratch = leaf_uncached(inst, from, to);
@@ -159,6 +168,7 @@ PwlfView bridge_leaf_view(const Instance& inst, std::int32_t from, std::int32_t 
 }
 
 PwlfView return_leaf_view(const Instance& inst, std::int32_t from, Pwlf& scratch) {
+    if (inst.arm_compact_cache()) return pooled_return_leaf(inst, from);
     if (inst.arm_leaf_cache()) return view(cached_return_leaf(inst, from));
     if (inst.arm_in_place()) {
         scratch = return_leaf_uncached(inst, from);

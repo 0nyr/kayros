@@ -17,6 +17,16 @@ namespace kayros {
 // F7 is F6 with the leaves stored in 1 packed pool instead of separate vectors (compact_cache), same leaf values as F4.
 enum class FoldArm : std::int32_t { F0 = 0, F1 = 1, F2 = 2, F3 = 3, F4 = 4, F5 = 5, F6 = 6, F7 = 7 };
 
+// F7: every leaf and return leaf of the F4 cache, built eagerly into 1 pool. Entry e occupies data[offset[e], offset[e+1]): its xs, then its ys. Entries 0 to (n+1)^2-1 are the leaves (e = i*(n+1)+j), entry (n+1)^2+i is the return leaf of i.
+struct LeafPool {
+    std::vector<std::int64_t> offset;  // (n+1)^2 + (n+1) + 1 entries
+    std::vector<double> data;
+};
+
+struct Instance;
+// Builds inst.leaf_pool with the F4 leaf arithmetic (leaf_uncached, return_leaf_uncached).
+void build_leaf_pool(Instance& inst);
+
 struct LeafCache {
     std::vector<Pwlf> leaf;   // (n+1)^2 entries, leaf[i*(n+1)+j] = theta_j o alpha_ij
     std::vector<char> ready;  // filled flag per entry
@@ -54,6 +64,7 @@ struct Instance {
     // Fold study arm (see FoldArm). The cache is filled lazily by the leaf builders, and is reset whenever the arm changes (set_fold_arm).
     FoldArm fold_arm = FoldArm::F0;
     std::shared_ptr<LeafCache> leaf_cache;
+    std::shared_ptr<LeafPool> leaf_pool;
 
     bool arm_in_place() const { return fold_arm == FoldArm::F1 || fold_arm == FoldArm::F5; }
     bool arm_leaf_cache() const {
@@ -65,10 +76,14 @@ struct Instance {
                fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7;
     }
     bool arm_fast_enum() const { return fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7; }
+    bool arm_compact_cache() const { return fold_arm == FoldArm::F7; }
     void set_fold_arm(FoldArm arm) {
         fold_arm = arm;
         leaf_cache.reset();
-        if (arm_leaf_cache()) {
+        leaf_pool.reset();
+        if (arm_compact_cache()) {
+            build_leaf_pool(*this);
+        } else if (arm_leaf_cache()) {
             const std::size_t nv = static_cast<std::size_t>(num_vertices());
             leaf_cache = std::make_shared<LeafCache>();
             leaf_cache->leaf.resize(nv * nv);
@@ -112,5 +127,21 @@ Pwlf leaf_uncached(const Instance& inst, std::int32_t from, std::int32_t to);
 Pwlf return_leaf_uncached(const Instance& inst, std::int32_t from);
 const Pwlf& cached_leaf(const Instance& inst, std::int32_t from, std::int32_t to);
 const Pwlf& cached_return_leaf(const Instance& inst, std::int32_t from);
+
+// F7 accessors: views into inst.leaf_pool, same values as cached_leaf and cached_return_leaf.
+inline PwlfView pool_entry(const Instance& inst, std::size_t e) {
+    const LeafPool& pool = *inst.leaf_pool;
+    const std::int64_t b = pool.offset[e];
+    const std::int64_t n = (pool.offset[e + 1] - b) / 2;
+    return {pool.data.data() + b, pool.data.data() + b + n, n};
+}
+inline PwlfView pooled_leaf(const Instance& inst, std::int32_t from, std::int32_t to) {
+    return pool_entry(inst, static_cast<std::size_t>(from) * static_cast<std::size_t>(inst.num_vertices()) +
+                                static_cast<std::size_t>(to));
+}
+inline PwlfView pooled_return_leaf(const Instance& inst, std::int32_t from) {
+    const std::size_t nv = static_cast<std::size_t>(inst.num_vertices());
+    return pool_entry(inst, nv * nv + static_cast<std::size_t>(from));
+}
 
 }  // namespace kayros

@@ -536,7 +536,7 @@ PYBIND11_MODULE(_core, m) {
         py::arg("instance"), py::arg("routes"), py::arg("splices"),
         py::arg("insert_customers"), py::arg("min_seconds") = 0.5);
     m.def("leaf_cache_stats", [](const kayros::Instance& inst) {
-        // (filled leaves, their breakpoints, bytes of breakpoint storage).
+        // (filled leaves, their breakpoints, bytes of breakpoint storage). Under F7: non-empty pool entries (leaves and return leaves), their breakpoints, bytes of the pool and its offsets.
         std::int64_t filled = 0, points = 0, bytes = 0;
         if (inst.leaf_cache) {
             const kayros::LeafCache& c = *inst.leaf_cache;
@@ -548,6 +548,17 @@ PYBIND11_MODULE(_core, m) {
                     (c.leaf[a].xs.capacity() + c.leaf[a].ys.capacity()) * sizeof(double));
             }
             bytes += static_cast<std::int64_t>(c.leaf.size() * sizeof(kayros::Pwlf) + c.ready.size());
+        }
+        if (inst.leaf_pool) {
+            // F7: every entry is built, count the non-empty ones.
+            const kayros::LeafPool& p = *inst.leaf_pool;
+            for (std::size_t e = 0; e + 1 < p.offset.size(); ++e) {
+                const std::int64_t len = (p.offset[e + 1] - p.offset[e]) / 2;
+                if (len > 0) ++filled;
+                points += len;
+            }
+            bytes += static_cast<std::int64_t>(p.data.capacity() * sizeof(double) +
+                                               p.offset.capacity() * sizeof(std::int64_t));
         }
         return py::make_tuple(filled, points, bytes);
     });
