@@ -258,7 +258,7 @@ class Solution:
     (``td-binary64-exact-v1``).
 
     ``exact_cost`` is the authoritative rational value of ``objective``, as
-    computed by ``mamut_routing_lib.td.check_td_solution``. ``duration`` is its
+    computed by ``mamut_routing_lib.td.check_td_solution``. ``cost`` is its
     binary64 display (the nearest double). Under ``"FleetCostDuration"`` both
     include the ``fleet_fixed_cost * num_routes`` term. ``route_durations`` and
     ``route_departures`` are the displays of the exact per-route durations and
@@ -266,15 +266,14 @@ class Solution:
     values are in ``exact_route_durations`` and ``exact_route_departures``.
     ``search_value`` is the value of the same solution under the binary64 fold
     that the search uses. It is internal to the solver and can differ from
-    ``duration`` in the last bits. ``exact_evaluation`` is the record of the
+    ``cost`` in the last bits. ``exact_evaluation`` is the record of the
     library (profile, backend, authoritative cost as an integer pair)."""
 
     instance_name: str
     routes: list[list[int]]
-    # TODO(2.0): rename to an objective-neutral `cost` (with a compat alias);
-    # under FleetCostDuration this already holds the full objective value
-    # including fleet_fixed_cost * num_routes.
-    duration: float
+    # Named `duration` before 2.0.0. Under FleetCostDuration it holds the full
+    # objective value, including fleet_fixed_cost * num_routes.
+    cost: float
     route_durations: list[float]
     route_departures: list[float]
     status: str  # "finished" | "converged" | "time_limit"
@@ -323,7 +322,7 @@ class Solution:
         return BenchmarkSolution(
             instance_name=self.instance_name,
             routes=self.routes,
-            cost=self.duration,
+            cost=self.cost,
             metadata=metadata,
         )
 
@@ -421,7 +420,7 @@ def solve(
     split.
 
     ``instance`` is a ``.vrp.json`` path or an already-loaded
-    ``LoadedTDInstance``. The returned ``Solution.duration`` is priced by the
+    ``LoadedTDInstance``. The returned ``Solution.cost`` is priced by the
     reference checker under the selected objective; an internal/checker
     disagreement raises (it would be a kayros bug, never a rounding issue to
     tolerate).
@@ -573,7 +572,7 @@ def solve(
     return Solution(
         instance_name=loaded.instance.instance_name,
         routes=routes,
-        duration=check.routing_cost,
+        cost=check.routing_cost,
         route_durations=[float(e.duration) for e in evaluations],
         route_departures=[float(e.departure_time) for e in evaluations],
         exact_cost=exact_cost,

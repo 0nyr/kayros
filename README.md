@@ -35,7 +35,7 @@ import kayros
 # Any MAMUT-routing TD instance (.vrp.json with its .atf.json sidecar next to it)
 instance_path = "benchmarks/TDVRPTW/Dabia2013/n=25/C101.vrp.json"
 solution = kayros.solve(instance_path, time_limit=10.0, seed=42)
-print(solution.duration, solution.num_routes, solution.status)
+print(solution.cost, solution.num_routes, solution.status)
 
 # Anytime: react to every new incumbent while the solve keeps running
 def on_incumbent(incumbent, routes):
@@ -53,7 +53,7 @@ Families that price vehicles (a normative `fleet_fixed_cost` field on the instan
 ```python
 params = kayros.Params(objective="fleet_cost_duration")
 solution = kayros.solve(instance_path, params, time_limit=10.0, seed=42)
-print(solution.duration, solution.num_routes)  # cost includes the fleet term
+print(solution.cost, solution.num_routes)  # the cost includes the fleet term
 ```
 
 Exact solve: branch-price-and-cut with checker-exact certificates, optionally warm-started from a known solution (the fast path when certifying near-optimal solutions, e.g. stored best-known ones):
