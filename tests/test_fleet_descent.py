@@ -121,7 +121,7 @@ def test_fd_inert_under_duration(instance_path) -> None:
     a = kayros.solve(loaded, kayros.Params(fd_attempts=0, **base), seed=5)
     b = kayros.solve(loaded, kayros.Params(fd_attempts=3, **base), seed=5)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
     assert b.fd_stats is None
 

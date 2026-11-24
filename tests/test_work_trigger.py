@@ -51,7 +51,7 @@ def test_work_restart_fires_and_is_deterministic(instance_path) -> None:
     assert a.restarts > 0
     assert a.restarts == b.restarts
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
 
 
 @parametrized
@@ -98,7 +98,7 @@ def test_work_restart_default_active(instance_path) -> None:
         kayros.Params(ils_max_iterations=1500, restart_no_improvement_work=0),
         seed=9,
     )
-    assert on.routes == pinned.routes and on.duration == pinned.duration
+    assert on.routes == pinned.routes and on.cost == pinned.cost
     assert on.work_units == pinned.work_units
     assert on.restarts == 0 and off.restarts == 0
     assert on.routes == off.routes and on.work_units == off.work_units
@@ -115,7 +115,7 @@ def test_fd_work_trigger_inert_under_duration(instance_path) -> None:
         loaded, kayros.Params(ils_max_iterations=120, fd_period_work=5_000), seed=5
     )
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
     assert a.iterations == b.iterations
     assert a.work_units == b.work_units

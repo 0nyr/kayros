@@ -169,7 +169,7 @@ def test_solve_granular_default_deterministic() -> None:
     a = kayros.solve(path, budget, seed=11)
     b = kayros.solve(path, budget, seed=11)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
 
 
 def test_solve_granular_quality_close_to_exhaustive() -> None:
@@ -186,4 +186,4 @@ def test_solve_granular_quality_close_to_exhaustive() -> None:
     )
     gr = kayros.solve(path, budget, seed=3)
     ex = kayros.solve(path, exhaustive, seed=3)
-    assert gr.duration <= ex.duration * 1.05
+    assert gr.cost <= ex.cost * 1.05

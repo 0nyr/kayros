@@ -76,7 +76,7 @@ def test_k_cap_inert_at_zero_fcd(instance_path) -> None:
     a = kayros.solve(loaded, kayros.Params(**base), seed=11)
     b = kayros.solve(loaded, kayros.Params(**base, k_cap=0), seed=11)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
     assert a.k_cap_stats is None and b.k_cap_stats is None
 
@@ -91,7 +91,7 @@ def test_k_cap_inert_under_duration(instance_path) -> None:
     a = kayros.solve(loaded, kayros.Params(**base), seed=7)
     b = kayros.solve(loaded, kayros.Params(**base, k_cap=2), seed=7)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
     assert b.k_cap_stats is None
 

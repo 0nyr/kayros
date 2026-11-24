@@ -203,7 +203,7 @@ def test_solve_with_ls_beats_construction_only() -> None:
     )
     with_ls = kayros.solve(path, budget, seed=3)
     without = kayros.solve(path, budget_no_ls, seed=3)
-    assert with_ls.duration <= without.duration
+    assert with_ls.cost <= without.cost
 
 
 def test_solve_with_ls_deterministic() -> None:
@@ -215,4 +215,4 @@ def test_solve_with_ls_deterministic() -> None:
     a = kayros.solve(path, budget, seed=11)
     b = kayros.solve(path, budget, seed=11)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost

@@ -47,7 +47,7 @@ def test_ils_without_budget_falls_back_to_restart_windows() -> None:
         path, kayros.Params(strategy="ils", restart_no_improvement=40), seed=7
     )
     assert solution.iterations == 200
-    assert solution.duration > 0.0
+    assert solution.cost > 0.0
 
 
 def test_split_requires_time_limit() -> None:
@@ -62,14 +62,14 @@ def test_ils_strategy_end_to_end_deterministic() -> None:
     a = kayros.solve(path, params, seed=11)
     b = kayros.solve(path, params, seed=11)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     origins = {i.origin for i in a.incumbents}
     assert origins <= {"greedy", "ils"}
     assert a.incumbents[0].origin == "greedy"
     values = [i.value for i in a.incumbents]
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values)
-    assert a.duration == values[-1]
+    assert a.cost == values[-1]
 
 
 def test_ils_strategy_hook_monotone() -> None:
@@ -85,7 +85,7 @@ def test_ils_strategy_hook_monotone() -> None:
     values = [e.value for e in events]
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values)
-    assert values[-1] == result.duration
+    assert values[-1] == result.cost
 
 
 def test_split_strategy_runs_both_phases() -> None:
@@ -103,7 +103,7 @@ def test_split_strategy_runs_both_phases() -> None:
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values), "the merged stream must be strict"
     assert result.incumbents[0].origin == "greedy"
-    assert result.duration == values[-1]
+    assert result.cost == values[-1]
     # The hook stream must match the merged record stream in values.
     assert [e.value for e in events] == values
     # Both phases fired their seed/greedy event; the ILS phase ran (its
@@ -122,4 +122,4 @@ def test_ils_strategy_beats_construction_only() -> None:
                       local_search=False),
         seed=3,
     )
-    assert ils.duration < no_ls.duration
+    assert ils.cost < no_ls.cost

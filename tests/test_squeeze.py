@@ -86,7 +86,7 @@ def test_squeeze_inert_at_zero_cap_fcd(instance_path) -> None:
     a = kayros.solve(loaded, kayros.Params(**tl_params), seed=11)
     b = kayros.solve(loaded, kayros.Params(**tl_params, sq_work_cap=0), seed=11)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
     assert a.fd_stats["squeeze_phases"] == 0
     assert a.fd_stats["squeeze_evaluated"] == 0
@@ -109,7 +109,7 @@ def test_squeeze_armed_deterministic_and_valid(instance_path) -> None:
     a = kayros.solve(loaded, params, seed=11)
     b = kayros.solve(loaded, params, seed=11)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert a.fd_stats == b.fd_stats
     values = [i.value for i in a.incumbents]
     assert values == sorted(values, reverse=True)
@@ -164,5 +164,5 @@ def test_squeeze_inert_under_duration(instance_path) -> None:
         seed=7,
     )
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]

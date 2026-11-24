@@ -109,7 +109,7 @@ def run_ils(loaded: LoadedTDInstance, seed: int, tl: float):
 
     sol = solve(loaded, Params(strategy="ils"), time_limit=tl, seed=seed)
     routes = [list(r) for r in sol.routes]
-    return sol.duration, routes
+    return sol.cost, routes
 
 
 def run_exact(loaded: LoadedTDInstance, tl: float, warm=None):

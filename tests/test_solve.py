@@ -28,7 +28,7 @@ DABIA_25_TDVRP = pick(family_instances("TDVRP", "Dabia2013", ["n=25"]), {"C101",
 )
 def test_solve_tdvrptw(instance_path) -> None:
     solution = kayros.solve(instance_path, SMALL_BUDGET, seed=1)
-    assert solution.duration > 0.0
+    assert solution.cost > 0.0
     assert solution.incumbents, "at least the greedy seed must be recorded"
     # every customer served exactly once
     served = sorted(c for route in solution.routes for c in route)
@@ -41,7 +41,7 @@ def test_solve_tdvrptw(instance_path) -> None:
 )
 def test_solve_tdvrp(instance_path) -> None:
     solution = kayros.solve(instance_path, SMALL_BUDGET, seed=1)
-    assert solution.duration > 0.0
+    assert solution.cost > 0.0
 
 
 @pytest.mark.parametrize(
@@ -51,7 +51,7 @@ def test_solve_deterministic(instance_path) -> None:
     a = kayros.solve(instance_path, SMALL_BUDGET, seed=42)
     b = kayros.solve(instance_path, SMALL_BUDGET, seed=42)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
 
 
@@ -102,4 +102,4 @@ def test_solve_quality_band_vs_bks(instance_path) -> None:
         pytest.skip("no stored BKS")
     bks = load_bks(bks_path)
     solution = kayros.solve(instance_path, SMALL_BUDGET, seed=1)
-    assert solution.duration <= 2.0 * bks.cost, (solution.duration, bks.cost)
+    assert solution.cost <= 2.0 * bks.cost, (solution.cost, bks.cost)

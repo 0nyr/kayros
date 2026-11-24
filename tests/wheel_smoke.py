@@ -21,7 +21,7 @@ from mamut_routing_lib.td import load_td_instance
 def main(root: str) -> int:
     path = Path(root) / "benchmarks/TDVRPTW/Dabia2013/n=25/C101.vrp.json"
     solution = kayros.solve(str(path), time_limit=2.0, seed=1, verify=True)
-    print(f"kayros {kayros.__version__} anytime: {solution.duration} ({solution.num_routes} routes)")
+    print(f"kayros {kayros.__version__} anytime: {solution.cost} ({solution.num_routes} routes)")
     loaded = load_td_instance(str(path))
     result = solve_duration(loaded, time_limit_s=300.0)
     status = result["exact_log"]["status"]
@@ -30,7 +30,7 @@ def main(root: str) -> int:
     print(f"exact: status {status}, value {value}, checker_infeasible_columns {bad}")
     if status != "Optimum" or bad != 0 or value is None:
         return 1
-    if value > solution.duration:
+    if value > solution.cost:
         return 1
     return 0
 

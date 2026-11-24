@@ -79,6 +79,6 @@ def test_family_solve_smoke(instance_path) -> None:
         kayros.Params(ils_max_iterations=250),  # default strategy ("ils" since 0.4.0)
         seed=1,
     )
-    assert solution.duration > 0.0
+    assert solution.cost > 0.0
     served = sorted(c for route in solution.routes for c in route)
     assert served == list(range(1, len(served) + 1))
