@@ -411,8 +411,14 @@ PYBIND11_MODULE(_core, m) {
         [](const kayros::Instance& inst,
            const std::vector<std::vector<std::int32_t>>& routes, double min_seconds) {
             // Reference fold (evaluate_route) over all routes, repeated until
-            // min_seconds. One untimed pass first (fills the leaf cache).
+            // min_seconds. One separately timed first pass (it fills the leaf
+            // cache of the cache arms).
             std::int64_t breakpoints = 0, stops = 0, feasible = 0;
+            const auto t_first = std::chrono::steady_clock::now();
+            for (const auto& r : routes) {
+                kayros::evaluate_route(inst, r.data(), static_cast<std::int64_t>(r.size()));
+            }
+            const double first_pass = seconds_since(t_first);
             for (const auto& r : routes) {
                 const kayros::Pwlf d = kayros::route_ready_time_function(
                     inst, r.data(), static_cast<std::int64_t>(r.size()));
@@ -435,6 +441,7 @@ PYBIND11_MODULE(_core, m) {
             } while (elapsed < min_seconds);
             py::dict d;
             d["seconds"] = elapsed;
+            d["first_pass_seconds"] = first_pass;
             d["reps"] = reps;
             d["routes"] = static_cast<std::int64_t>(routes.size());
             d["stops"] = stops;
@@ -467,7 +474,9 @@ PYBIND11_MODULE(_core, m) {
             auto timed = [&](const char* name, auto&& body) {
                 double checksum = 0.0;
                 std::int64_t count = 0;
-                body(checksum, count);  // untimed warm pass
+                const auto t_first = std::chrono::steady_clock::now();
+                body(checksum, count);  // separately timed first pass
+                const double first_pass = seconds_since(t_first);
                 checksum = 0.0;
                 std::int64_t per_rep = count;
                 std::int64_t reps = 0;
@@ -481,6 +490,7 @@ PYBIND11_MODULE(_core, m) {
                 } while (elapsed < min_seconds);
                 py::dict d;
                 d["seconds"] = elapsed;
+                d["first_pass_seconds"] = first_pass;
                 d["reps"] = reps;
                 d["ops_per_rep"] = per_rep;
                 d["checksum"] = checksum;
@@ -531,6 +541,22 @@ PYBIND11_MODULE(_core, m) {
         },
         py::arg("instance"), py::arg("routes"), py::arg("splices"),
         py::arg("insert_customers"), py::arg("min_seconds") = 0.5);
+    m.def("leaf_cache_stats", [](const kayros::Instance& inst) {
+        // (filled leaves, their breakpoints, bytes of breakpoint storage).
+        std::int64_t filled = 0, points = 0, bytes = 0;
+        if (inst.leaf_cache) {
+            const kayros::LeafCache& c = *inst.leaf_cache;
+            for (std::size_t a = 0; a < c.leaf.size(); ++a) {
+                if (!c.ready[a]) continue;
+                ++filled;
+                points += static_cast<std::int64_t>(c.leaf[a].xs.size());
+                bytes += static_cast<std::int64_t>(
+                    (c.leaf[a].xs.capacity() + c.leaf[a].ys.capacity()) * sizeof(double));
+            }
+            bytes += static_cast<std::int64_t>(c.leaf.size() * sizeof(kayros::Pwlf) + c.ready.size());
+        }
+        return py::make_tuple(filled, points, bytes);
+    });
 
     // --- heuristics ---
     py::class_<kayros::AcoParams>(m, "AcoParams")
