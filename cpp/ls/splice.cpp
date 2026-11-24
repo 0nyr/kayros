@@ -19,9 +19,7 @@ RouteEval finish(PwlfView acc) {
     return {true, s.value, s.argmin_x};
 }
 
-// Fold study no-alloc arms: reusable buffers of the ranking evaluators. The
-// accumulator alternates between a and b, the other buffers hold the leaf or
-// the tree query of the current step.
+// Fold study no-alloc arms: reusable buffers of the ranking evaluators. The accumulator alternates between a and b, the other buffers hold the leaf or the tree query of the current step.
 struct SpliceWork {
     Pwlf a, b, leaf, query;
     PwlfView cur;

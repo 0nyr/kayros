@@ -58,8 +58,7 @@ bool departure_window(const Instance& inst, double& dep_lo, double& dep_hi) {
     return dep_lo <= dep_hi;
 }
 
-// Vertex transform of the in-place shape (td-fold/2): max(t, e) + s with the
-// due-date cut under TW, a pure service shift under TDVRP.
+// Vertex transform of the in-place shape (td-fold/2): max(t, e) + s with the due-date cut under TW, a pure service shift under TDVRP.
 Pwlf apply_vertex(const Instance& inst, std::int32_t v, PwlfView acc) {
     const double service_time = inst.service_times[v];
     if (inst.has_time_windows) {
@@ -69,9 +68,7 @@ Pwlf apply_vertex(const Instance& inst, std::int32_t v, PwlfView acc) {
     return apply_ready_time(acc, false, 0.0, false, 0.0, service_time);
 }
 
-// F1: td-fold/2 shape. The first arc is restricted to the departure window,
-// every later arc is composed with the accumulator, and the vertex transform
-// is applied on the breakpoints (1 composition per stop, no theta).
+// F1: td-fold/2 shape. The first arc is restricted to the departure window, every later arc is composed with the accumulator, and the vertex transform is applied on the breakpoints (1 composition per stop, no theta).
 Pwlf route_ready_time_function_in_place(const Instance& inst,
                                         const std::int32_t* route,
                                         std::int64_t len) {
@@ -123,8 +120,7 @@ Pwlf leaf_uncached(const Instance& inst, std::int32_t from, std::int32_t to) {
     const PwlfView alpha = inst.arc(from, to);
     if (alpha.n == 0) return {};
     if (inst.arm_in_place()) return apply_vertex(inst, to, alpha);
-    // F0 arithmetic (the bridge_leaf of the LS): theta composed with alpha,
-    // the TDVRP shift covering the whole image of alpha.
+    // F0 arithmetic (the bridge_leaf of the LS): theta composed with alpha, the TDVRP shift covering the whole image of alpha.
     const double service_time = inst.service_times[to];
     Pwlf theta;
     if (inst.has_time_windows) {

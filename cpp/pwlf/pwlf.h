@@ -44,9 +44,7 @@ double evaluate(PwlfView f, double x);
 // Two-pointer event merge over dom(f) ∩ img(g), O(f.n + g.n).
 Pwlf compose(PwlfView f, PwlfView g);
 
-// Fold study (session 136), arm F3: h = f ∘ g written into h (its capacity is
-// reused), with the same events, arithmetic and output as compose, and no
-// temporary vectors. h must not alias f or g.
+// Fold study (session 136), arm F3: h = f ∘ g written into h (its capacity is reused), with the same events, arithmetic and output as compose, and no temporary vectors. h must not alias f or g.
 void compose_into(PwlfView f, PwlfView g, Pwlf& h);
 
 struct MinShift {
@@ -62,20 +60,12 @@ MinShift min_shifted_image(PwlfView f);
 // theta(t) = max(t, earliest) + service_time. Precondition: earliest <= latest.
 Pwlf make_theta(double earliest, double latest, double service_time);
 
-// Fold study (session 136), arm F1: the td-fold/2 vertex transforms of
-// mamut_routing_lib.td.pwlf, with the generic interpolation (no slope-one
-// rule). Neither composes a ready-time function theta.
+// Fold study (session 136), arm F1: the td-fold/2 vertex transforms of mamut_routing_lib.td.pwlf, with the generic interpolation (no slope-one rule). Neither composes a ready-time function theta.
 
-// f restricted to [low, high] ∩ dom(f): breakpoints inside the window are
-// kept verbatim, a window end strictly inside a piece is interpolated.
-// Replaces compose(f, identity(low, high)). Empty when the window misses.
+// f restricted to [low, high] ∩ dom(f): breakpoints inside the window are kept verbatim, a window end strictly inside a piece is interpolated. Replaces compose(f, identity(low, high)). Empty when the window misses.
 Pwlf restrict_domain(PwlfView f, double low, double high);
 
-// The vertex map t -> max(t, earliest) + service_time applied to the image of
-// acc, with images above `latest` cut (crossings inserted by inverse
-// interpolation, the fold stops at the first image above latest). Replaces
-// compose(theta, acc). has_earliest = false means no waiting, has_latest =
-// false means no cut. Empty when acc.ys[0] > latest.
+// The vertex map t -> max(t, earliest) + service_time applied to the image of acc, with images above `latest` cut (crossings inserted by inverse interpolation, the fold stops at the first image above latest). Replaces compose(theta, acc). has_earliest = false means no waiting, has_latest = false means no cut. Empty when acc.ys[0] > latest.
 Pwlf apply_ready_time(PwlfView acc, bool has_earliest, double earliest,
                       bool has_latest, double latest, double service_time);
 

@@ -410,9 +410,7 @@ PYBIND11_MODULE(_core, m) {
         "bench_fold",
         [](const kayros::Instance& inst,
            const std::vector<std::vector<std::int32_t>>& routes, double min_seconds) {
-            // Reference fold (evaluate_route) over all routes, repeated until
-            // min_seconds. One separately timed first pass (it fills the leaf
-            // cache of the cache arms).
+            // Reference fold (evaluate_route) over all routes, repeated until min_seconds. One separately timed first pass (it fills the leaf cache of the cache arms).
             std::int64_t breakpoints = 0, stops = 0, feasible = 0;
             const auto t_first = std::chrono::steady_clock::now();
             for (const auto& r : routes) {
@@ -458,11 +456,7 @@ PYBIND11_MODULE(_core, m) {
            const std::vector<std::tuple<std::int64_t, std::int64_t, std::int64_t,
                                         std::int64_t, std::int64_t, std::int64_t>>& splices,
            const std::vector<std::int32_t>& insert_customers, double min_seconds) {
-            // Ranking-side operations, each repeated until min_seconds:
-            // "build" = build_route_state of every route (F0-class repricing
-            // plus leaves and LCA tree), "splice" = evaluate_splice draws,
-            // "intra" = every intra relocate of every route, "insert" =
-            // insertion_candidates of each listed customer into all routes.
+            // Ranking-side operations, each repeated until min_seconds: "build" = build_route_state of every route (F0-class repricing plus leaves and LCA tree), "splice" = evaluate_splice draws, "intra" = every intra relocate of every route, "insert" = insertion_candidates of each listed customer into all routes.
             std::vector<kayros::RouteState> states(routes.size());
             for (std::size_t r = 0; r < routes.size(); ++r) {
                 if (!kayros::build_route_state(inst, routes[r], states[r])) {

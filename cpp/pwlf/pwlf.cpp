@@ -145,8 +145,7 @@ inline void emit_point(Pwlf& h, double x, double y) {
     h.ys.push_back(y);
 }
 
-// Abscissa where the piece (x_lo, y_lo)-(x_hi, y_hi) reaches value,
-// y_lo < value < y_hi (the inverse interpolation of compose).
+// Abscissa where the piece (x_lo, y_lo)-(x_hi, y_hi) reaches value, y_lo < value < y_hi (the inverse interpolation of compose).
 inline double crossing_x(double x_lo, double y_lo, double x_hi, double y_hi,
                          double value) {
     const double t = (value - y_lo) / (y_hi - y_lo);
@@ -176,9 +175,7 @@ void compose_into(PwlfView f, PwlfView g, Pwlf& h) {
 
     h.xs.reserve(static_cast<std::size_t>(nf + ng));
     h.ys.reserve(static_cast<std::size_t>(nf + ng));
-    // Same events, values and emission order as compose. The f values and g
-    // positions at an event are read from index ranges instead of being
-    // gathered into temporary vectors.
+    // Same events, values and emission order as compose. The f values and g positions at an event are read from index ranges instead of being gathered into temporary vectors.
     while (true) {
         const bool has_f = i < nf && fx[i] <= hi;
         const bool has_g = j < ng && gy[j] <= hi;

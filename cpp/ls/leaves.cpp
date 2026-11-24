@@ -37,8 +37,7 @@ std::vector<Pwlf> route_leaves(const Instance& inst, const std::int32_t* route,
     }
 
     if (inst.fold_arm != FoldArm::F0) {
-        // Fold study arms: L_0 in the arm's shape, L_1..L_m from the leaf
-        // builders (cached copies under the cache arms).
+        // Fold study arms: L_0 in the arm's shape, L_1..L_m from the leaf builders (cached copies under the cache arms).
         if (inst.arm_in_place()) {
             Pwlf head = restrict_domain(inst.arc(0, route[0]), dep_lo, dep_hi);
             if (!head.xs.empty()) {
