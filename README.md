@@ -71,7 +71,7 @@ print(result["exact_log"]["status"], result["value"])
 # valid global lower bound when the root relaxation finished (absent otherwise).
 ```
 
-`solution.duration` and `result["value"]` are always values computed by the reference checker (`mamut_routing_lib.td.check_td_solution`), never an internal approximation.
+`solution.cost` is the binary64 display of the exact cost computed by the library (`mamut_routing_lib.td.check_td_solution`, profile `td-binary64-exact-v1`), and `solution.exact_cost` is that cost as a rational. The value of the search fold is kept in `solution.search_value`.
 
 The exact component reads `KAYROS_BPC_*` environment variables, meant for experiments (they are documented in `cpp/lera/bridge/lera_bridge.cpp`). A set variable takes precedence over the matching argument of `solve_duration` without any warning, e.g. `KAYROS_BPC_NEAR_REL` over `near_rel` and `KAYROS_BPC_HE_CUTBLIND` over `heuristic_cut_blind`. The values in force are recorded in `result["effective_algorithm_settings"]["pricing_options"]`, under the names of the variables, so two keys differ from the parameter names: `he_cutblind` is the mode of `heuristic_cut_blind` and `lam_iterate` records the queue-iterating last-arc merge. The threshold of `near_rel` is relative to the mean customer dual, i.e. the sum of the positive customer duals divided by the number of customers.
 
