@@ -35,6 +35,17 @@ Pwlf bridge_leaf(const Instance& inst, std::int32_t from, std::int32_t to);
 // [depot due-date clamp ∘] alpha_{from,0}: the closing leaf after `from`.
 Pwlf return_leaf(const Instance& inst, std::int32_t from);
 
+// Fold study no-alloc arms (F3, F4, F5): the same leaves as views, on the
+// cached leaf when the arm caches, else built into scratch (or, for the TDVRP
+// return leaf, the arc itself). Empty view when the leaf is empty.
+PwlfView bridge_leaf_view(const Instance& inst, std::int32_t from, std::int32_t to,
+                          Pwlf& scratch);
+PwlfView return_leaf_view(const Instance& inst, std::int32_t from, Pwlf& scratch);
+
+// Departure identity as a view on 2 caller-owned doubles (empty when the
+// depot window is inverted).
+PwlfView departure_identity_view(const Instance& inst, double (&pts)[2]);
+
 // Per-route state owned by the LS layer (memo interface contract).
 struct RouteState {
     std::vector<std::int32_t> vertices;  // customer ids, depot excluded
@@ -59,6 +70,14 @@ bool build_route_state(const Instance& inst, std::vector<std::int32_t> vertices,
 RouteEval evaluate_splice(const Instance& inst, const RouteState& r1,
                           std::int64_t i1, std::int64_t j1,
                           const RouteState& r2, std::int64_t i2, std::int64_t j2);
+
+// Fold study no-alloc arms: duration of recv with c inserted before position
+// p, on the given prefix (the composition of the leaves 0..p-1). Same
+// compositions as the insertion pricing of the relocate pass and of
+// insertion_candidates. Returns false when infeasible.
+bool price_insertion_no_alloc(const Instance& inst, const RouteState& recv, PwlfView prefix,
+                              std::int32_t before, std::int32_t c, std::int64_t p,
+                              std::int64_t mb, MinShift& out);
 
 // Intra-route relocate ranking: route r without the customer at position i,
 // re-inserted before position p (p in 0..m, p != i, p != i+1; p == m appends

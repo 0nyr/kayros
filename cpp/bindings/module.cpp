@@ -5,6 +5,7 @@
 #include <chrono>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -14,6 +15,7 @@
 #include "core/instance.h"
 #include "core/warp_eval.h"
 #include "heuristics/heuristics.h"
+#include "ls/insertion.h"
 #include "ls/ls.h"
 #include "ls/perturb.h"
 #include "ls/squeeze.h"
@@ -114,6 +116,23 @@ kayros::Instance make_instance(
     return inst;
 }
 
+// Fold study (session 136): arm names <-> FoldArm.
+kayros::FoldArm parse_fold_arm(const std::string& name) {
+    static const char* names[] = {"F0", "F1", "F2", "F3", "F4", "F5"};
+    for (int k = 0; k < 6; ++k) {
+        if (name == names[k]) return static_cast<kayros::FoldArm>(k);
+    }
+    throw std::invalid_argument("unknown fold_arm " + name + " (expected F0 to F5)");
+}
+
+std::string fold_arm_name(kayros::FoldArm arm) {
+    return "F" + std::to_string(static_cast<int>(arm));
+}
+
+double seconds_since(std::chrono::steady_clock::time_point t0) {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -189,6 +208,13 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("vehicle_capacity", &kayros::Instance::vehicle_capacity)
         .def_readonly("fixed_route_cost", &kayros::Instance::fixed_route_cost)
         .def_readonly("has_time_windows", &kayros::Instance::has_time_windows)
+        // Fold study arm ("F0" to "F5"). Setting it resets the leaf cache.
+        .def_property(
+            "fold_arm",
+            [](const kayros::Instance& inst) { return fold_arm_name(inst.fold_arm); },
+            [](kayros::Instance& inst, const std::string& name) {
+                inst.set_fold_arm(parse_fold_arm(name));
+            })
         .def("evaluate_route",
              [](const kayros::Instance& inst,
                 const std::vector<std::int32_t>& route) {
@@ -379,6 +405,132 @@ PYBIND11_MODULE(_core, m) {
         py::arg("instance"), py::arg("routes"), py::arg("draws"),
         py::arg("penalty"), py::arg("t_end"));
 
+    // --- fold study microbenchmarks (session 136, bench-only surface) ---
+    m.def(
+        "bench_fold",
+        [](const kayros::Instance& inst,
+           const std::vector<std::vector<std::int32_t>>& routes, double min_seconds) {
+            // Reference fold (evaluate_route) over all routes, repeated until
+            // min_seconds. One untimed pass first (fills the leaf cache).
+            std::int64_t breakpoints = 0, stops = 0, feasible = 0;
+            for (const auto& r : routes) {
+                const kayros::Pwlf d = kayros::route_ready_time_function(
+                    inst, r.data(), static_cast<std::int64_t>(r.size()));
+                breakpoints += static_cast<std::int64_t>(d.xs.size());
+                stops += static_cast<std::int64_t>(r.size());
+                feasible += d.xs.empty() ? 0 : 1;
+            }
+            double checksum = 0.0;
+            std::int64_t reps = 0;
+            const auto t0 = std::chrono::steady_clock::now();
+            double elapsed = 0.0;
+            do {
+                for (const auto& r : routes) {
+                    const kayros::RouteEval e = kayros::evaluate_route(
+                        inst, r.data(), static_cast<std::int64_t>(r.size()));
+                    if (e.feasible) checksum += e.duration;
+                }
+                ++reps;
+                elapsed = seconds_since(t0);
+            } while (elapsed < min_seconds);
+            py::dict d;
+            d["seconds"] = elapsed;
+            d["reps"] = reps;
+            d["routes"] = static_cast<std::int64_t>(routes.size());
+            d["stops"] = stops;
+            d["final_breakpoints"] = breakpoints;
+            d["feasible"] = feasible;
+            d["checksum"] = checksum;
+            return d;
+        },
+        py::arg("instance"), py::arg("routes"), py::arg("min_seconds") = 0.5);
+    m.def(
+        "bench_ranking",
+        [](const kayros::Instance& inst,
+           const std::vector<std::vector<std::int32_t>>& routes,
+           const std::vector<std::tuple<std::int64_t, std::int64_t, std::int64_t,
+                                        std::int64_t, std::int64_t, std::int64_t>>& splices,
+           const std::vector<std::int32_t>& insert_customers, double min_seconds) {
+            // Ranking-side operations, each repeated until min_seconds:
+            // "build" = build_route_state of every route (F0-class repricing
+            // plus leaves and LCA tree), "splice" = evaluate_splice draws,
+            // "intra" = every intra relocate of every route, "insert" =
+            // insertion_candidates of each listed customer into all routes.
+            std::vector<kayros::RouteState> states(routes.size());
+            for (std::size_t r = 0; r < routes.size(); ++r) {
+                if (!kayros::build_route_state(inst, routes[r], states[r])) {
+                    throw std::invalid_argument("bench route infeasible");
+                }
+            }
+            const kayros::Pwlf dep = kayros::departure_identity(inst);
+            py::dict out;
+            auto timed = [&](const char* name, auto&& body) {
+                double checksum = 0.0;
+                std::int64_t count = 0;
+                body(checksum, count);  // untimed warm pass
+                checksum = 0.0;
+                std::int64_t per_rep = count;
+                std::int64_t reps = 0;
+                const auto t0 = std::chrono::steady_clock::now();
+                double elapsed = 0.0;
+                do {
+                    count = 0;
+                    body(checksum, count);
+                    ++reps;
+                    elapsed = seconds_since(t0);
+                } while (elapsed < min_seconds);
+                py::dict d;
+                d["seconds"] = elapsed;
+                d["reps"] = reps;
+                d["ops_per_rep"] = per_rep;
+                d["checksum"] = checksum;
+                out[name] = d;
+            };
+            timed("build", [&](double& cs, std::int64_t& count) {
+                for (const auto& r : routes) {
+                    kayros::RouteState st;
+                    kayros::build_route_state(inst, r, st);
+                    cs += st.duration;
+                    ++count;
+                }
+            });
+            timed("splice", [&](double& cs, std::int64_t& count) {
+                for (const auto& d : splices) {
+                    const kayros::RouteEval e = kayros::evaluate_splice(
+                        inst, states[static_cast<std::size_t>(std::get<0>(d))],
+                        std::get<1>(d), std::get<2>(d),
+                        states[static_cast<std::size_t>(std::get<3>(d))], std::get<4>(d),
+                        std::get<5>(d));
+                    if (e.feasible) cs += e.duration;
+                    ++count;
+                }
+            });
+            timed("intra", [&](double& cs, std::int64_t& count) {
+                for (const auto& st : states) {
+                    const std::int64_t mm = static_cast<std::int64_t>(st.vertices.size());
+                    if (mm < 2) continue;
+                    for (std::int64_t i = 0; i < mm; ++i) {
+                        for (std::int64_t p = 0; p <= mm; ++p) {
+                            if (p == i || p == i + 1) continue;
+                            const kayros::RouteEval e =
+                                kayros::evaluate_intra_relocate(inst, st, i, p);
+                            if (e.feasible) cs += e.duration;
+                            ++count;
+                        }
+                    }
+                }
+            });
+            timed("insert", [&](double& cs, std::int64_t& count) {
+                for (const std::int32_t c : insert_customers) {
+                    const auto cands = kayros::insertion_candidates(inst, states, c, dep);
+                    for (const auto& x : cands) cs += x.delta;
+                    count += static_cast<std::int64_t>(cands.size());
+                }
+            });
+            return out;
+        },
+        py::arg("instance"), py::arg("routes"), py::arg("splices"),
+        py::arg("insert_customers"), py::arg("min_seconds") = 0.5);
 
     // --- heuristics ---
     py::class_<kayros::AcoParams>(m, "AcoParams")

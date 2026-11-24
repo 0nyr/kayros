@@ -1,6 +1,7 @@
 #include "ls/insertion.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace kayros {
 
@@ -8,6 +9,8 @@ std::vector<InsertionCandidate> insertion_candidates(
     const Instance& inst, const std::vector<RouteState>& states,
     std::int32_t c, const Pwlf& dep) {
     std::vector<InsertionCandidate> out;
+    const bool no_alloc = inst.arm_no_alloc();
+    Pwlf prefix_next;
     for (std::size_t b = 0; b < states.size(); ++b) {
         const RouteState& recv = states[b];
         if (recv.load + inst.demands[c] > inst.vehicle_capacity) continue;
@@ -15,8 +18,22 @@ std::vector<InsertionCandidate> insertion_candidates(
         Pwlf prefix = dep;
         for (std::int64_t p = 0; p <= mb; ++p) {
             if (p > 0) {
-                prefix = compose(view(recv.tree.leaf(p - 1)), view(prefix));
+                if (no_alloc) {
+                    compose_into(view(recv.tree.leaf(p - 1)), view(prefix), prefix_next);
+                    std::swap(prefix, prefix_next);
+                } else {
+                    prefix = compose(view(recv.tree.leaf(p - 1)), view(prefix));
+                }
                 if (prefix.xs.empty()) break;
+            }
+            if (no_alloc) {
+                const std::int32_t before =
+                    p > 0 ? recv.vertices[static_cast<std::size_t>(p - 1)] : 0;
+                MinShift s;
+                if (price_insertion_no_alloc(inst, recv, view(prefix), before, c, p, mb, s)) {
+                    out.push_back({s.value - recv.duration, b, p});
+                }
+                continue;
             }
             const std::int32_t before =
                 p > 0 ? recv.vertices[static_cast<std::size_t>(p - 1)] : 0;

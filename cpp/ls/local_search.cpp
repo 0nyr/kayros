@@ -164,13 +164,20 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
     for (std::size_t a = 0; a < num_routes; ++a) deletion_rankings(inst, states[a]);
 
     const Pwlf dep = departure_identity(inst);
+    const bool no_alloc = inst.arm_no_alloc();
+    Pwlf prefix_next;
     for (std::size_t b = 0; b < num_routes; ++b) {
         RouteState& recv = states[b];
         const std::int64_t mb = static_cast<std::int64_t>(recv.vertices.size());
         Pwlf prefix = dep;
         for (std::int64_t p = 0; p <= mb; ++p) {
             if (p > 0) {
-                prefix = compose(view(recv.tree.leaf(p - 1)), view(prefix));
+                if (no_alloc) {
+                    compose_into(view(recv.tree.leaf(p - 1)), view(prefix), prefix_next);
+                    std::swap(prefix, prefix_next);
+                } else {
+                    prefix = compose(view(recv.tree.leaf(p - 1)), view(prefix));
+                }
                 if (prefix.xs.empty()) break;
             }
             const std::int32_t before =
@@ -206,6 +213,13 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                     // also skips kInfeasible
                     if (!(gain + empty_credit > kScreenEps)) continue;
                     if (stats) ++stats->evaluated;
+                    MinShift s;
+                    if (no_alloc) {
+                        if (!price_insertion_no_alloc(inst, recv, view(prefix), before, c,
+                                                      p, mb, s)) {
+                            continue;
+                        }
+                    } else {
                     // Insertion of c before position p, on the shared prefix.
                     const Pwlf in_bridge = bridge_leaf(inst, before, c);
                     if (in_bridge.xs.empty()) continue;
@@ -225,7 +239,8 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                         acc = compose(view(ret), view(acc));
                     }
                     if (acc.xs.empty()) continue;
-                    const MinShift s = min_shifted_image(view(acc));
+                    s = min_shifted_image(view(acc));
+                    }
                     const double delta =
                         (s.value - recv.duration) - gain - empty_credit;
                     if (delta < -kScreenEps) {

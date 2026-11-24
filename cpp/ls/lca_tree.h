@@ -36,6 +36,9 @@ class LcaTree {
 
     // Composition of leaves lo..hi inclusive (empty Pwlf propagates).
     Pwlf query(std::int64_t lo, std::int64_t hi) const;
+    // Fold study arm F3: the same function as query, as a view on the stored
+    // chain when one serves the range, else composed into scratch.
+    PwlfView query_view(std::int64_t lo, std::int64_t hi, Pwlf& scratch) const;
 
   private:
     // Static balanced BST over boundary keys 0..m+1, array of nodes indexed by

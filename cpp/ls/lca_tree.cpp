@@ -124,4 +124,28 @@ Pwlf LcaTree::query(std::int64_t lo, std::int64_t hi) const {
     return compose_or_empty(stored_fn(h, b2), stored_fn(h, b1));
 }
 
+PwlfView LcaTree::query_view(std::int64_t lo, std::int64_t hi, Pwlf& scratch) const {
+    if (lo < 0 || hi >= num_leaves() || lo > hi) {
+        throw std::invalid_argument("invalid query range");
+    }
+    const std::int64_t b1 = lo, b2 = hi + 1;
+    std::int64_t a = b1, b = b2;
+    while (nodes_[static_cast<std::size_t>(a)].depth > nodes_[static_cast<std::size_t>(b)].depth)
+        a = nodes_[static_cast<std::size_t>(a)].parent;
+    while (nodes_[static_cast<std::size_t>(b)].depth > nodes_[static_cast<std::size_t>(a)].depth)
+        b = nodes_[static_cast<std::size_t>(b)].parent;
+    while (a != b) {
+        a = nodes_[static_cast<std::size_t>(a)].parent;
+        b = nodes_[static_cast<std::size_t>(b)].parent;
+    }
+    const std::int64_t h = a;
+    if (h == b1) return view(stored_fn(b1, b2));
+    if (h == b2) return view(stored_fn(b2, b1));
+    const Pwlf& f = stored_fn(h, b2);
+    const Pwlf& g = stored_fn(h, b1);
+    if (f.xs.empty() || g.xs.empty()) return {};
+    compose_into(view(f), view(g), scratch);
+    return view(scratch);
+}
+
 }  // namespace kayros

@@ -188,6 +188,11 @@ class Params:
     # strategy="aco+ils" ONLY: fraction of the time limit given to the ACO
     # phase. Unused by the default "ils" strategy and by pure "aco".
     aco_budget_fraction: float = 0.5
+    # Fold study (session 136): binary64 evaluation arm of the core, "F0"
+    # (the fold before the study, default) to "F5". See FoldArm in
+    # cpp/core/instance.h. Every strategy uses it. The final solution is still
+    # checked by the exact evaluator of the library.
+    fold_arm: str = "F0"
 
     def _to_core(self) -> _core.AcoParams:
         params = _core.AcoParams()
@@ -469,6 +474,8 @@ def solve(
                 f"fleet_fixed_cost; the FleetCostDuration objective requires it"
             )
     core = to_core(loaded, objective_function=objective)
+    if params.fold_arm != "F0":
+        core.fold_arm = params.fold_arm
     tl = 0.0 if time_limit is None else float(time_limit)
 
     if params.strategy not in ("aco", "ils", "aco+ils"):
