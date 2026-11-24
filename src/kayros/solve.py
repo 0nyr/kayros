@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fractions import Fraction
 from pathlib import Path
 from typing import Callable
 
@@ -253,11 +254,20 @@ IncumbentHook = Callable[[Incumbent, list[list[int]]], None]
 
 @dataclass
 class Solution:
-    """A checker-validated solution: ``duration`` is always the value computed
-    by ``mamut_routing_lib.td.check_td_solution`` for ``objective`` (the
-    reference objective). Under ``"FleetCostDuration"`` that value includes
-    the ``fleet_fixed_cost * num_routes`` term; ``route_durations`` stay pure
-    per-route durations under every objective."""
+    """A solution checked under the exact profile of mamut-routing-lib
+    (``td-binary64-exact-v1``).
+
+    ``exact_cost`` is the authoritative rational value of ``objective``, as
+    computed by ``mamut_routing_lib.td.check_td_solution``. ``duration`` is its
+    binary64 display (the nearest double). Under ``"FleetCostDuration"`` both
+    include the ``fleet_fixed_cost * num_routes`` term. ``route_durations`` and
+    ``route_departures`` are the displays of the exact per-route durations and
+    earliest minimizing departures, in the order of ``routes``. Their rational
+    values are in ``exact_route_durations`` and ``exact_route_departures``.
+    ``search_value`` is the value of the same solution under the binary64 fold
+    that the search uses. It is internal to the solver and can differ from
+    ``duration`` in the last bits. ``exact_evaluation`` is the record of the
+    library (profile, backend, authoritative cost as an integer pair)."""
 
     instance_name: str
     routes: list[list[int]]
@@ -270,6 +280,11 @@ class Solution:
     status: str  # "finished" | "converged" | "time_limit"
     iterations: int
     objective: str = "Duration"  # canonical lib value: "Duration" | "FleetCostDuration"
+    exact_cost: Fraction | None = None
+    exact_route_durations: list[Fraction] = field(default_factory=list)
+    exact_route_departures: list[Fraction] = field(default_factory=list)
+    search_value: float | None = None
+    exact_evaluation: dict | None = None
     incumbents: list[Incumbent] = field(default_factory=list)
     # Plan-12 M1 dissolve-kick lifecycle counters (ILS iterations only), as a
     # plain dict of the core FleetKickStats fields. None under "Duration",
@@ -300,11 +315,9 @@ class Solution:
 
     def to_benchmark_solution(self) -> BenchmarkSolution:
         """MAMUT solution artifact (feeds the BKS pipeline)."""
-        metadata = {
-            "solver": "kayros",
-            "route_durations": self.route_durations,
-            "route_departure_times": self.route_departures,
-        }
+        # The route witnesses are not written here: the library derives them
+        # from the routes when it stores a solution, and reserves their keys.
+        metadata = {"solver": "kayros"}
         if self.objective != "Duration":
             metadata["objective_function"] = self.objective
         return BenchmarkSolution(
@@ -444,7 +457,9 @@ def solve(
         loaded = load_instance(instance, verify=verify)
     params = params or Params()
     objective = canonical_objective(params.objective)
-    check_kwargs: dict = {}
+    # The objective is always passed explicitly: the default of the library is
+    # the published objective of the family, which is not "Duration" everywhere.
+    check_kwargs: dict = {"objective_function": ObjectiveFunction(objective)}
     if objective != "Duration":
         # Contract guards up front (mirroring the checker's misuse guards):
         # the objective needs the instance field and a lib that scores it.
@@ -453,13 +468,6 @@ def solve(
                 f"instance {loaded.instance.instance_name} carries no "
                 f"fleet_fixed_cost; the FleetCostDuration objective requires it"
             )
-        try:
-            check_kwargs["objective_function"] = ObjectiveFunction(objective)
-        except ValueError:
-            raise KayrosError(
-                "objective 'fleet_cost_duration' requires mamut-routing-lib "
-                ">= 0.9.0"
-            ) from None
     core = to_core(loaded, objective_function=objective)
     tl = 0.0 if time_limit is None else float(time_limit)
 
@@ -534,30 +542,45 @@ def solve(
             f"{loaded.instance.instance_name}"
         )
 
-    # The declared cost makes this a bitwise objective-equality gate: the
-    # checker recomputes under `objective` and rejects any mismatch
-    # (OBJECTIVE_VALUE_MISMATCH), Duration and FleetCostDuration alike.
+    # Final check under the exact profile of the family. No cost is declared:
+    # the search value comes from a binary64 fold, and the reported cost is the
+    # exact one. Feasibility is decided here by exact arithmetic.
+    routes = [list(route) for route in result.routes]
     check = check_td_solution(
         loaded,
         BenchmarkSolution(
             instance_name=loaded.instance.instance_name,
-            routes=[list(route) for route in result.routes],
-            cost=result.value,
+            routes=routes,
+            cost=None,
         ),
         **check_kwargs,
     )
     if not check.is_valid():
         raise KayrosError(
-            f"internal solution rejected by the reference checker "
-            f"({check.status}: {check.error_message}) — this is a kayros bug"
+            f"final solution rejected by the exact checker "
+            f"({check.status}: {check.error_message})"
         )
+    # The checker returns its witnesses in canonical route order. Customers are
+    # visited once, so the first customer identifies a route.
+    witness = {e.route[0]: e for e in check.route_evaluations}
+    evaluations = [witness[route[0]] for route in routes]
+    exact_record = check.exact_evaluation
+    exact_cost = Fraction(
+        int(exact_record["authoritative_cost"]["numerator"]),
+        int(exact_record["authoritative_cost"]["denominator"]),
+    )
 
     return Solution(
         instance_name=loaded.instance.instance_name,
-        routes=[list(route) for route in result.routes],
+        routes=routes,
         duration=check.routing_cost,
-        route_durations=[e.duration for e in check.route_evaluations],
-        route_departures=[e.departure_time for e in check.route_evaluations],
+        route_durations=[float(e.duration) for e in evaluations],
+        route_departures=[float(e.departure_time) for e in evaluations],
+        exact_cost=exact_cost,
+        exact_route_durations=[e.duration for e in evaluations],
+        exact_route_departures=[e.departure_time for e in evaluations],
+        search_value=result.value,
+        exact_evaluation=exact_record,
         status=_STATUS_NAMES[result.status],
         iterations=result.iterations_run,
         objective=objective,

@@ -34,7 +34,8 @@ def family_instances(problem_type: str, family: str, size_dirs: list[str]) -> li
         return []
     paths: list[Path] = []
     for size_dir in size_dirs:
-        directory = root / problem_type / family / size_dir
+        # Family-first layout of the MAMUT-routing collections (library 0.13).
+        directory = root / family / problem_type / size_dir
         if directory.is_dir():
             paths.extend(sorted(directory.glob("*.vrp.json")))
     return paths
@@ -61,5 +62,5 @@ def require_benchmarks() -> None:
     if benchmarks_root() is None:
         pytest.skip(
             "MAMUT-routing benchmarks not found: set MAMUT_ROUTING_BENCHMARKS_ROOT "
-            "(or MAMUT_ROUTING_ROOT) to a MAMUT-routing checkout on the td branch"
+            "(or MAMUT_ROUTING_ROOT) to a MAMUT-routing checkout with its family collections"
         )

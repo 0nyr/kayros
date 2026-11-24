@@ -49,13 +49,11 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Mathematics",
 ]
-# The canonical benchmark/checker dependency: loaders, the NDCPWLF reference
-# checker, BKS helpers and the OptimalityMetadata schema. The floor is the
-# stack the certification work is tested against.
-# The C++ evaluator implements td-fold/1. Newer checker contracts require
-# numerical equivalence validation before this upper bound can be widened.
+# The benchmark and checker dependency: loaders of the family collections,
+# the exact evaluation profiles (td-binary64-exact-v1) and the BKS helpers.
+# Kayros 2.0 follows the development head of 0.13 until its release.
 dependencies = [
-    "mamut-routing-lib>=0.6.0,<0.12",
+    "mamut-routing-lib>=0.13.0.dev0,<0.14",
 ]
 
 [dependency-groups]
