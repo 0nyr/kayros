@@ -120,10 +120,8 @@ def random_split(rng: random.Random, routes: list[list[int]]) -> list[list[int]]
 @pytest.mark.parametrize(
     "instance_path", DABIA_25, ids=lambda p: p.name.removesuffix(".vrp.json")
 )
-def test_fold_equals_checker(instance_path) -> None:
-    """Feasible partitions of varying K (random refinements of the greedy
-    solution, fleet bound lifted): core FleetCostDuration within TOL of the lib's
-    exact value, and == the Duration fold + F * K exactly (solver-internal) (one multiply, one add)."""
+def test_fold_agrees_with_exact_checker(instance_path) -> None:
+    """Feasible partitions of varying K (random refinements of the greedy solution, fleet bound lifted): the core FleetCostDuration value is within TOL of the library's exact value, and equals the core Duration fold plus F * K exactly (one multiply, one add, solver-internal)."""
     loaded = with_fleet_cost(
         load_td_instance(instance_path), BLAUTH_F, unlimited_fleet=True
     )
@@ -273,9 +271,7 @@ def test_solve_rejects_unknown_objective() -> None:
     "instance_path", DABIA_25[:2], ids=lambda p: p.name.removesuffix(".vrp.json")
 )
 def test_solve_fleet_cost_duration_end_to_end(instance_path) -> None:
-    """ILS under FleetCostDuration: Solution carries the objective, the cost
-    is the lib's bitwise (already asserted internally by construction), and
-    the artifact metadata declares the objective for the BKS pipeline."""
+    """ILS under FleetCostDuration: Solution carries the objective, `exact_cost` is the library's exact value and `cost` its binary64 display, and the artifact metadata declares the objective for the BKS pipeline."""
     loaded = with_fleet_cost(load_td_instance(instance_path), BLAUTH_F)
     params = kayros.Params(objective="fleet_cost_duration", ils_max_iterations=150)
     solution = kayros.solve(loaded, params, seed=3)
@@ -395,7 +391,7 @@ def _solve_both(loaded):
 
 def test_blauth_berlin_n10_smoke() -> None:
     """Kickstart-named smoke on the real family: exact contract facts (F is
-    the 10 h upstream fixed cost, unlimited fleet), bitwise checker equality,
+    the 10 h upstream fixed cost, unlimited fleet), exact cost equal to the library value,
     and a fleet no worse than the Duration solve's. Berlin is fleet-minimal
     under BOTH objectives (earlier probe: K = 1 each), so the strict
     trade-off legs live on cincinnati/san_francisco below."""
@@ -440,8 +436,7 @@ def test_blauth_n10_fleet_tradeoff_exercised(prefix) -> None:
 
     assert sol_f.num_routes < sol_d.num_routes
     # The merge sacrificed duration (the dissolve is duration-increasing) …
-    # Duration is passed explicitly: the library default on Blauth2024 is
-    # FleetCostDuration, which would add the fleet charge here.
+    # Duration is passed explicitly: the library default on Blauth2024 is FleetCostDuration, which would add the fleet charge here.
     duration_f = exact_duration_cost(loaded.instance, loaded.atfs, sol_f.routes)
     assert duration_f > sol_d.exact_cost
     # … but by less than F per dissolved route, so it wins under FCD.

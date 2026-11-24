@@ -3,10 +3,11 @@
 Discipline per the Stream-4 decision memo (td-ls-structures-decision.md):
 - tree-based splice evaluations must agree with direct checker-fold pricing of
   the spliced vertex vector on FEASIBILITY always; on value they may differ by
-  association-class noise only (P4.1) — asserted tightly on Dabia (no vertical
-  steps), feasibility-only on step families;
-- local_search output must be a valid solution whose value is the canonical
-  checker Duration, never worse than its input;
+  association-class noise only (P4.1), asserted tightly on Dabia (no vertical
+  steps), feasibility-only on step families (both are solver kernels);
+- local_search output must be a valid solution whose value equals the solver's
+  own Duration fold and lies within TOL of the library's exact Duration, never
+  worse than its input;
 - solve() with LS stays checker-refereed end to end (enforced by solve itself).
 """
 
@@ -140,9 +141,7 @@ def test_evaluate_intra_relocate_matches_fold(gate_case) -> None:
 
 
 def test_local_search_invariants(gate_case) -> None:
-    """LS output: valid partition of customers, value = canonical checker
-    Duration, never worse than the input, and the whole solution passes the
-    reference checker (capacity, TWs, fleet, cost) exactly."""
+    """LS output: valid partition of customers, value = the solver's Duration fold, never worse than the input, and the whole solution passes the exact library checker (capacity, TWs, fleet) with a cost within TOL of the float value."""
     from exact_reference import assert_exact_check_valid
 
     path, _ = gate_case

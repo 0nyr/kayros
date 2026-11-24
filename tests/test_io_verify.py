@@ -35,9 +35,7 @@ def tampered_instance(tmp_path):
     instance_path = tmp_path / source.name
     shutil.copyfile(source, instance_path)
     sidecar_name = json.loads(source.read_text())["td"]["atf_path"]
-    # In a collection the sidecar path is collection-root-relative (library
-    # 0.13), so resolve the real file through the loader and copy it to the
-    # same relative path next to the loose instance copy.
+    # In a collection the sidecar path is collection-root-relative (library 0.13), so resolve the real file through the loader and copy it to the same relative path next to the loose instance copy.
     sidecar_path = tmp_path / sidecar_name
     sidecar_path.parent.mkdir(parents=True, exist_ok=True)
     sidecar = json.loads(load_instance(source).atf_path.read_text())

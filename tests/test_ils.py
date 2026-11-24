@@ -1,8 +1,8 @@
 """M7.2 TD-ILS gates (Stream 7, td-ils-design.md).
 
 Discipline:
-- the returned best is a complete feasible solution, checker-exact
-  (partition, canonical Duration, check_td_solution agreement);
+- the returned best is a complete feasible solution, valid for the exact
+  library checker (partition, Duration within TOL of the exact cost);
 - the incumbent stream is strictly monotone — LAHC worse-accepts stay
   internal to the loop and never surface;
 - seeded determinism under an iteration budget (no TL in the loop);

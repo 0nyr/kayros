@@ -3,8 +3,8 @@
 Discipline:
 - neighbour lists: symmetric adjacency (union-symmetrised), deterministic,
   depot- and self-free, TW-infeasible edges excluded, monotone in k;
-- granular local_search keeps every M3.7 invariant (partition, checker-exact
-  value, never-worse) — candidate lists prune enumeration only, the repricing
+- granular local_search keeps every M3.7 invariant (partition, value within
+  TOL of the exact checker, never-worse) — candidate lists prune enumeration only, the repricing
   rule is untouched;
 - with full lists the enumeration is justified everywhere, so granular must
   reproduce the exhaustive descent bitwise on TDVRP (no TW screen). On TDVRPTW
@@ -93,8 +93,7 @@ def test_neighbour_lists_exhaustive_sentinel(pick) -> None:
 
 @pytest.mark.parametrize("k", [10, 50])
 def test_granular_ls_invariants(pick, k) -> None:
-    """Granular LS keeps the M3.7 contract: partition preserved, value is the
-    canonical checker Duration, never worse, checker-valid end to end."""
+    """Granular LS keeps the M3.7 contract: partition preserved, value is the solver's Duration fold (within TOL of the exact checker), never worse, checker-valid end to end."""
     from exact_reference import assert_exact_check_valid
 
     loaded = load_instance(pick, verify=True)

@@ -1,15 +1,8 @@
 """M3.2 gate: core route pricing must agree with the library's exact evaluation.
 
-For random routes over real MAMUT instances (feasible or not), the compiled
-core's feasibility verdict must equal the library's, and its binary64 duration
-must lie within ``exact_reference.TOL`` (relative) of the library's exact
-duration. Since library 0.13 the checker evaluates in exact rational
-arithmetic and the solver's binary64 fold is an internal approximation, so
-there is no bit-identity contract any more (before 0.13 this gate was ``==``).
-The ready-time function breakpoints used to be compared with the library's
-``compute_route_ready_time_function``, which no longer exists: that comparison
-is deleted here (the solver's own function is covered by the warp prefix gate
-in test_warp_equivalence and by test_pwlf_equivalence).
+For random routes over real MAMUT instances (feasible or not), the compiled core's feasibility verdict must equal the library's, and its binary64 duration must lie within `exact_reference.TOL` (relative) of the library's exact duration. Since library 0.13 the checker evaluates in exact rational arithmetic and the solver's binary64 fold is an internal approximation, so there is no bit-identity contract any more (before 0.13 this gate was `==`).
+
+Removed with the library float fold: the comparison of the ready-time function breakpoints with `compute_route_ready_time_function` (no longer in the library, no replacement oracle) and the bitwise departure comparison (the library now returns the earliest minimizing departure, which the float fold does not promise). The solver's own function is covered by the warp prefix gate in test_warp_equivalence and by test_pwlf_equivalence.
 """
 
 import random
@@ -77,8 +70,7 @@ def assert_instance_equivalence(instance_path) -> None:
                 all_feasible = False
 
         if all_feasible:
-            # Full-solution agreement: the library's exact cost against the
-            # sum of the core's float durations (canonical route order).
+            # Full-solution agreement: the library's exact cost against the sum of the core's float durations (canonical route order).
             total = 0.0
             for route in sorted(routes, key=lambda r: r[0]):
                 total += core.evaluate_route(route)[1]
