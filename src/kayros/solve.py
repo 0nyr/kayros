@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from typing import Callable
@@ -564,9 +565,11 @@ def solve(
     witness = {e.route[0]: e for e in check.route_evaluations}
     evaluations = [witness[route[0]] for route in routes]
     exact_record = check.exact_evaluation
+    # The integers of the record can exceed the digit limit of int(str) (6,009
+    # digits on an instance with 1,000 customers). Decimal converts exactly.
     exact_cost = Fraction(
-        int(exact_record["authoritative_cost"]["numerator"]),
-        int(exact_record["authoritative_cost"]["denominator"]),
+        int(Decimal(exact_record["authoritative_cost"]["numerator"])),
+        int(Decimal(exact_record["authoritative_cost"]["denominator"])),
     )
 
     return Solution(
