@@ -28,7 +28,7 @@ from mamut_routing_lib.exact_types import ExactRouteError
 
 # Relative tolerance of the float fold against the exact evaluation. The
 # environment override exists for measurement runs (KAYROS_FOLD_TOL=inf).
-TOL = float(os.environ.get("KAYROS_FOLD_TOL", "1e-9"))
+TOL = float(os.environ.get("KAYROS_FOLD_TOL", "1e-12"))
 
 # One prepared snapshot per loaded instance (the library copies every arc on
 # prepare, so building it per route would be prohibitive). The loaded object is
