@@ -118,11 +118,11 @@ kayros::Instance make_instance(
 
 // Fold study (session 136): arm names <-> FoldArm.
 kayros::FoldArm parse_fold_arm(const std::string& name) {
-    static const char* names[] = {"F0", "F1", "F2", "F3", "F4", "F5"};
-    for (int k = 0; k < 6; ++k) {
+    static const char* names[] = {"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"};
+    for (int k = 0; k < 8; ++k) {
         if (name == names[k]) return static_cast<kayros::FoldArm>(k);
     }
-    throw std::invalid_argument("unknown fold_arm " + name + " (expected F0 to F5)");
+    throw std::invalid_argument("unknown fold_arm " + name + " (expected F0 to F7)");
 }
 
 std::string fold_arm_name(kayros::FoldArm arm) {
@@ -208,7 +208,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("vehicle_capacity", &kayros::Instance::vehicle_capacity)
         .def_readonly("fixed_route_cost", &kayros::Instance::fixed_route_cost)
         .def_readonly("has_time_windows", &kayros::Instance::has_time_windows)
-        // Fold study arm ("F0" to "F5"). Setting it resets the leaf cache.
+        // Fold study arm ("F0" to "F7"). Setting it resets the leaf cache.
         .def_property(
             "fold_arm",
             [](const kayros::Instance& inst) { return fold_arm_name(inst.fold_arm); },

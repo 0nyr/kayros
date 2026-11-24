@@ -13,7 +13,9 @@ namespace kayros {
 // - leaf_cache (F2): the leaves theta_j o alpha_ij are built once per arc and cached on the instance. The reference fold then makes 1 composition per stop, and bridge_leaf / return_leaf return the cached leaf.
 // - no_alloc (F3): the ranking evaluators compose into reusable buffers (compose_into, tree query views), with F0 arithmetic.
 // F0 is the code before the study and is the default.
-enum class FoldArm : std::int32_t { F0 = 0, F1 = 1, F2 = 2, F3 = 3, F4 = 4, F5 = 5 };
+// F6 is F4 plus a candidate enumeration of the inter-route passes driven by the granular neighbour lists (fast_enum). It visits the same candidates in the same order as F4, so it follows the F4 trajectory.
+// F7 is F6 with the leaves stored in 1 packed pool instead of separate vectors (compact_cache), same leaf values as F4.
+enum class FoldArm : std::int32_t { F0 = 0, F1 = 1, F2 = 2, F3 = 3, F4 = 4, F5 = 5, F6 = 6, F7 = 7 };
 
 struct LeafCache {
     std::vector<Pwlf> leaf;   // (n+1)^2 entries, leaf[i*(n+1)+j] = theta_j o alpha_ij
@@ -55,11 +57,14 @@ struct Instance {
 
     bool arm_in_place() const { return fold_arm == FoldArm::F1 || fold_arm == FoldArm::F5; }
     bool arm_leaf_cache() const {
-        return fold_arm == FoldArm::F2 || fold_arm == FoldArm::F4 || fold_arm == FoldArm::F5;
+        return fold_arm == FoldArm::F2 || fold_arm == FoldArm::F4 || fold_arm == FoldArm::F5 ||
+               fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7;
     }
     bool arm_no_alloc() const {
-        return fold_arm == FoldArm::F3 || fold_arm == FoldArm::F4 || fold_arm == FoldArm::F5;
+        return fold_arm == FoldArm::F3 || fold_arm == FoldArm::F4 || fold_arm == FoldArm::F5 ||
+               fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7;
     }
+    bool arm_fast_enum() const { return fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7; }
     void set_fold_arm(FoldArm arm) {
         fold_arm = arm;
         leaf_cache.reset();
