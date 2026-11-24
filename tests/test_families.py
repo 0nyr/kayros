@@ -1,8 +1,8 @@
 """M3.4: all four MAMUT TD families × both problem types.
 
 For each satellite family (Ari2018, Vu2020, Rifki2020 — Dabia2013 is covered
-exhaustively by test_checker_equivalence): a checker-equivalence spot check on
-random routes and a small-budget solve() smoke. Rifki2020 is the stress case:
+exhaustively by test_checker_equivalence): an exact-evaluation agreement spot check on
+random routes (feasibility equal, float duration within TOL of the exact one) and a small-budget solve() smoke. Rifki2020 is the stress case:
 its canonical ATFs carry genuine vertical steps (non-FIFO envelope
 consolidation), exercising the step semantics of the engine end to end.
 """
@@ -11,16 +11,13 @@ import random
 import zlib
 
 import pytest
-from mamut_routing_lib.td import (
-    compute_route_duration,
-    compute_route_ready_time_function,
-    load_td_instance,
-)
+from mamut_routing_lib.td import load_td_instance
 
 import kayros
 from kayros.io import to_core
 
 from conftest import family_instances
+from exact_reference import assert_route_agrees
 from test_checker_equivalence import random_routes
 
 INSTANCES_PER_CASE = 3
@@ -58,17 +55,8 @@ def test_family_checker_equivalence(instance_path) -> None:
     feasible_routes = 0
     for _ in range(EQUIVALENCE_DRAWS):
         for route in random_routes(rng, loaded.instance):
-            reference = compute_route_duration(loaded.instance, loaded.atfs, route)
-            feasible, duration, departure = core.evaluate_route(route)
-            assert feasible == reference.feasible, (instance_path, route)
-            if reference.feasible:
-                feasible_routes += 1
-                assert duration == reference.duration, (instance_path, route)
-                assert departure == reference.departure_time, (instance_path, route)
-            delta = compute_route_ready_time_function(loaded.instance, loaded.atfs, route)
-            core_xs, core_ys = core.route_ready_time_function(route)
-            assert core_xs == delta.xs, (instance_path, route)
-            assert core_ys == delta.ys, (instance_path, route)
+            feasible, _, _ = assert_route_agrees(loaded, core, route, instance_path)
+            feasible_routes += feasible
     assert feasible_routes > 0, (instance_path, "no feasible route drawn")
 
 

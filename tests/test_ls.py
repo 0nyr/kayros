@@ -143,8 +143,7 @@ def test_local_search_invariants(gate_case) -> None:
     """LS output: valid partition of customers, value = canonical checker
     Duration, never worse than the input, and the whole solution passes the
     reference checker (capacity, TWs, fleet, cost) exactly."""
-    from mamut_routing_lib.models import BenchmarkSolution
-    from mamut_routing_lib.td import check_td_solution
+    from exact_reference import assert_exact_check_valid
 
     path, _ = gate_case
     loaded = load_instance(path, verify=True)
@@ -162,16 +161,7 @@ def test_local_search_invariants(gate_case) -> None:
     assert all(new_routes), "no empty route may survive"
     assert applied >= 0 and reverted >= 0
 
-    check = check_td_solution(
-        loaded,
-        BenchmarkSolution(
-            instance_name=loaded.instance.instance_name,
-            routes=[list(r) for r in new_routes],
-            cost=value,
-        ),
-    )
-    assert check.is_valid(), (check.status, check.error_message)
-    assert check.routing_cost == value
+    assert_exact_check_valid(loaded, [list(r) for r in new_routes], value)
 
 
 @pytest.mark.parametrize(

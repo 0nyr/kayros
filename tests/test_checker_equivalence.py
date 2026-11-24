@@ -1,26 +1,29 @@
-"""M3.2 hard gate: core route pricing must equal the canonical checker exactly.
+"""M3.2 gate: core route pricing must agree with the library's exact evaluation.
 
 For random routes over real MAMUT instances (feasible or not), the compiled
-core's ready-time function, duration, and departure must be ``==``-identical
-to ``mamut_routing_lib.td`` pricing. Any divergence is a kayros bug — never an
-epsilon to add.
+core's feasibility verdict must equal the library's, and its binary64 duration
+must lie within ``exact_reference.TOL`` (relative) of the library's exact
+duration. Since library 0.13 the checker evaluates in exact rational
+arithmetic and the solver's binary64 fold is an internal approximation, so
+there is no bit-identity contract any more (before 0.13 this gate was ``==``).
+The ready-time function breakpoints used to be compared with the library's
+``compute_route_ready_time_function``, which no longer exists: that comparison
+is deleted here (the solver's own function is covered by the warp prefix gate
+in test_warp_equivalence and by test_pwlf_equivalence).
 """
 
 import random
 import zlib
 
 import pytest
-from mamut_routing_lib.td import (
-    check_td_solution,
-    compute_route_duration,
-    compute_route_ready_time_function,
-    load_td_instance,
-)
+from mamut_routing_lib.enums import ObjectiveFunction
+from mamut_routing_lib.td import check_td_solution, load_td_instance
 from mamut_routing_lib.models import BenchmarkSolution
 
 from kayros.io import to_core
 
 from conftest import family_instances
+from exact_reference import assert_close, assert_route_agrees, exact_routes_cost
 
 ROUTES_PER_INSTANCE = 30
 
@@ -67,23 +70,15 @@ def assert_instance_equivalence(instance_path) -> None:
         routes = random_routes(rng, loaded.instance)
         all_feasible = True
         for route in routes:
-            reference = compute_route_duration(loaded.instance, loaded.atfs, route)
-            feasible, duration, departure = core.evaluate_route(route)
-            assert feasible == reference.feasible, (instance_path, route)
-            if reference.feasible:
+            feasible, _, _ = assert_route_agrees(loaded, core, route, instance_path)
+            if feasible:
                 feasible_routes += 1
-                assert duration == reference.duration, (instance_path, route)
-                assert departure == reference.departure_time, (instance_path, route)
             else:
                 all_feasible = False
-            delta = compute_route_ready_time_function(loaded.instance, loaded.atfs, route)
-            core_xs, core_ys = core.route_ready_time_function(route)
-            assert core_xs == delta.xs, (instance_path, route)
-            assert core_ys == delta.ys, (instance_path, route)
 
         if all_feasible:
-            # Full-solution agreement: checker total == canonical-order sum of
-            # core durations (exact float addition order).
+            # Full-solution agreement: the library's exact cost against the
+            # sum of the core's float durations (canonical route order).
             total = 0.0
             for route in sorted(routes, key=lambda r: r[0]):
                 total += core.evaluate_route(route)[1]
@@ -92,6 +87,7 @@ def assert_instance_equivalence(instance_path) -> None:
                 BenchmarkSolution(
                     instance_name=loaded.instance.instance_name, routes=routes
                 ),
+                ObjectiveFunction.DURATION,
             )
             from mamut_routing_lib.checker import SolutionCheckStatus
 
@@ -100,7 +96,10 @@ def assert_instance_equivalence(instance_path) -> None:
                 SolutionCheckStatus.TOO_MANY_VEHICLES_USED,
             )
             if result.is_valid():
-                assert result.routing_cost == total, (instance_path, routes)
+                exact = exact_routes_cost(loaded, routes)
+                assert exact is not None and result.routing_cost == float(exact), (
+                    instance_path, "library cost is not the display of the exact sum")
+                assert_close(loaded, total, exact, (instance_path, routes))
             else:
                 # Random routes may violate capacity/fleet limits; timing must
                 # still have been feasible per-route above.
@@ -128,7 +127,7 @@ def test_dabia2013_tdvrp_equivalence(instance_path) -> None:
     "instance_path", DABIA_TDVRPTW, ids=lambda p: f"BKS-{p.parent.name}-{p.name.removesuffix('.vrp.json')}"
 )
 def test_dabia2013_bks_repricing(instance_path) -> None:
-    """Stored routes: core total equals the installed checker's repricing.
+    """Stored routes: core total is within TOL of the library's exact repricing.
 
     The benchmark snapshot's declared cost may use a different numerical
     contract. Compare the same routes under the installed checker instead.
@@ -145,15 +144,18 @@ def test_dabia2013_bks_repricing(instance_path) -> None:
 
     total = 0.0
     for route in sorted(bks.routes, key=lambda r: r[0]):
-        feasible, duration, _ = core.evaluate_route(route)
+        feasible, duration, _ = assert_route_agrees(loaded, core, route, instance_path)
         assert feasible, (instance_path, route)
         total += duration
     reference = check_td_solution(
         loaded,
         BenchmarkSolution(instance_name=loaded.instance.instance_name, routes=bks.routes),
+        ObjectiveFunction.DURATION,
     )
     assert reference.is_valid(), (instance_path, reference.status, reference.error_message)
-    assert total == reference.routing_cost, (instance_path, total, reference.routing_cost)
+    exact = exact_routes_cost(loaded, bks.routes)
+    assert exact is not None and reference.routing_cost == float(exact)
+    assert_close(loaded, total, exact, (instance_path, "BKS total"))
 
 
 def test_benchmarks_available_or_skipped() -> None:

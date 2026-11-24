@@ -1,14 +1,22 @@
-"""P8.1 hard gates: the warp-augmented fold must reduce bitwise to the checker.
+"""P8.1 hard gates: the warp-augmented fold must reduce to the exact evaluation.
+
+Since library 0.13 the checker is exact and the solver's binary64 fold is an
+internal approximation: the gates against the library are feasibility
+agreement plus a distance bound (``exact_reference.TOL``), not bit identity.
+The bitwise comparisons between solver kernels (dedup'd versus full fold, C++
+versus the Python twin, warp prefix versus the solver's own ready-time
+function) are unchanged.
 
 Stream 8 (TD time-warp) exact-reduction gates, per the accepted P8.0 design
 memo (workspace ``reports/design/p8.0-td-time-warp-design.md`` §4):
 
-- **G1** — on every checker-feasible route, the zero-warp duration equals the
-  checker's Delta* bitwise, the minimal warp is exactly 0.0, and the clamped
-  ready-time function's breakpoint grid extends the checker's grid (bitwise
-  prefix). Durations are asserted, argmins never (association-fragile).
-- **G2** — the feasibility predicates agree exactly: checker domain non-empty
-  ⇔ zero-warp set non-empty (exactly-zero warp, never a tolerance).
+- **G1** — on every exactly-feasible route, the zero-warp duration is within
+  TOL of the exact duration, the minimal warp is exactly 0.0, and the clamped
+  ready-time function's breakpoint grid extends the solver's own base
+  ready-time function (bitwise prefix). Durations are asserted, argmins never
+  (association-fragile).
+- **G2** — the feasibility predicates agree exactly: exact route evaluation
+  feasible ⇔ zero-warp set non-empty (exactly-zero warp, never a tolerance).
 - **G3** — hand-built late routes get controlled warp values.
 
 The C++ channels are additionally asserted bitwise against the pure-Python
@@ -21,19 +29,14 @@ import random
 import zlib
 
 import pytest
-from mamut_routing_lib.td import (
-    NDCPWLF,
-    check_td_solution,
-    compute_route_duration,
-    compute_route_ready_time_function,
-    load_td_instance,
-)
+from mamut_routing_lib.td import NDCPWLF, check_td_solution, load_td_instance
 
 from kayros import _core
 from kayros.io import to_core
 
 import warp_reference as ref
 from conftest import family_instances
+from exact_reference import assert_close, exact_route, exact_routes_cost
 from test_checker_equivalence import random_routes
 from test_pwlf_equivalence import random_ndcpwlf
 
@@ -72,7 +75,7 @@ OUTCOME_TOTALS = {"feasible": 0, "warped": 0, "walled": 0}
 
 def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str:
     """G1 + G2 + twin bit-identity on one route. Returns the outcome class."""
-    reference = compute_route_duration(loaded.instance, loaded.atfs, route)
+    reference = exact_route(loaded, route)
     (rho_xs, rho_ys), (w_xs, w_ys) = core.route_warp_functions(route, t_end)
     twin_rho, twin_warp = ref.warp_route_functions(
         loaded.instance, loaded.atfs, route, t_end
@@ -106,11 +109,11 @@ def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str
                 prev_x = x
                 assert _core.pwlf_evaluate(dxs, dys, x) == y, (ctx, route, x)
 
-    # G2: checker feasibility == (total AND exactly-zero achievable warp).
+    # G2: exact feasibility == (total AND exactly-zero achievable warp).
     assert ev["feasible"] == (ev["total"] and ev["min_warp"] == 0.0), (ctx, route)
-    assert ev["feasible"] == reference.feasible, (ctx, route)
+    assert ev["feasible"] == (reference is not None), (ctx, route)
 
-    if not reference.feasible:
+    if reference is None:
         if ev["total"]:
             assert ev["min_warp"] > 0.0, (ctx, route)
             # The penalised objective is finite on infeasible routes: this is
@@ -119,18 +122,19 @@ def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str
             return "warped"
         return "walled"
 
-    # G1: zero-warp duration == checker duration, bitwise.
+    # G1: zero-warp duration is within TOL of the exact duration.
     assert ev["min_warp"] == 0.0, (ctx, route)
-    assert ev["duration"] == reference.duration, (ctx, route)
+    assert_close(loaded, ev["duration"], reference.duration, (ctx, route))
     # Phi* can only improve on Delta* (larger candidate set, exact at the
-    # checker's argmin breakpoint since W there is exactly 0.0).
-    assert ev["penalised"] <= reference.duration, (ctx, route)
+    # argmin breakpoint since W there is exactly 0.0). Solver-internal, bitwise.
+    assert ev["penalised"] <= ev["duration"], (ctx, route)
 
-    # G1 grid form: the checker's delta grid is a bitwise prefix of rho's.
-    delta = compute_route_ready_time_function(loaded.instance, loaded.atfs, route)
-    n = len(delta.xs)
-    assert rho_xs[:n] == delta.xs, (ctx, route)
-    assert rho_ys[:n] == delta.ys, (ctx, route)
+    # G1 grid form: the solver's own base ready-time function is a bitwise
+    # prefix of rho's grid.
+    base_xs, base_ys = core.route_ready_time_function(route)
+    n = len(base_xs)
+    assert rho_xs[:n] == base_xs, (ctx, route)
+    assert rho_ys[:n] == base_ys, (ctx, route)
     return "feasible"
 
 
@@ -189,13 +193,17 @@ def test_warp_gate_bks_and_deadline_riders(instance_path) -> None:
         assert outcome == "feasible", (instance_path, route)
         total += core.evaluate_route_warp(route, GATE_PENALTY, t_end)["duration"]
     # Stored costs may use another checker contract. Reprice the same routes
-    # under the installed checker before comparing the penalized evaluator.
+    # under the installed exact checker before comparing the penalized
+    # evaluator (within TOL, the fold is not bit-identical to the exact value).
     reference = check_td_solution(
         loaded,
         BenchmarkSolution(instance_name=loaded.instance.instance_name, routes=bks.routes),
+        ObjectiveFunction.DURATION,
     )
     assert reference.is_valid(), (instance_path, reference.status, reference.error_message)
-    assert total == reference.routing_cost, (instance_path, total, reference.routing_cost)
+    exact = exact_routes_cost(loaded, bks.routes)
+    assert exact is not None and reference.routing_cost == float(exact)
+    assert_close(loaded, total, exact, (instance_path, "BKS total"))
 
     rng = random.Random(zlib.crc32(b"riders:" + str(instance_path).encode()))
     for route in bks.routes:

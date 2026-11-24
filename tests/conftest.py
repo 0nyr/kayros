@@ -77,3 +77,13 @@ def require_benchmarks() -> None:
             "MAMUT-routing benchmarks not found: set MAMUT_ROUTING_BENCHMARKS_ROOT "
             "(or MAMUT_ROUTING_ROOT) to a MAMUT-routing checkout with its family collections"
         )
+
+
+def pytest_terminal_summary(terminalreporter) -> None:
+    """Print the largest fold-versus-exact distances seen during the session."""
+    from exact_reference import DISTANCES, distance_summary_lines
+
+    if DISTANCES:
+        terminalreporter.section("fold distance versus exact evaluation")
+        for line in distance_summary_lines():
+            terminalreporter.write_line(line)

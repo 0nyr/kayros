@@ -34,13 +34,11 @@ from __future__ import annotations
 
 import pytest
 from mamut_routing_lib.models import BenchmarkSolution
-from mamut_routing_lib.td import (
-    check_td_solution,
-    compute_solution_cost,
-    load_td_instance,
-)
+from mamut_routing_lib.enums import ObjectiveFunction
+from mamut_routing_lib.td import check_td_solution, load_td_instance
 
 from conftest import benchmarks_root, family_instances, instance_path, require_benchmarks
+from exact_reference import assert_value_close, exact_duration_cost
 
 
 def _pick(paths, name):
@@ -107,7 +105,7 @@ def test_reproducer_counterexample_is_checker_valid():
         instance_name="Rifki-16",
         routes=sorted(RIFKI16_N20_COUNTEREXAMPLE, key=lambda r: r[0]),
     )
-    chk = check_td_solution(loaded, sol)
+    chk = check_td_solution(loaded, sol, ObjectiveFunction.DURATION)
     assert chk.is_valid()
     assert chk.routing_cost == RIFKI16_N20_COUNTEREXAMPLE_COST
 
@@ -193,10 +191,8 @@ def test_rifki14_k15_witness_is_checker_valid():
     """Anchor: the 5572 witness is a valid solution of the k=15 subset."""
     require_benchmarks()
     inst = _load_rifki14_k15()
-    from mamut_routing_lib.td import compute_solution_cost
-
-    cost = compute_solution_cost(inst.instance, inst.atfs, RIFKI14_K15_WITNESS)
-    assert cost == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
+    cost = exact_duration_cost(inst.instance, inst.atfs, RIFKI14_K15_WITNESS)
+    assert float(cost) == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
 
 
 def test_asymmetric_rifki14_k15_is_sound():
@@ -352,9 +348,8 @@ def test_jumpfree_vu2020_certificate_is_not_above_the_truth():
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
     ]
-    assert res["value"] == pytest.approx(
-        compute_solution_cost(loaded.instance, loaded.atfs, routes), abs=1e-6
-    )
+    # M2: becomes exact equality once priced columns are evaluated exactly
+    assert_value_close(res["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 # --- The reverse-side discriminators (2026-08-05) ---------------------------
@@ -402,9 +397,8 @@ def test_jumpfree_reverse_side_certificate_is_not_above_the_truth(name):
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
     ]
-    assert res["value"] == pytest.approx(
-        compute_solution_cost(loaded.instance, loaded.atfs, routes), abs=1e-6
-    )
+    # M2: becomes exact equality once priced columns are evaluated exactly
+    assert_value_close(res["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 # --- Regression guards: jump-free family proofs must stay correct/stable -----
@@ -427,7 +421,8 @@ def test_jumpfree_certification_is_warm_start_independent():
     assert warm["exact_log"]["status"] == "Optimum"
     assert cold["value"] == warm["value"]
     # And the reported value is checker-exact.
-    assert cold["value"] == compute_solution_cost(loaded.instance, loaded.atfs, routes)
+    # M2: becomes exact equality once priced columns are evaluated exactly
+    assert_value_close(cold["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 def test_jumpfree_certification_is_deterministic():

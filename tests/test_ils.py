@@ -54,8 +54,7 @@ def pick(request):
 
 
 def test_ils_solution_checker_valid(pick) -> None:
-    from mamut_routing_lib.models import BenchmarkSolution
-    from mamut_routing_lib.td import check_td_solution
+    from exact_reference import assert_exact_check_valid
 
     loaded = load_instance(pick, verify=True)
     core = to_core(loaded)
@@ -68,16 +67,7 @@ def test_ils_solution_checker_valid(pick) -> None:
     )
     assert all(result.routes)
 
-    check = check_td_solution(
-        loaded,
-        BenchmarkSolution(
-            instance_name=loaded.instance.instance_name,
-            routes=[list(r) for r in result.routes],
-            cost=result.value,
-        ),
-    )
-    assert check.is_valid(), (check.status, check.error_message)
-    assert check.routing_cost == result.value
+    assert_exact_check_valid(loaded, [list(r) for r in result.routes], result.value)
 
 
 def test_ils_incumbents_monotone(pick) -> None:

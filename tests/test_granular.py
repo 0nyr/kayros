@@ -95,8 +95,7 @@ def test_neighbour_lists_exhaustive_sentinel(pick) -> None:
 def test_granular_ls_invariants(pick, k) -> None:
     """Granular LS keeps the M3.7 contract: partition preserved, value is the
     canonical checker Duration, never worse, checker-valid end to end."""
-    from mamut_routing_lib.models import BenchmarkSolution
-    from mamut_routing_lib.td import check_td_solution
+    from exact_reference import assert_exact_check_valid
 
     loaded = load_instance(pick, verify=True)
     core = to_core(loaded)
@@ -114,16 +113,7 @@ def test_granular_ls_invariants(pick, k) -> None:
     assert all(new_routes), "no empty route may survive"
     assert applied >= 0 and reverted >= 0
 
-    check = check_td_solution(
-        loaded,
-        BenchmarkSolution(
-            instance_name=loaded.instance.instance_name,
-            routes=[list(r) for r in new_routes],
-            cost=value,
-        ),
-    )
-    assert check.is_valid(), (check.status, check.error_message)
-    assert check.routing_cost == value
+    assert_exact_check_valid(loaded, [list(r) for r in new_routes], value)
 
 
 def test_granular_full_lists_match_exhaustive_tdvrp() -> None:

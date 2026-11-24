@@ -51,8 +51,7 @@ def pick(request):
 
 @pytest.mark.parametrize("seed", [0, 7, 42])
 def test_perturb_feasible_and_checker_valid(pick, seed) -> None:
-    from mamut_routing_lib.models import BenchmarkSolution
-    from mamut_routing_lib.td import check_td_solution
+    from exact_reference import assert_exact_check_valid
 
     loaded = load_instance(pick, verify=True)
     core = to_core(loaded)
@@ -71,16 +70,7 @@ def test_perturb_feasible_and_checker_valid(pick, seed) -> None:
     else:
         assert new_routes == routes, "an unapplied kick must leave the input"
 
-    check = check_td_solution(
-        loaded,
-        BenchmarkSolution(
-            instance_name=loaded.instance.instance_name,
-            routes=[list(r) for r in new_routes],
-            cost=value,
-        ),
-    )
-    assert check.is_valid(), (check.status, check.error_message)
-    assert check.routing_cost == value
+    assert_exact_check_valid(loaded, [list(r) for r in new_routes], value)
 
 
 def test_perturb_deterministic(pick) -> None:

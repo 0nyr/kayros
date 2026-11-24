@@ -1,8 +1,12 @@
 """M7 (Plan 11 Blauth2024 campaign): FleetCostDuration in the heuristic stack.
 
-The lib checker stays the authority: every kayros FleetCostDuration value must
-equal ``compute_solution_cost`` / ``check_td_solution`` under
-``objective_function=FLEET_COST_DURATION`` with ``==``, never an epsilon.
+The lib checker stays the authority. Since library 0.13 it evaluates exactly:
+``Solution.exact_cost`` must equal ``compute_solution_cost`` under
+``objective_function=FLEET_COST_DURATION`` (a Fraction), ``Solution.cost`` must be
+its binary64 display, and the solver's internal float fold is only required to
+lie within ``exact_reference.TOL`` of it. Every call passes the objective
+explicitly, since the library default is the family's published objective
+(FleetCostDuration for Blauth2024).
 These are the FleetCostDuration legs of the checker-equivalence and ILS gates:
 
 - fold equivalence: canonical duration fold + one ``F * K`` multiply-add, on
@@ -39,6 +43,7 @@ from kayros import _core
 from kayros.io import canonical_objective, to_core
 
 from conftest import blauth2024_instances, family_instances
+from exact_reference import assert_value_close, exact_duration_cost
 
 BLAUTH_F = 36000000.0  # the family's 10 h fixed cost, integer milliseconds
 
@@ -117,8 +122,8 @@ def random_split(rng: random.Random, routes: list[list[int]]) -> list[list[int]]
 )
 def test_fold_equals_checker(instance_path) -> None:
     """Feasible partitions of varying K (random refinements of the greedy
-    solution, fleet bound lifted): core FleetCostDuration == lib bitwise, and
-    == the Duration fold + F * K exactly (one multiply, one add)."""
+    solution, fleet bound lifted): core FleetCostDuration within TOL of the lib's
+    exact value, and == the Duration fold + F * K exactly (solver-internal) (one multiply, one add)."""
     loaded = with_fleet_cost(
         load_td_instance(instance_path), BLAUTH_F, unlimited_fleet=True
     )
@@ -141,7 +146,7 @@ def test_fold_equals_checker(instance_path) -> None:
             routes,
             objective_function=ObjectiveFunction.FLEET_COST_DURATION,
         )
-        assert got == want, (instance_path, routes)
+        assert_value_close(got, want, (instance_path, routes), family="fleet-cost fold")
         assert got == duration_total + BLAUTH_F * len(routes)
     assert len(fleet_sizes) > 1, "splits never varied K — generator regression"
 
@@ -275,15 +280,17 @@ def test_solve_fleet_cost_duration_end_to_end(instance_path) -> None:
     params = kayros.Params(objective="fleet_cost_duration", ils_max_iterations=150)
     solution = kayros.solve(loaded, params, seed=3)
     assert solution.objective == "FleetCostDuration"
-    assert solution.duration == compute_solution_cost(
+    want = compute_solution_cost(
         loaded.instance,
         loaded.atfs,
         solution.routes,
         objective_function=ObjectiveFunction.FLEET_COST_DURATION,
     )
+    assert solution.exact_cost == want
+    assert solution.cost == float(want)
     artifact = solution.to_benchmark_solution()
     assert artifact.metadata["objective_function"] == "FleetCostDuration"
-    assert artifact.cost == solution.duration
+    assert artifact.cost == solution.cost
 
 
 @pytest.mark.parametrize(
@@ -299,7 +306,7 @@ def test_duration_solve_unchanged_by_carried_field(instance_path) -> None:
     a = kayros.solve(plain, params, seed=5)
     b = kayros.solve(carrying, params, seed=5)
     assert a.routes == b.routes
-    assert a.duration == b.duration
+    assert a.cost == b.cost
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
     assert b.objective == "Duration"
     assert "objective_function" not in b.to_benchmark_solution().metadata
@@ -400,17 +407,19 @@ def test_blauth_berlin_n10_smoke() -> None:
     sol_f, sol_d = _solve_both(loaded)
 
     assert sol_f.objective == "FleetCostDuration"
-    assert sol_f.duration == compute_solution_cost(
+    want = compute_solution_cost(
         loaded.instance,
         loaded.atfs,
         sol_f.routes,
         objective_function=ObjectiveFunction.FLEET_COST_DURATION,
     )
+    assert sol_f.exact_cost == want
+    assert sol_f.cost == float(want)
     assert sol_f.num_routes <= sol_d.num_routes
     assert sol_f.num_routes <= seed_k
     # Cross-scoring: the dedicated solve must not lose to the Duration
     # solve's routes under its own objective (400 iterations on n=10).
-    assert sol_f.duration <= compute_solution_cost(
+    assert sol_f.exact_cost <= compute_solution_cost(
         loaded.instance,
         loaded.atfs,
         sol_d.routes,
@@ -431,14 +440,14 @@ def test_blauth_n10_fleet_tradeoff_exercised(prefix) -> None:
 
     assert sol_f.num_routes < sol_d.num_routes
     # The merge sacrificed duration (the dissolve is duration-increasing) …
-    duration_f = compute_solution_cost(
-        loaded.instance, loaded.atfs, sol_f.routes
-    )
-    assert duration_f > sol_d.duration
+    # Duration is passed explicitly: the library default on Blauth2024 is
+    # FleetCostDuration, which would add the fleet charge here.
+    duration_f = exact_duration_cost(loaded.instance, loaded.atfs, sol_f.routes)
+    assert duration_f > sol_d.exact_cost
     # … but by less than F per dissolved route, so it wins under FCD.
     saved_routes = sol_d.num_routes - sol_f.num_routes
-    assert duration_f - sol_d.duration < BLAUTH_F * saved_routes
-    assert sol_f.duration <= compute_solution_cost(
+    assert duration_f - sol_d.exact_cost < BLAUTH_F * saved_routes
+    assert sol_f.exact_cost <= compute_solution_cost(
         loaded.instance,
         loaded.atfs,
         sol_d.routes,
