@@ -26,7 +26,7 @@ import random
 
 import pytest
 
-from conftest import benchmarks_root, require_benchmarks
+from conftest import benchmarks_root, instance_path, require_benchmarks
 from td_fuzz import random_case, run_exact, run_ils, soundness, subsample
 
 # Pinned minimal reproducer (fuzzer seed 7, case 06).
@@ -39,9 +39,8 @@ RIFKI22_COLD_WRONG = 2504.0
 def _load_rifki22():
     from mamut_routing_lib.td import load_td_instance
 
-    root = benchmarks_root()
     fam, size, name = RIFKI22_SRC
-    src = root / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    src = instance_path("TDVRPTW", fam, size, name)
     # Skip (not fail) when this specific instance is absent: require_benchmarks()
     # only asserts the root exists, but a sparse/CI checkout may carry only a
     # subset (e.g. Dabia n=25) without Rifki2020.

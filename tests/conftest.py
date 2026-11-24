@@ -27,6 +27,19 @@ def benchmarks_root() -> Path | None:
     return None
 
 
+def instance_path(problem_type: str, family: str, size_dir: str, name: str) -> Path:
+    """Path of one benchmark instance in the family-first layout (library 0.13).
+
+    ``benchmarks/<family>/<problem_type>/<size_dir>/<name>.vrp.json``. Returns the
+    path even when the file is absent (callers skip on ``.exists()``), and skips
+    the test when no benchmarks tree is configured at all.
+    """
+    root = benchmarks_root()
+    if root is None:
+        pytest.skip("MAMUT-routing benchmarks not found")
+    return root / family / problem_type / size_dir / f"{name}.vrp.json"
+
+
 def family_instances(problem_type: str, family: str, size_dirs: list[str]) -> list:
     """Instance paths for pytest parametrization; empty when benchmarks are absent."""
     root = benchmarks_root()

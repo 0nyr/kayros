@@ -30,7 +30,7 @@ JUMPFREE_POOL = [("Dabia2013", "n=25"), ("Solomon1987", "n=25")]
 
 
 def instances_in(root: Path, family: str, size: str, problem: str = "TDVRPTW") -> list[Path]:
-    d = Path(root) / problem / family / size
+    d = Path(root) / family / problem / size  # family-first layout (library 0.13)
     return sorted(d.glob("*.vrp.json")) if d.is_dir() else []
 
 

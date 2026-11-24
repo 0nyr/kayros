@@ -40,7 +40,7 @@ from mamut_routing_lib.td import (
     load_td_instance,
 )
 
-from conftest import benchmarks_root, family_instances, require_benchmarks
+from conftest import benchmarks_root, family_instances, instance_path, require_benchmarks
 
 
 def _pick(paths, name):
@@ -158,9 +158,7 @@ def test_symmetric_merge_stepwise_is_sound(monkeypatch):
     fixed by added-driven escalation in the bridge. Hard gate.
     """
     require_benchmarks()
-    from conftest import benchmarks_root
-
-    src = benchmarks_root() / "TDVRPTW" / "Rifki2020" / "n=10" / "Rifki-25.vrp.json"
+    src = instance_path("TDVRPTW", "Rifki2020", "n=10", "Rifki-25")
     _need(src, "Rifki-25 n=10 TDVRPTW")
     monkeypatch.setenv("KAYROS_LBL_SYMMETRIC", "1")
     loaded = load_td_instance(src)
@@ -186,7 +184,7 @@ def _load_rifki14_k15():
     from td_fuzz import subsample
 
     fam, size, name = RIFKI14_K15_SRC
-    src = benchmarks_root() / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    src = instance_path("TDVRPTW", fam, size, name)
     _need(src, "Rifki-14 n=30 TDVRPTW")
     return subsample(load_td_instance(src), RIFKI14_K15_KEEP, "Rifki-14-k15")
 
@@ -258,7 +256,7 @@ M130_EXACT_CASES = {
 def _exact_cold_result(name, monkeypatch):
     require_benchmarks()
     size, truth, tl = M130_EXACT_CASES[name]
-    src = benchmarks_root() / "TDVRPTW" / "Rifki2020" / size / f"{name}.vrp.json"
+    src = instance_path("TDVRPTW", "Rifki2020", size, name)
     _need(src, f"{name} {size} TDVRPTW")
     monkeypatch.setenv("KAYROS_STEP_EXACT", "1")
     loaded = load_td_instance(src)
@@ -304,7 +302,7 @@ def test_jumpfree_c102_k7_guard():
 
     require_benchmarks()
     fam, size, name = C102_K7_SRC
-    src = benchmarks_root() / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    src = instance_path("TDVRPTW", fam, size, name)
     inst = subsample(load_td_instance(src), C102_K7_KEEP, "C102-k7")
     res = _cold(inst, tl=60.0)
     assert res["exact_log"]["status"] == "Optimum"
@@ -342,7 +340,7 @@ def test_jumpfree_vu2020_certificate_is_not_above_the_truth():
     """
     require_benchmarks()
     fam, size, name = VU_A5PA_D90_W40
-    src = benchmarks_root() / "TDVRPTW" / fam / size / f"{name}.vrp.json"
+    src = instance_path("TDVRPTW", fam, size, name)
     _need(src, f"{name} {size} TDVRPTW")
     loaded = load_td_instance(src)
     res = _cold(loaded, tl=600.0)
@@ -392,7 +390,7 @@ def test_jumpfree_reverse_side_certificate_is_not_above_the_truth(name):
     """
     require_benchmarks()
     truth = VU_REVERSE_SIDE_CASES[name]
-    src = benchmarks_root() / "TDVRPTW" / "Vu2020" / "n=59" / f"{name}.vrp.json"
+    src = instance_path("TDVRPTW", "Vu2020", "n=59", name)
     _need(src, f"{name} n=59 TDVRPTW")
     loaded = load_td_instance(src)
     res = _cold(loaded, tl=600.0)

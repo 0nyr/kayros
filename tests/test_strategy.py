@@ -69,7 +69,7 @@ def test_ils_strategy_end_to_end_deterministic() -> None:
     values = [i.value for i in a.incumbents]
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values)
-    assert a.cost == values[-1]
+    assert a.search_value == values[-1]
 
 
 def test_ils_strategy_hook_monotone() -> None:
@@ -85,7 +85,7 @@ def test_ils_strategy_hook_monotone() -> None:
     values = [e.value for e in events]
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values)
-    assert values[-1] == result.cost
+    assert values[-1] == result.search_value
 
 
 def test_split_strategy_runs_both_phases() -> None:
@@ -103,7 +103,7 @@ def test_split_strategy_runs_both_phases() -> None:
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values), "the merged stream must be strict"
     assert result.incumbents[0].origin == "greedy"
-    assert result.cost == values[-1]
+    assert result.search_value == values[-1]
     # The hook stream must match the merged record stream in values.
     assert [e.value for e in events] == values
     # Both phases fired their seed/greedy event; the ILS phase ran (its
