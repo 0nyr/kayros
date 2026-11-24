@@ -220,6 +220,7 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                             continue;
                         }
                     } else {
+                    // F0 path, kept verbatim at its original indentation.
                     // Insertion of c before position p, on the shared prefix.
                     const Pwlf in_bridge = bridge_leaf(inst, before, c);
                     if (in_bridge.xs.empty()) continue;
