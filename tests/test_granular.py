@@ -91,7 +91,7 @@ def test_neighbour_lists_exhaustive_sentinel(pick) -> None:
     assert all(l == [] for l in lists)
 
 
-@pytest.mark.parametrize("k", [10, 50])
+@pytest.mark.parametrize("k", [1, 10, 50])
 def test_granular_ls_invariants(pick, k) -> None:
     """Granular LS keeps the M3.7 contract: partition preserved, value is the solver's Duration fold (within TOL of the exact checker), never worse, checker-valid end to end."""
     from exact_reference import assert_exact_check_valid
