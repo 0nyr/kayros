@@ -37,14 +37,27 @@ class Instance:
     ) -> tuple[list[float], list[float]]: ...
 
 class IlsParams:
-    max_iterations: int
+    ils_max_iterations: int
     num_neighbours: int
     weight_wait: float
     min_perturbations: int
     max_perturbations: int
-    history_length: int
+    dissolve_pct: int
+    lahc_history: int
     restart_no_improvement: int
     exhaustive_on_best: bool
+    fd_attempts: int
+    fd_k_max: int
+    fd_ep_budget: int
+    fd_work_cap: int
+    sq_work_cap: int
+    sq_penalty: float
+    sq_on_nodrop: bool
+    sq_ladder: bool
+    k_cap: int
+    fd_period_work: int
+    seed_k_factor: float
+    restart_no_improvement_work: int
 
 class Incumbent:
     value: float
@@ -65,8 +78,8 @@ class SolveResult:
     status: SolveStatus
     iterations_run: int
 
-def greedy_makespan(instance: Instance) -> tuple[bool, list[list[int]]]: ...
-def greedy_makespan_lookahead(instance: Instance) -> tuple[bool, list[list[int]]]: ...
+def greedy_construct(instance: Instance) -> tuple[bool, list[list[int]]]: ...
+def greedy_construct_lookahead(instance: Instance) -> tuple[bool, list[list[int]]]: ...
 def split_to_k(
     instance: Instance, routes: list[list[int]], target_k: int
 ) -> tuple[bool, list[list[int]]]: ...
@@ -83,11 +96,21 @@ def ls_perturb(
     instance: Instance,
     routes: list[list[int]],
     seed: int,
-    min_removals: int = 1,
-    max_removals: int = 25,
+    min_perturbations: int = 1,
+    max_perturbations: int = 25,
     num_neighbours: int = 50,
     weight_wait: float = 0.2,
-) -> tuple[list[list[int]], float, bool, int, int, int]: ...
+    dissolve_pct: int = 50,
+) -> tuple[list[list[int]], float, bool, int, int, int, bool]: ...
+def ls_fleet_descent(
+    instance: Instance, routes: list[list[int]], seed: int,
+    fd_k_max: int = 2, fd_ep_budget: int = 2000, num_neighbours: int = 50,
+    weight_wait: float = 0.2, fd_work_cap: int = 0,
+) -> tuple[list[list[int]], float, bool, int, int, int, int, int, int, int]: ...
+def ls_squeeze_phase(
+    instance: Instance, routes: list[list[int]], sq_penalty: float = 10.0,
+    sq_work_cap: int = 1000000, num_neighbours: int = 50, weight_wait: float = 0.2,
+) -> tuple[list[list[int]], bool, int, int, int]: ...
 def ls_evaluate_splice(
     instance: Instance,
     route1: list[int],
@@ -100,12 +123,12 @@ def ls_evaluate_splice(
 def ls_evaluate_intra_relocate(
     instance: Instance, route: list[int], i: int, p: int
 ) -> tuple[bool, float, float]: ...
-def solution_duration(instance: Instance, routes: list[list[int]]) -> float: ...
+def solution_cost(instance: Instance, routes: list[list[int]]) -> float: ...
 def solve_ils(
     instance: Instance,
     params: IlsParams,
     seed: int,
-    time_limit_seconds: float,
+    time_limit: float,
     on_incumbent: Callable[[Incumbent, list[list[int]]], None] | None = None,
     initial_routes: list[list[int]] | None = None,
     accept_incumbent: Callable[[list[list[int]], bool], bool] | None = None,

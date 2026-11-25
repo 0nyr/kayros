@@ -69,7 +69,7 @@ def with_fleet_cost(
 
 
 def greedy_routes(core):
-    ok, routes = _core.greedy_makespan(core)
+    ok, routes = _core.greedy_construct(core)
     assert ok
     return routes
 
@@ -127,7 +127,7 @@ def test_fold_agrees_with_exact_checker(instance_path) -> None:
     )
     core_f = to_core(loaded, objective_function="fleet_cost_duration")
     core_0 = to_core(loaded)
-    ok, greedy = _core.greedy_makespan(core_0)
+    ok, greedy = _core.greedy_construct(core_0)
     assert ok
     rng = random.Random(0xF1EE7)
 
@@ -135,9 +135,9 @@ def test_fold_agrees_with_exact_checker(instance_path) -> None:
     for trial in range(20):
         routes = greedy if trial == 0 else random_split(rng, greedy)
         fleet_sizes.add(len(routes))
-        duration_total = _core.solution_duration(core_0, routes)
+        duration_total = _core.solution_cost(core_0, routes)
         assert duration_total != float("inf"), (instance_path, routes)
-        got = _core.solution_duration(core_f, routes)
+        got = _core.solution_cost(core_f, routes)
         want = compute_solution_cost(
             loaded.instance,
             loaded.atfs,
@@ -200,9 +200,9 @@ def test_ls_emptying_credit_isolated() -> None:
     assert len(merged) == 1
     assert sorted(merged[0]) == [1, 2, 3]
     assert value_f == 2900.0 + f  # merged duration + exactly one F
-    assert value_f == _core.solution_duration(core_f, merged)
+    assert value_f == _core.solution_cost(core_f, merged)
     # And under the priced fold the split start was worth 2700 + 2 F.
-    assert _core.solution_duration(core_f, start) == 2700.0 + 2 * f
+    assert _core.solution_cost(core_f, start) == 2700.0 + 2 * f
 
 
 # --- route-dissolve kick -------------------------------------------------------
@@ -238,7 +238,7 @@ def test_perturb_dissolve_applies_on_priced_core(instance_path) -> None:
     assert applied and dissolved
     assert removed >= smallest, "the dissolve seed removes a whole route"
     assert sorted(c for r in new_routes for c in r) == served
-    assert value == _core.solution_duration(core, new_routes)
+    assert value == _core.solution_cost(core, new_routes)
     # Determinism across identical calls.
     again = _core.ls_perturb(core, routes, 7, dissolve_pct=100)
     assert again[0] == new_routes and again[1] == value

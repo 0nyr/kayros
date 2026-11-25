@@ -33,7 +33,7 @@ def pick_one(problem_type, family, size_dir, name=None):
 
 
 def greedy_routes(core):
-    ok, routes = _core.greedy_makespan(core)
+    ok, routes = _core.greedy_construct(core)
     assert ok
     return routes
 
@@ -99,7 +99,7 @@ def test_granular_ls_invariants(pick, k) -> None:
     loaded = load_instance(pick, verify=True)
     core = to_core(loaded)
     routes = greedy_routes(core)
-    before = _core.solution_duration(core, routes)
+    before = _core.solution_cost(core, routes)
     assert before != float("inf")
     served_before = sorted(c for route in routes for c in route)
 
@@ -107,7 +107,7 @@ def test_granular_ls_invariants(pick, k) -> None:
         core, routes, num_neighbours=k
     )
     assert value <= before
-    assert value == _core.solution_duration(core, new_routes)
+    assert value == _core.solution_cost(core, new_routes)
     assert sorted(c for route in new_routes for c in route) == served_before
     assert all(new_routes), "no empty route may survive"
     assert applied >= 0 and reverted >= 0

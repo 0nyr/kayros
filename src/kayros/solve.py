@@ -40,117 +40,59 @@ class Params:
 
     strategy: str = "ils"
     objective: str = "duration"
-    # Granular candidate lists (M7.0): per client, the num_neighbours nearest
-    # others under a TD adaptation of the Vidal (2013) proximity (min ATF
-    # travel duration + weight_wait * inevitable wait), restricting the LS
-    # move enumeration. Default-on since 0.4.0 — a deliberate behavior change
-    # vs 0.3.0's exhaustive scans; set num_neighbours=0 to restore them.
+    # Candidate lists use minimum travel duration plus weighted unavoidable waiting.
+    # Zero neighbours selects exhaustive local search.
     num_neighbours: int = 50
     weight_wait: float = 0.2
-    # TD-ILS (M7.1/M7.2): perturbation magnitude, LAHC history, restart-to-
-    # best threshold, exhaustive polish on new global bests. ils_max_iterations
-    # 0 means unbounded when a time limit is set (the TL is then the stopping
-    # criterion); with neither, solve() falls back to five restart windows
-    # (5 * restart_no_improvement iterations) so the default call stays finite.
+    # Minimum and maximum number of customers selected for removal in a perturbation.
     min_perturbations: int = 1
     max_perturbations: int = 25
-    # Route-dissolve kick share in percent (M7 FleetCostDuration): a dissolve
-    # kick removes one smallest route whole so its clients repair into the
-    # rest. Inert under Duration (only armed when the objective prices
-    # routes), so the default changes nothing for existing callers.
+    # Percentage of FleetCostDuration kicks that try dissolving a smallest route.
     dissolve_pct: int = 50
     lahc_history: int = 300
+    # Restart from the incumbent after this many iterations without improvement.
     restart_no_improvement: int = 20_000
     exhaustive_on_best: bool = True
-    # Fleet-descent phase (Plan 12 M4, 1.3.0): an NBRMH-style ejection-ladder
-    # route elimination run on the incumbent at every restart-to-best trigger
-    # and after each fd_period_work candidate evaluations. Inert under
-    # Duration (only armed when the objective prices routes). fd_attempts=0
-    # disables it entirely (the pre-M4 behavior).
+    # Fleet descent runs at restart and at its periodic work trigger for FleetCostDuration.
+    # Zero attempts disables it. Each attempt limits the ejection window and pool pops.
     fd_attempts: int = 3
     fd_k_max: int = 2
     fd_ep_budget: int = 2000
-    # Per-trigger drain work cap in candidate pricings (fd_stats "evaluated"
-    # units; 0 = uncapped). BREAKING in 1.6: replaces fd_time_cap_seconds
-    # (10.0 s wall per trigger, removed outright, plan 15 D9/M0.2), the one
-    # wall-clock decision path the solver had: it made FCD trajectories
-    # machine-dependent (76.3 % of the plan-12 weekend cells had time-based
-    # drain rollbacks, fully explaining the grvingt-vs-grappe divergence).
-    # The default matches the removed cap's intent at the calibrated ~650k
-    # pricings/s single-core rate (10 s = 6.5M). FCD trajectories differ
-    # from 1.3.0-1.5.0; Duration streams are untouched (the branch is F-gated
-    # dead code there).
+    # Candidate pricings per fleet-descent trigger. Zero leaves the trigger uncapped.
     fd_work_cap: int = 6_500_000
-    # Plan-15 S2 squeeze (INERT at the default 0; new in 1.6): a penalised
-    # polish of the post-drain state on every fleet-descent trigger, on both
-    # the post-drop and the no-drop (matched-K) paths. A granular descent on
-    # Phi = duration + sq_penalty * time-warp may pass through transient
-    # time-window violations; every exactly-zero-warp improvement is banked
-    # and only a strictly better bank is ever adopted, so the published
-    # stream stays feasible by construction. rng-free and F-gated: dead code
-    # under Duration; sq_work_cap=0 recovers the pre-squeeze FCD streams
-    # bitwise. sq_work_cap = phase budget in penalised candidate pricings;
-    # sq_penalty = explore-leg warp weight (ms of duration per ms of warp);
-    # sq_on_nodrop gates the matched-K half.
+    # Candidate pricings per post-drain squeeze phase. Zero disables the phase.
     sq_work_cap: int = 0
+    # Duration penalty per unit of time warp during squeeze exploration.
     sq_penalty: float = 10.0
+    # Also squeeze when the drain preserves the current route count.
     sq_on_nodrop: bool = True
-    # Plan-15 S1 (inert at False, independent of sq_work_cap): the in-ladder
-    # squeeze between feasible-insert failure and ejection, charging the
-    # drain's fd_work_cap budget; the difficulty counter then increments only
-    # after the squeeze also fails (reference RMH semantics).
+    # Try a squeeze inside the ejection ladder after a feasible insertion fails.
     sq_ladder: bool = False
-    # Plan-15 S3 (inert at 0, F-gated: dead code under Duration at any value):
-    # confine the search to at most k_cap routes. A seed or warm start above
-    # the cap is drained toward it before the loop opens; candidates never
-    # raise K above max(k_cap, current K); incumbents publish only at
-    # K <= k_cap, and a run that never reaches the cap comes back Infeasible
-    # with an empty incumbent stream rather than an above-cap solution
-    # (design memo section 10, D-S3.1): an empty cell is the honest outcome.
-    # The cap is a plain route-count target with no anchoring to any
-    # reference fleet; sub-reference caps are legitimate (plan 15 D10).
+    # Positive caps require FleetCostDuration incumbents to use at most this many routes.
     k_cap: int = 0
-    # Candidate evaluations between fleet-descent phases. Zero disables the periodic trigger.
+    # Candidate evaluations between fleet-descent triggers. Zero disables periodic triggers.
     fd_period_work: int = 100_000_000
-    # BREAKING default in 1.3.0: the work-based restart is ON by default
-    # with a deliberately long ~25-minute stall window (the flat
-    # restart_no_improvement=20000 above never fires on realistic budgets at
-    # n >= 500, so stalled hours-scale searches never restarted; shorter
-    # windows measurably hurt sub-half-hour budgets). Long Duration runs
-    # diverge from 1.1.x AT DEFAULTS; pass restart_no_improvement_work=0 to
-    # recover bitwise 1.1.x streams.
+    # Candidate evaluations without improvement before restart. Zero disables this trigger.
     restart_no_improvement_work: int = 1_000_000_000
-    # K-diverse seeding (plan 13 I2, 1.5.0): split the greedy seed's routes
-    # until the route count reaches seed_k_factor times the constructed one,
-    # then search from there. 1.0 disables it and restores the 1.4.x seed
-    # exactly. Under Duration the search sheds routes freely and effectively
-    # never adds one, so the seed's route count decides the final one; on
-    # fleet-starved instances starting higher and letting the search descend is
-    # worth a great deal, and elsewhere it is inside seed noise. Armed under
-    # Duration ONLY — under FleetCostDuration every extra route is priced, so
-    # the core ignores this knob there whatever its value.
-    # BREAKING default in 1.5.0: 2.0. Measured gain on fleet-starved instances
-    # is -3.3/-4.2/-5.2/-5.4/-5.4 percent at 1.25/1.5/2/3/4, and flat noise
-    # elsewhere; 2.0 takes 96 percent of it at the lowest route count, and is
-    # the setting a full non-regression sweep covered. Duration trajectories
-    # move at defaults versus 1.4.x; pass seed_k_factor=1.0 to recover them.
+    # Under Duration, split the greedy seed toward this multiple of its route count.
     seed_k_factor: float = 2.0
+    # Zero uses the time limit, or five iteration-based restart windows without a time limit.
     ils_max_iterations: int = 0
-
-    # Final-only keeps this many distinct prior route sets in addition to the current best.
+    # Check every proposed incumbent by default. Final-only checks at return.
     acceptance_mode: Literal["each_incumbent", "final_only"] = "each_incumbent"
+    # Final-only keeps this many distinct prior route sets alongside the current one.
     incumbent_history_size: int = 6
 
     def _to_ils_core(self) -> _core.IlsParams:
         params = _core.IlsParams()
         if self.ils_max_iterations > 0:
-            params.max_iterations = self.ils_max_iterations
+            params.ils_max_iterations = self.ils_max_iterations
         params.num_neighbours = self.num_neighbours
         params.weight_wait = self.weight_wait
         params.min_perturbations = self.min_perturbations
         params.max_perturbations = self.max_perturbations
         params.dissolve_pct = self.dissolve_pct
-        params.history_length = self.lahc_history
+        params.lahc_history = self.lahc_history
         params.restart_no_improvement = self.restart_no_improvement
         params.exhaustive_on_best = self.exhaustive_on_best
         params.fd_attempts = self.fd_attempts
@@ -499,7 +441,7 @@ def solve(
 
     ils_core = params._to_ils_core()
     if tl <= 0.0 and params.ils_max_iterations <= 0:
-        ils_core.max_iterations = 5 * params.restart_no_improvement
+        ils_core.ils_max_iterations = 5 * params.restart_no_improvement
     result = _core.solve_ils(
         core, ils_core, seed, tl, acceptance.publish,
         initial_routes=seed_routes, accept_incumbent=acceptance.accept,

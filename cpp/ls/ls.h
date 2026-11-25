@@ -122,7 +122,7 @@ void mark_all_touched(SearchState& ss);
 // inter-route swap and 2-opt*, iterated until a full cycle yields nothing.
 // `routes` is modified in place (empty routes dropped, order otherwise kept);
 // the return value is the canonical checker Duration of the final solution
-// (solution_duration), kInfeasible when the input itself is infeasible.
+// (solution_cost), kInfeasible when the input itself is infeasible.
 // The two-argument overload is the exhaustive pre-M7.0 behavior.
 double local_search(const Instance& inst,
                     std::vector<std::vector<std::int32_t>>& routes,

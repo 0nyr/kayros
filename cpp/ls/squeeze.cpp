@@ -360,10 +360,10 @@ bool squeeze_phase(const Instance& inst, const NeighbourLists& nb,
                    const SqueezeParams& params,
                    const std::chrono::steady_clock::time_point* deadline,
                    SqueezeStats* stats) {
-    if (params.work_cap <= 0) return false;
+    if (params.sq_work_cap <= 0) return false;
     const double t_end = warp_horizon(inst);
     WarpSearch ws;
-    if (!init_warp_search(inst, routes, params.penalty, t_end, ws)) {
+    if (!init_warp_search(inst, routes, params.sq_penalty, t_end, ws)) {
         return false;  // entry state hits a hard wall: not S2's business
     }
     if (stats) ++stats->phases;
@@ -371,11 +371,11 @@ bool squeeze_phase(const Instance& inst, const NeighbourLists& nb,
     Bank bank;
     bank.best_objective = feasible_objective(inst, ws);  // entry is feasible
 
-    std::int64_t budget = params.work_cap;
+    std::int64_t budget = params.sq_work_cap;
     // Explore leg at P, reserving a repair tail (~20 % of the budget) so a
     // warp-positive final state can still be driven back to zero warp.
-    const std::int64_t reserve = params.work_cap / 5;
-    descend(inst, nb, ws, params.penalty, t_end, deadline, &budget, reserve,
+    const std::int64_t reserve = params.sq_work_cap / 5;
+    descend(inst, nb, ws, params.sq_penalty, t_end, deadline, &budget, reserve,
             stats, bank, /*stop_when_feasible=*/false);
     // Repair leg at the dominating weight, exiting at the first exactly-zero
     // warp state (P8.3), banking it when improving.

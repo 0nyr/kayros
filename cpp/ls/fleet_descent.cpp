@@ -54,7 +54,7 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
     ss.states.erase(ss.states.begin() + static_cast<std::ptrdiff_t>(victim));
 
     const Pwlf dep = departure_identity(inst);
-    std::int64_t budget = params.ep_budget;
+    std::int64_t budget = params.fd_ep_budget;
 
     while (!pool.empty()) {
         if (work_budget != nullptr && *work_budget <= 0) {
@@ -173,7 +173,7 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
             for (std::int64_t i = 0; i < m; ++i) {
                 std::int64_t wload = 0;
                 for (std::int64_t j = i;
-                     j < m && j - i + 1 <= params.k_max; ++j) {
+                     j < m && j - i + 1 <= params.fd_k_max; ++j) {
                     wload += inst.demands[static_cast<std::size_t>(
                         recv.vertices[static_cast<std::size_t>(j)])];
                     if (recv.load - wload + inst.demands[static_cast<std::size_t>(c)] >

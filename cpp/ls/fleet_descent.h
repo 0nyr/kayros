@@ -26,8 +26,8 @@ namespace kayros {
 // unchanged. The M7.0 staleness stamps are NOT maintained during the attempt;
 // on success the caller must mark_all_touched(ss) before descending.
 struct FleetDescentParams {
-    std::int32_t k_max = 2;         // max ejection-window size (clients)
-    std::int64_t ep_budget = 2000;  // max ejection-pool pops per attempt
+    std::int32_t fd_k_max = 2;         // max ejection-window size (clients)
+    std::int64_t fd_ep_budget = 2000;  // max ejection-pool pops per attempt
     // Plan-15 S1 (inert at false): squeeze between feasible-insert failure
     // and ejection (the RMH step the ladder omitted). When armed, the
     // p-count increments only after the squeeze also fails, per the

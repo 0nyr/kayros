@@ -26,7 +26,7 @@ def pick_one(problem_type, family, size_dir, name=None):
 
 
 def greedy_routes(core):
-    ok, routes = _core.greedy_makespan(core)
+    ok, routes = _core.greedy_construct(core)
     assert ok
     return routes
 
@@ -108,7 +108,7 @@ def test_perturb_kick_usually_worsens() -> None:
         pytest.skip("instance not present")
     core = to_core(load_instance(path, verify=True))
     routes = greedy_routes(core)
-    base = _core.solution_duration(core, routes)
+    base = _core.solution_cost(core, routes)
     worse = 0
     applied_total = 0
     for seed in range(10):
@@ -124,7 +124,7 @@ def test_perturb_magnitude_respected(pick) -> None:
     routes = greedy_routes(core)
     n = core.num_customers
     _, _, applied, removed, *_ = _core.ls_perturb(
-        core, routes, 9, min_removals=3, max_removals=5
+        core, routes, 9, min_perturbations=3, max_perturbations=5
     )
     if applied:
         assert 3 <= removed <= min(5, n)
@@ -152,12 +152,12 @@ def test_perturb_undo_restores_exactly() -> None:
     # singleton insertions; accept both outcomes but verify exactness when
     # undone.
     new_routes, value, applied, removed, redraws, new_r, dissolved = _core.ls_perturb(
-        core, routes, 5, min_removals=n, max_removals=n
+        core, routes, 5, min_perturbations=n, max_perturbations=n
     )
     if not applied:
         assert redraws >= 1
         assert new_routes == routes
-        assert value == _core.solution_duration(core, routes)
+        assert value == _core.solution_cost(core, routes)
     else:
         assert removed == n
         assert sorted(c for r in new_routes for c in r) == sorted(

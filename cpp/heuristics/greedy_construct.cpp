@@ -75,12 +75,12 @@ bool construct(const Instance& inst,
 
 }  // namespace
 
-bool greedy_makespan(const Instance& inst,
+bool greedy_construct(const Instance& inst,
                      std::vector<std::vector<std::int32_t>>& routes_out) {
     return construct(inst, routes_out, /*lookahead=*/false);
 }
 
-bool greedy_makespan_lookahead(
+bool greedy_construct_lookahead(
     const Instance& inst,
     std::vector<std::vector<std::int32_t>>& routes_out) {
     return construct(inst, routes_out, /*lookahead=*/true);
@@ -144,7 +144,7 @@ bool split_to_k(const Instance& inst,
     return split_any;
 }
 
-double solution_duration(const Instance& inst,
+double solution_cost(const Instance& inst,
                          const std::vector<std::vector<std::int32_t>>& routes) {
     if (inst.num_vehicles >= 0 &&
         routes.size() > static_cast<std::size_t>(inst.num_vehicles)) {

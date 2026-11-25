@@ -12,7 +12,7 @@ namespace kayros {
 // feasible-only: the SearchState holds a complete feasible solution before
 // and after every call.
 //
-// Ruin: draw K ~ uniform[min_removals, max_removals] (clamped to n), walk a
+// Ruin: draw K ~ uniform[min_perturbations, max_perturbations] (clamped to n), walk a
 // seeded random client order, and for each seed client remove it and its
 // granular neighbours until K clients are out (removals keep every route
 // feasible: a subsequence of a feasible route is feasible).
@@ -40,8 +40,8 @@ namespace kayros {
 // Determinism: all draws come from the caller's rng via modulo/Fisher-Yates
 // (no std::uniform_*_distribution — implementation-defined across platforms).
 struct PerturbParams {
-    std::int32_t min_removals = 1;
-    std::int32_t max_removals = 25;
+    std::int32_t min_perturbations = 1;
+    std::int32_t max_perturbations = 25;
     std::int32_t max_redraws = 3;
     std::int32_t dissolve_pct = 50;  // % of kicks that dissolve a smallest route
 };

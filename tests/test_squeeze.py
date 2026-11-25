@@ -23,7 +23,7 @@ def test_squeeze_noop_leaves_routes_unchanged() -> None:
     return improved=False and hand back the input routes untouched."""
     core = _ladder_core()
     routes, improved, phases, evaluated, checkpoints = _core.ls_squeeze_phase(
-        core, START, penalty=10.0, work_cap=100000, num_neighbours=0
+        core, START, sq_penalty=10.0, sq_work_cap=100000, num_neighbours=0
     )
     assert phases == 1
     assert evaluated >= 1
@@ -35,7 +35,7 @@ def test_squeeze_noop_leaves_routes_unchanged() -> None:
 def test_squeeze_disabled_is_free() -> None:
     core = _ladder_core()
     routes, improved, phases, evaluated, checkpoints = _core.ls_squeeze_phase(
-        core, START, penalty=10.0, work_cap=0, num_neighbours=0
+        core, START, sq_penalty=10.0, sq_work_cap=0, num_neighbours=0
     )
     assert not improved and phases == 0 and evaluated == 0
     assert routes == START
@@ -46,7 +46,7 @@ def test_squeeze_budget_respected() -> None:
     granularity is a handful of pricings per candidate)."""
     core = _ladder_core()
     _routes, _improved, phases, evaluated, _cp = _core.ls_squeeze_phase(
-        core, START, penalty=10.0, work_cap=1, num_neighbours=0
+        core, START, sq_penalty=10.0, sq_work_cap=1, num_neighbours=0
     )
     assert phases == 1
     # The cap is checked once per client, so the overshoot is bounded by one
@@ -56,9 +56,9 @@ def test_squeeze_budget_respected() -> None:
 
 def test_squeeze_deterministic() -> None:
     core = _ladder_core()
-    a = _core.ls_squeeze_phase(core, START, penalty=10.0, work_cap=50000,
+    a = _core.ls_squeeze_phase(core, START, sq_penalty=10.0, sq_work_cap=50000,
                                num_neighbours=0)
-    b = _core.ls_squeeze_phase(core, START, penalty=10.0, work_cap=50000,
+    b = _core.ls_squeeze_phase(core, START, sq_penalty=10.0, sq_work_cap=50000,
                                num_neighbours=0)
     assert a == b
 
@@ -68,11 +68,11 @@ def test_squeeze_result_is_feasible() -> None:
     exactly-zero-warp boundary invariant)."""
     core = _ladder_core()
     routes, _improved, _p, _e, _cp = _core.ls_squeeze_phase(
-        core, START, penalty=10.0, work_cap=100000, num_neighbours=0
+        core, START, sq_penalty=10.0, sq_work_cap=100000, num_neighbours=0
     )
     assert sorted(c for r in routes for c in r) == [1, 2, 3, 4, 5]
     for route in routes:
-        assert _core.solution_duration(core, [route]) != float("inf")
+        assert _core.solution_cost(core, [route]) != float("inf")
 
 
 @pytest.mark.parametrize("instance_path", BLAUTH_N10)

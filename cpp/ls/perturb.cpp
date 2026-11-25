@@ -135,9 +135,9 @@ PerturbOutcome perturb(const Instance& inst, const NeighbourLists& nb,
     for (std::int32_t attempt_idx = 0; attempt_idx <= params.max_redraws;
          ++attempt_idx) {
         const std::int32_t span =
-            params.max_removals - params.min_removals + 1;
+            params.max_perturbations - params.min_perturbations + 1;
         const std::int32_t target = std::min(
-            n, params.min_removals +
+            n, params.min_perturbations +
                    static_cast<std::int32_t>(draw(
                        rng, static_cast<std::uint64_t>(span > 0 ? span : 1))));
         // Dissolve arming is gated on fixed_route_cost > 0 BEFORE any draw:

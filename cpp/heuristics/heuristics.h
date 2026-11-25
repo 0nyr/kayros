@@ -10,111 +10,33 @@
 
 namespace kayros {
 
-// M7.2 TD-ILS parameters (Stream 7, tdvrptw-workspace
-// reports/design/td-ils-design.md; loop shape and defaults per PyVRP v0.14's
-// IteratedLocalSearch + LAHC, adapted to feasible-only checker-exact search).
+// Native ILS budgets and neighbourhood, fleet-descent and squeeze settings.
 struct IlsParams {
-    std::uint64_t max_iterations = std::numeric_limits<std::uint64_t>::max();
-    // Granular LS (M7.0): shared with the perturbation's neighbourhoods.
+    std::uint64_t ils_max_iterations = std::numeric_limits<std::uint64_t>::max();
     std::int32_t num_neighbours = 50;
     double weight_wait = 0.2;
-    // Perturbation magnitude (M7.1).
     std::int32_t min_perturbations = 1;
     std::int32_t max_perturbations = 25;
-    // Route-dissolve kick share (M7 FleetCostDuration; see PerturbParams).
-    // Inert under Duration: only armed when the instance prices routes.
     std::int32_t dissolve_pct = 50;
-    // Late-acceptance hill climbing (Burke & Bykov 2017, both section-4.2
-    // enhancements as in PyVRP).
-    std::int32_t history_length = 300;
-    // Restart-to-best after this many iterations without a global-best
-    // improvement. PyVRP's 150k assumes microsecond iterations; kayros ILS
-    // iterations are ms-class, so the default is scaled down (M7.4 tunable).
+    std::int32_t lahc_history = 300;
     std::int64_t restart_no_improvement = 20000;
-    // Exhaustive-VND polish on every new global best (PyVRP-consistent).
     bool exhaustive_on_best = true;
-    // Plan-12 M4 fleet-descent phase (NBRMH-lite ejection ladder), run on the
-    // incumbent at restart and at the work trigger. Armed only when the instance prices
-    // routes (fixed_route_cost > 0): under Duration no draw is consumed and
-    // the branch is dead code, so 1.1.x streams stay bitwise.
-    std::int32_t fd_attempts = 3;        // attempts per trigger; 0 disables
-    std::int32_t fd_k_max = 2;           // max ejection-window size
-    std::int64_t fd_ep_budget = 2000;    // max pool pops per attempt
-    // Work cap per trigger, in drain candidate pricings (FdStats::evaluated
-    // units, one route pricing each, the drain's analogue of
-    // LsStats::evaluated). Replaces the 1.3.0-1.5.0 fd_time_cap_seconds
-    // (default 10.0 s), which was the one wall-clock decision path left in
-    // the solver: 76.3 % of the plan-12 weekend cells had at least one
-    // time-based drain rollback, which fully explained the grvingt-vs-grappe
-    // trajectory divergence after 30 identical incumbents (plan 15 M0.2).
-    // The default matches the removed cap's intent at the calibrated ~650k
-    // pricings/s single-core rate (10 s = 6.5M). 0 = uncapped. Like every
-    // fd_* knob this is F-gated: dead code under Duration.
+    std::int32_t fd_attempts = 3;
+    std::int32_t fd_k_max = 2;
+    std::int64_t fd_ep_budget = 2000;
     std::int64_t fd_work_cap = 6'500'000;
-    // Plan-15 S2 squeeze (INERT at the default 0): a penalised polish of the
-    // post-drain state on every FD trigger, on both the post-drop and the
-    // no-drop (matched-K) paths. Runs a granular Phi-descent (Phi = duration
-    // + sq_penalty * warp) that may pass through transient time-window
-    // violations, banking every exactly-zero-warp improvement, with a
-    // dominating-repair tail leg; only a strictly better zero-warp bank is
-    // ever adopted. rng-free and F-gated like every fd_* knob: dead code
-    // under Duration, and sq_work_cap = 0 recovers the pre-squeeze FCD
-    // streams bitwise. sq_work_cap is the phase budget in penalised
-    // candidate pricings; sq_penalty is the explore-leg warp weight in ms of
-    // duration per ms of warp (M3 calibrates both).
     std::int64_t sq_work_cap = 0;
     double sq_penalty = 10.0;
     bool sq_on_nodrop = true;
-    // Plan-15 S1 (inert at false, independent of sq_work_cap): the in-ladder
-    // squeeze between feasible-insert failure and ejection, charging the
-    // drain's own fd_work_cap budget. Consumes rng draws inside the F-gated
-    // drain only, so Duration streams stay untouched.
     bool sq_ladder = false;
-    // Plan-15 S3 (inert at 0, F-gated like the rest of the fleet machinery):
-    // confine the search to at most k_cap routes. A seed or warm start above
-    // the cap is drained by back-to-back fleet-descent attempts before the
-    // loop opens; a candidate may never raise K above max(k_cap, current K)
-    // (monotone toward the cap); incumbents publish only at K <= k_cap, and a
-    // run that never reaches the cap returns Infeasible with no incumbents
-    // rather than an above-cap solution (design memo section 10, D-S3.1).
-    // The cap is a plain route-count target: nothing anchors it to any
-    // reference fleet, and sub-reference caps are legitimate (plan 15 D10).
     std::int32_t k_cap = 0;
-    // Candidate evaluations between fleet-descent phases. Zero disables the periodic trigger.
     std::int64_t fd_period_work = 100'000'000;
-    // K-diverse seeding (plan 13 I2, 1.5.0): before the search starts, split
-    // the greedy seed's routes until the route count reaches seed_k_factor
-    // times the constructed one. <= 1.0 disables it and restores the 1.4.x
-    // seed exactly. Armed under Duration ONLY: under FleetCostDuration every
-    // extra route is priced and this would be actively harmful, so solve_ils
-    // gates it on fixed_route_cost == 0.
-    //
-    // BREAKING default in 1.5.0: 2.0, i.e. seed at twice the constructed route
-    // count. The search sheds routes freely under Duration and effectively
-    // never adds one, so the seed's count decides the final one; on
-    // fleet-starved instances the greedy seed lands near half the
-    // duration-optimal fleet and the search cannot climb out. A multiplier
-    // sweep put the gain at -3.3 / -4.2 / -5.2 / -5.4 / -5.4 percent for
-    // 1.25 / 1.5 / 2 / 3 / 4 on that family, and flat noise (within 0.1
-    // percent, no trend) everywhere else. 2.0 takes 96 percent of the
-    // available gain, keeps the extra route count and its per-iteration cost
-    // down, and is the only setting with a full non-regression sweep behind
-    // it. Set 1.0 to recover bitwise 1.4.x trajectories.
     double seed_k_factor = 2.0;
-    // BREAKING default in 1.3.0: the flat restart threshold
-    // above effectively never fired at n >= 500 (dead code on realistic
-    // budgets, stalled searches never restarted), so the work-based restart
-    // is ON by default with a deliberately long window: ~25 minutes of
-    // stall at the calibrated ~650k units/s single-core rate, at every
-    // instance size. Invisible on sub-half-hour budgets (the 250M variant
-    // measurably hurt those), active on the hours-scale runs where the dead
-    // flat default was the real problem. Long Duration runs diverge from
-    // 1.1.x AT DEFAULTS; set 0 to recover bitwise 1.1.x streams.
     std::int64_t restart_no_improvement_work = 1'000'000'000;
 };
 
 struct Incumbent {
-    double value = 0.0;            // solution_duration (canonical-order, checker-exact)
+    double value = 0.0;            // solution_cost (approximate search objective, canonical route order)
     double seconds = 0.0;          // wall time since solve start
     std::uint64_t iteration = 0;   // 0 = greedy seed
     std::int32_t origin = 0;       // 0 = greedy, 2 = ils, 3 = supplied warm start
@@ -202,7 +124,7 @@ struct KCapStats {
 
 struct SolveResult {
     std::vector<std::vector<std::int32_t>> routes;  // best solution (customer ids, no depot)
-    double value = 0.0;                             // its solution_duration
+    double value = 0.0;                             // its solution_cost
     std::vector<Incumbent> incumbents;
     SolveStatus status = SolveStatus::Infeasible;
     std::uint64_t iterations_run = 0;
@@ -235,14 +157,14 @@ struct SolveResult {
 // into an O(n^2) one: 0.03 s instead of 36 s at n = 1000, which is what makes
 // the anytime stream open in well under a second at every scale. The removed
 // rule is kept below as the test oracle.
-bool greedy_makespan(const Instance& inst,
+bool greedy_construct(const Instance& inst,
                      std::vector<std::vector<std::int32_t>>& routes_out);
 
 // The pre-1.4.0 multi-hop-lookahead construction, kept as the reference oracle
-// for greedy_makespan: not used by any solver path, exercised by the
+// for greedy_construct: not used by any solver path, exercised by the
 // equality tests and available to experiments that want to re-measure the
 // lookahead's effect. Same loop, O(n^3) selection.
-bool greedy_makespan_lookahead(
+bool greedy_construct_lookahead(
     const Instance& inst, std::vector<std::vector<std::int32_t>>& routes_out);
 
 // Split routes of a feasible solution until it holds target_k of them, each
@@ -263,16 +185,16 @@ bool split_to_k(const Instance& inst,
                 std::int32_t target_k);
 
 // Objective value of a full solution: canonical route order (sorted by first
-// customer), checker-exact per-route pricing, plus the FleetCostDuration term
+// customer), approximate per-route pricing, plus the FleetCostDuration term
 // fixed_route_cost * K (K = non-empty routes; exact no-op at the default 0 =
 // Duration); +inf when any route is time-infeasible or the fleet bound is
 // exceeded.
-double solution_duration(const Instance& inst,
+double solution_cost(const Instance& inst,
                          const std::vector<std::vector<std::int32_t>>& routes);
 
 // Anytime hook: called synchronously on every new incumbent (greedy seed
 // included) with the incumbent record and the full routes. The value is the
-// canonical-order checker-exact Duration (solution_duration).
+// canonical-order search objective (solution_cost).
 using IncumbentCallback = std::function<void(
     const Incumbent&, const std::vector<std::vector<std::int32_t>>&)>;
 
@@ -289,7 +211,7 @@ using IncumbentGate = std::function<bool(
 // A non-empty initial_routes warm-starts the loop from that solution instead
 // of the greedy seed. The supplied routes must be feasible.
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
-                      std::uint64_t seed, double time_limit_seconds,
+                      std::uint64_t seed, double time_limit,
                       const IncumbentCallback& on_incumbent = {},
                       std::vector<std::vector<std::int32_t>> initial_routes = {},
                       const IncumbentGate& accept_incumbent = {});

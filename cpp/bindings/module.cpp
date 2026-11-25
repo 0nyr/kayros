@@ -384,7 +384,7 @@ PYBIND11_MODULE(_core, m) {
     // --- heuristics ---
     py::class_<kayros::IlsParams>(m, "IlsParams")
         .def(py::init<>())
-        .def_readwrite("max_iterations", &kayros::IlsParams::max_iterations)
+        .def_readwrite("ils_max_iterations", &kayros::IlsParams::ils_max_iterations)
         .def_readwrite("num_neighbours", &kayros::IlsParams::num_neighbours)
         .def_readwrite("weight_wait", &kayros::IlsParams::weight_wait)
         .def_readwrite("min_perturbations",
@@ -392,7 +392,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("max_perturbations",
                        &kayros::IlsParams::max_perturbations)
         .def_readwrite("dissolve_pct", &kayros::IlsParams::dissolve_pct)
-        .def_readwrite("history_length", &kayros::IlsParams::history_length)
+        .def_readwrite("lahc_history", &kayros::IlsParams::lahc_history)
         .def_readwrite("restart_no_improvement",
                        &kayros::IlsParams::restart_no_improvement)
         .def_readwrite("exhaustive_on_best",
@@ -512,19 +512,19 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("k_stats", &kayros::SolveResult::k_stats)
         .def_readonly("k_cap_stats", &kayros::SolveResult::k_cap_stats);
 
-    m.def("greedy_makespan", [](const kayros::Instance& inst) {
+    m.def("greedy_construct", [](const kayros::Instance& inst) {
         std::vector<std::vector<std::int32_t>> routes;
-        const bool ok = kayros::greedy_makespan(inst, routes);
+        const bool ok = kayros::greedy_construct(inst, routes);
         return py::make_tuple(ok, std::move(routes));
     });
     // The pre-1.4.0 lookahead construction, exposed for the equality test
-    // that keeps greedy_makespan honest against it.
-    m.def("greedy_makespan_lookahead", [](const kayros::Instance& inst) {
+    // that keeps greedy_construct honest against it.
+    m.def("greedy_construct_lookahead", [](const kayros::Instance& inst) {
         std::vector<std::vector<std::int32_t>> routes;
-        const bool ok = kayros::greedy_makespan_lookahead(inst, routes);
+        const bool ok = kayros::greedy_construct_lookahead(inst, routes);
         return py::make_tuple(ok, std::move(routes));
     });
-    m.def("solution_duration", &kayros::solution_duration);
+    m.def("solution_cost", &kayros::solution_cost);
     // Exposed for the I2 seeding tests and for measuring what the split costs
     // at scale; solve_ils calls it internally when seed_k_factor > 1.
     m.def("split_to_k", [](const kayros::Instance& inst,
@@ -536,7 +536,7 @@ PYBIND11_MODULE(_core, m) {
     // The callback caster re-acquires the GIL for each invocation, so the
     // solve loop itself can keep running with the GIL released.
     m.def("solve_ils", &kayros::solve_ils, py::arg("instance"),
-          py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
+          py::arg("params"), py::arg("seed"), py::arg("time_limit"),
           py::arg("on_incumbent") = kayros::IncumbentCallback{},
           py::arg("initial_routes") = std::vector<std::vector<std::int32_t>>{},
           py::arg("accept_incumbent") = kayros::IncumbentGate{},
@@ -579,7 +579,7 @@ PYBIND11_MODULE(_core, m) {
         "ls_perturb",
         [](const kayros::Instance& inst,
            std::vector<std::vector<std::int32_t>> routes, std::uint64_t seed,
-           std::int32_t min_removals, std::int32_t max_removals,
+           std::int32_t min_perturbations, std::int32_t max_perturbations,
            std::int32_t num_neighbours, double weight_wait,
            std::int32_t dissolve_pct) {
             const kayros::NeighbourLists nb =
@@ -590,8 +590,8 @@ PYBIND11_MODULE(_core, m) {
             }
             std::mt19937_64 rng(seed);
             kayros::PerturbParams params;
-            params.min_removals = min_removals;
-            params.max_removals = max_removals;
+            params.min_perturbations = min_perturbations;
+            params.max_perturbations = max_perturbations;
             params.dissolve_pct = dissolve_pct;
             const kayros::PerturbOutcome outcome =
                 kayros::perturb(inst, nb, ss, rng, params);
@@ -600,22 +600,22 @@ PYBIND11_MODULE(_core, m) {
             for (kayros::RouteState& s : ss.states) {
                 routes.push_back(std::move(s.vertices));
             }
-            const double value = kayros::solution_duration(inst, routes);
+            const double value = kayros::solution_cost(inst, routes);
             return py::make_tuple(std::move(routes), value, outcome.applied,
                                   outcome.removed, outcome.redraws,
                                   outcome.new_routes, outcome.dissolved);
         },
         py::arg("instance"), py::arg("routes"), py::arg("seed"),
-        py::arg("min_removals") = 1, py::arg("max_removals") = 25,
+        py::arg("min_perturbations") = 1, py::arg("max_perturbations") = 25,
         py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2,
         py::arg("dissolve_pct") = 50);
     m.def(
         "ls_fleet_descent",
         [](const kayros::Instance& inst,
            std::vector<std::vector<std::int32_t>> routes, std::uint64_t seed,
-           std::int32_t k_max, std::int64_t ep_budget,
+           std::int32_t fd_k_max, std::int64_t fd_ep_budget,
            std::int32_t num_neighbours, double weight_wait,
-           std::int64_t work_cap) {
+           std::int64_t fd_work_cap) {
             const kayros::NeighbourLists nb =
                 kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
             kayros::SearchState ss;
@@ -624,21 +624,21 @@ PYBIND11_MODULE(_core, m) {
             }
             std::mt19937_64 rng(seed);
             kayros::FleetDescentParams params;
-            params.k_max = k_max;
-            params.ep_budget = ep_budget;
+            params.fd_k_max = fd_k_max;
+            params.fd_ep_budget = fd_ep_budget;
             std::vector<std::int32_t> pcount(
                 static_cast<std::size_t>(inst.num_customers) + 1, 0);
             kayros::FdStats stats;
-            std::int64_t work_budget = work_cap;
+            std::int64_t work_budget = fd_work_cap;
             const bool success = kayros::fleet_descent(
                 inst, nb, ss, rng, params, pcount, nullptr,
-                work_cap > 0 ? &work_budget : nullptr, &stats);
+                fd_work_cap > 0 ? &work_budget : nullptr, &stats);
             routes.clear();
             routes.reserve(ss.states.size());
             for (kayros::RouteState& s : ss.states) {
                 routes.push_back(std::move(s.vertices));
             }
-            const double value = kayros::solution_duration(inst, routes);
+            const double value = kayros::solution_cost(inst, routes);
             return py::make_tuple(std::move(routes), value, success,
                                   stats.pops, stats.step1_inserts,
                                   stats.ejections, stats.rollbacks_deadend,
@@ -646,28 +646,28 @@ PYBIND11_MODULE(_core, m) {
                                   stats.evaluated);
         },
         py::arg("instance"), py::arg("routes"), py::arg("seed"),
-        py::arg("k_max") = 2, py::arg("ep_budget") = 2000,
+        py::arg("fd_k_max") = 2, py::arg("fd_ep_budget") = 2000,
         py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2,
-        py::arg("work_cap") = 0);
+        py::arg("fd_work_cap") = 0);
     m.def(
         "ls_squeeze_phase",
         [](const kayros::Instance& inst,
-           std::vector<std::vector<std::int32_t>> routes, double penalty,
-           std::int64_t work_cap, std::int32_t num_neighbours,
+           std::vector<std::vector<std::int32_t>> routes, double sq_penalty,
+           std::int64_t sq_work_cap, std::int32_t num_neighbours,
            double weight_wait) {
             const kayros::NeighbourLists nb =
                 kayros::build_neighbour_lists(inst, num_neighbours, weight_wait);
             kayros::SqueezeParams params;
-            params.penalty = penalty;
-            params.work_cap = work_cap;
+            params.sq_penalty = sq_penalty;
+            params.sq_work_cap = sq_work_cap;
             kayros::SqueezeStats stats;
             const bool improved = kayros::squeeze_phase(inst, nb, routes, params,
                                                         nullptr, &stats);
             return py::make_tuple(std::move(routes), improved, stats.phases,
                                   stats.evaluated, stats.checkpoints);
         },
-        py::arg("instance"), py::arg("routes"), py::arg("penalty") = 10.0,
-        py::arg("work_cap") = 1000000, py::arg("num_neighbours") = 50,
+        py::arg("instance"), py::arg("routes"), py::arg("sq_penalty") = 10.0,
+        py::arg("sq_work_cap") = 1000000, py::arg("num_neighbours") = 50,
         py::arg("weight_wait") = 0.2);
     m.def(
         "ls_evaluate_splice",

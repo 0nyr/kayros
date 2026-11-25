@@ -58,9 +58,9 @@ def test_ils_solution_checker_valid(pick) -> None:
 
     loaded = load_instance(pick, verify=True)
     core = to_core(loaded)
-    result = _core.solve_ils(core, ils_params(max_iterations=200), 42, 0.0)
+    result = _core.solve_ils(core, ils_params(ils_max_iterations=200), seed=42, time_limit=0.0)
     assert result.status.name in ("Finished", "TimeLimit")
-    assert result.value == _core.solution_duration(core, result.routes)
+    assert result.value == _core.solution_cost(core, result.routes)
     n = core.num_customers
     assert sorted(c for route in result.routes for c in route) == list(
         range(1, n + 1)
@@ -75,7 +75,7 @@ def test_ils_incumbents_monotone(pick) -> None:
     events = []
     result = _core.solve_ils(
         core,
-        ils_params(max_iterations=300),
+        ils_params(ils_max_iterations=300),
         7,
         0.0,
         lambda inc, routes: events.append((inc.value, [list(r) for r in routes])),
@@ -103,13 +103,13 @@ def test_ils_publishes_the_raw_seed_first(pick) -> None:
     """1.4.0 publish-early: the first incumbent is the greedy seed exactly as
     built, before any descent has touched it."""
     core = to_core(load_instance(pick, verify=True))
-    ok, seed_routes = _core.greedy_makespan(core)
+    ok, seed_routes = _core.greedy_construct(core)
     assert ok
-    seed_value = _core.solution_duration(core, seed_routes)
+    seed_value = _core.solution_cost(core, seed_routes)
 
     events = []
     _core.solve_ils(
-        core, ils_params(max_iterations=50), 7, 0.0,
+        core, ils_params(ils_max_iterations=50), 7, 0.0,
         lambda inc, routes: events.append((inc.value, [list(r) for r in routes])),
     )
     assert events
@@ -119,8 +119,8 @@ def test_ils_publishes_the_raw_seed_first(pick) -> None:
 
 def test_ils_deterministic(pick) -> None:
     core = to_core(load_instance(pick, verify=True))
-    a = _core.solve_ils(core, ils_params(max_iterations=250), 11, 0.0)
-    b = _core.solve_ils(core, ils_params(max_iterations=250), 11, 0.0)
+    a = _core.solve_ils(core, ils_params(ils_max_iterations=250), 11, 0.0)
+    b = _core.solve_ils(core, ils_params(ils_max_iterations=250), 11, 0.0)
     assert a.routes == b.routes
     assert a.value == b.value
     assert [i.value for i in a.incumbents] == [i.value for i in b.incumbents]
@@ -133,7 +133,7 @@ def test_ils_seeds_diverge() -> None:
         pytest.skip("instance not present")
     core = to_core(load_instance(path, verify=True))
     finals = {
-        _core.solve_ils(core, ils_params(max_iterations=100), s, 0.0).value
+        _core.solve_ils(core, ils_params(ils_max_iterations=100), s, 0.0).value
         for s in range(4)
     }
     assert len(finals) > 1
@@ -145,12 +145,12 @@ def test_ils_beats_greedy_seed() -> None:
     if path is None:
         pytest.skip("instance not present")
     core = to_core(load_instance(path, verify=True))
-    ok, routes = _core.greedy_makespan(core)
+    ok, routes = _core.greedy_construct(core)
     assert ok
     seed_after_ls, *_ = (
         _core.ls_local_search(core, routes, num_neighbours=50)[1],
     )
-    result = _core.solve_ils(core, ils_params(max_iterations=500), 3, 0.0)
+    result = _core.solve_ils(core, ils_params(ils_max_iterations=500), 3, 0.0)
     assert result.value < seed_after_ls, "ILS must improve on its own seed"
 
 
@@ -165,7 +165,7 @@ def test_ils_time_limit_compliance() -> None:
     wall = time.perf_counter() - t0
     assert result.status.name == "TimeLimit"
     assert wall < 2.0 + 2.0, f"overshoot too large: {wall:.2f}s"
-    assert result.value == _core.solution_duration(core, result.routes)
+    assert result.value == _core.solution_cost(core, result.routes)
 
 
 def test_ils_restart_path_runs() -> None:
@@ -176,8 +176,8 @@ def test_ils_restart_path_runs() -> None:
     if path is None:
         pytest.skip("instance not present")
     core = to_core(load_instance(path, verify=True))
-    params = ils_params(max_iterations=120, restart_no_improvement=10)
+    params = ils_params(ils_max_iterations=120, restart_no_improvement=10)
     a = _core.solve_ils(core, params, 5, 0.0)
     b = _core.solve_ils(core, params, 5, 0.0)
     assert a.routes == b.routes and a.value == b.value
-    assert a.value == _core.solution_duration(core, a.routes)
+    assert a.value == _core.solution_cost(core, a.routes)
