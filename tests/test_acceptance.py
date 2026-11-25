@@ -92,7 +92,7 @@ def test_real_search_restarts_only_from_an_accepted_incumbent():
     assert result.restarts > 0
     assert published == [proposals[1]]
     assert result.routes == proposals[1]
-    assert result.value == kayros._core.solution_duration(core, result.routes)
+    assert result.value == kayros._core.solution_cost(core, result.routes)
 
 
 def test_public_api_recovers_a_prior_incumbent(monkeypatch, caplog):

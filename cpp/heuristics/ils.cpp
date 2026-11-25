@@ -62,7 +62,7 @@ std::vector<std::vector<std::int32_t>> extract_routes(const SearchState& ss) {
 }  // namespace
 
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
-                      std::uint64_t seed, double time_limit_seconds,
+                      std::uint64_t seed, double time_limit,
                       const IncumbentCallback& on_incumbent,
                       std::vector<std::vector<std::int32_t>> initial_routes,
                       const IncumbentGate& accept_incumbent) {
@@ -73,10 +73,10 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     };
     Clock::time_point deadline_point{};
     const Clock::time_point* deadline = nullptr;
-    if (time_limit_seconds > 0.0) {
+    if (time_limit > 0.0) {
         deadline_point = start + std::chrono::duration_cast<Clock::duration>(
                                      std::chrono::duration<double>(
-                                         time_limit_seconds));
+                                         time_limit));
         deadline = &deadline_point;
     }
     const auto past = [&]() {
@@ -148,11 +148,11 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     std::vector<std::vector<std::int32_t>> seed_routes =
         std::move(initial_routes);
     if (seed_routes.empty()) {
-        if (!greedy_makespan(inst, seed_routes)) {
+        if (!greedy_construct(inst, seed_routes)) {
             result.status = SolveStatus::Infeasible;
             return result;
         }
-        const double seed_value = solution_duration(inst, seed_routes);
+        const double seed_value = solution_cost(inst, seed_routes);
         if (seed_value == kInfeasible) {
             result.status = SolveStatus::Infeasible;
             return result;
@@ -176,7 +176,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 params.seed_k_factor * static_cast<double>(seed_routes.size()));
             std::vector<std::vector<std::int32_t>> split_routes = seed_routes;
             if (split_to_k(inst, split_routes, target)) {
-                const double split_value = solution_duration(inst, split_routes);
+                const double split_value = solution_cost(inst, split_routes);
                 if (split_value != kInfeasible) {
                     seed_routes = std::move(split_routes);
                     // Publish only if it is actually better: splitting usually
@@ -197,7 +197,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         return result;
     }
     if (warm_start && accept_incumbent)
-        consider(solution_duration(inst, seed_routes), 0, 3, seed_routes);
+        consider(solution_cost(inst, seed_routes), 0, 3, seed_routes);
     result.k_stats.k_seed = static_cast<std::int64_t>(seed_routes.size());
     double curr = ls_descend(inst, nb, ss, &ls_stats, deadline);
 
@@ -214,8 +214,8 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     std::mt19937_64 rng(seed);
     PerturbParams perturb_params;
-    perturb_params.min_removals = params.min_perturbations;
-    perturb_params.max_removals = params.max_perturbations;
+    perturb_params.min_perturbations = params.min_perturbations;
+    perturb_params.max_perturbations = params.max_perturbations;
     perturb_params.dissolve_pct = params.dissolve_pct;
 
     // LAHC slots (Burke & Bykov 2017 with PyVRP's RingBuffer semantics: the
@@ -223,8 +223,8 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     // current solution improves on it). Empty slots fall back to the initial
     // cost.
     const std::size_t history_len =
-        params.history_length > 0
-            ? static_cast<std::size_t>(params.history_length)
+        params.lahc_history > 0
+            ? static_cast<std::size_t>(params.lahc_history)
             : 1;
     std::vector<double> history(history_len,
                                 std::numeric_limits<double>::quiet_NaN());
@@ -240,8 +240,8 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     // under Duration the branch is dead code and no draw is consumed, so
     // 1.1.x rng streams stay bitwise.
     FleetDescentParams fd_params;
-    fd_params.k_max = params.fd_k_max;
-    fd_params.ep_budget = params.fd_ep_budget;
+    fd_params.fd_k_max = params.fd_k_max;
+    fd_params.fd_ep_budget = params.fd_ep_budget;
     fd_params.sq_ladder = params.sq_ladder;
     fd_params.sq_penalty = params.sq_penalty;
     std::vector<std::int32_t> fd_pcount(
@@ -285,8 +285,8 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         // post-drop repair and the matched-K polish); rng-free, work-capped.
         const auto try_squeeze = [&]() -> bool {
             SqueezeParams sqp;
-            sqp.penalty = params.sq_penalty;
-            sqp.work_cap = params.sq_work_cap;
+            sqp.sq_penalty = params.sq_penalty;
+            sqp.sq_work_cap = params.sq_work_cap;
             SqueezeStats sst;
             std::vector<std::vector<std::int32_t>> sq_routes = extract_routes(ss);
             const bool adopted =
@@ -373,7 +373,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         }
         improve_work_mark = ls_stats.evaluated;
     }
-    for (; iteration < params.max_iterations; ++iteration) {
+    for (; iteration < params.ils_max_iterations; ++iteration) {
         if (past()) {
             status = SolveStatus::TimeLimit;
             break;

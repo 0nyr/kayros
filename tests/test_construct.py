@@ -48,14 +48,14 @@ def test_seed_matches_the_lookahead_reference(path) -> None:
     require_benchmarks()
     core = to_core(load_instance(path, verify=True))
 
-    ok_fast, routes_fast = _core.greedy_makespan(core)
-    ok_ref, routes_ref = _core.greedy_makespan_lookahead(core)
+    ok_fast, routes_fast = _core.greedy_construct(core)
+    ok_ref, routes_ref = _core.greedy_construct_lookahead(core)
 
     assert ok_fast == ok_ref
     assert [list(r) for r in routes_fast] == [list(r) for r in routes_ref], (
         "the shipped seed parted from the lookahead reference on this instance"
     )
-    assert _core.solution_duration(core, routes_fast) == _core.solution_duration(
+    assert _core.solution_cost(core, routes_fast) == _core.solution_cost(
         core, routes_ref
     )
 
@@ -72,10 +72,10 @@ def test_seed_is_cheaper_than_the_lookahead_reference() -> None:
     core = to_core(load_instance(paths[0], verify=True))
 
     start = time.perf_counter()
-    _core.greedy_makespan(core)
+    _core.greedy_construct(core)
     fast = time.perf_counter() - start
     start = time.perf_counter()
-    _core.greedy_makespan_lookahead(core)
+    _core.greedy_construct_lookahead(core)
     reference = time.perf_counter() - start
 
     assert reference > 5.0 * fast, (fast, reference)

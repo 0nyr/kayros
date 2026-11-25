@@ -1,5 +1,7 @@
 """Iterated local search budgets, determinism and incumbent reporting."""
 
+from dataclasses import fields
+
 import pytest
 
 import kayros
@@ -25,6 +27,33 @@ def dabia(name, size_dir="n=25"):
 def test_default_strategy_is_ils() -> None:
     # 0.4.0 default, picked by the M7.4 head-to-head campaign data.
     assert kayros.Params().strategy == "ils"
+
+
+def test_ils_parameter_names_and_mapping() -> None:
+    defaults = kayros.Params()
+    public_only = {"strategy", "objective", "acceptance_mode", "incumbent_history_size"}
+    names = {f.name for f in fields(defaults)} - public_only
+    native_defaults = kayros._core.IlsParams()
+    assert {n for n in dir(native_defaults) if not n.startswith("_")} == names
+
+    def values(core):
+        return {name: getattr(core, name) for name in names}
+
+    expected = {name: getattr(defaults, name) for name in names}
+    # The public zero sentinel lets solve() select a time or fallback iteration budget.
+    expected["ils_max_iterations"] = (1 << 64) - 1
+    assert values(defaults._to_ils_core()) == values(native_defaults) == expected
+    # Distinct markers also catch accidental transposition between same-type budgets.
+    custom = {}
+    for index, name in enumerate(sorted(names), 1):
+        default = getattr(defaults, name)
+        if type(default) is bool:
+            custom[name] = not default
+        elif type(default) is float:
+            custom[name] = index + 0.25
+        else:
+            custom[name] = index
+    assert values(kayros.Params(**custom)._to_ils_core()) == custom
 
 
 def test_unknown_strategy_rejected() -> None:

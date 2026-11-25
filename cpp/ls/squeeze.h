@@ -26,8 +26,8 @@ namespace kayros {
 // nothing is a strict no-op. The returned routes are always exactly-zero
 // warp; the caller reprices them through the checker fold (repricing rule).
 struct SqueezeParams {
-    double penalty = 10.0;     // explore-leg P (ms of duration per ms of warp)
-    std::int64_t work_cap = 0; // pricing budget per phase; 0 disables entirely
+    double sq_penalty = 10.0;     // explore-leg P (ms of duration per ms of warp)
+    std::int64_t sq_work_cap = 0; // pricing budget per phase; 0 disables entirely
 };
 
 struct SqueezeStats {
@@ -40,7 +40,7 @@ struct SqueezeStats {
 // Runs one phase on `routes` (must be feasible). Returns true iff a strictly
 // better exactly-zero-warp solution was found; `routes` then holds it.
 // Charges every penalised pricing against the work budget derived from
-// params.work_cap. `deadline` is the GLOBAL time limit only (end-of-run
+// params.sq_work_cap. `deadline` is the GLOBAL time limit only (end-of-run
 // truncation, never a decision).
 bool squeeze_phase(const Instance& inst, const NeighbourLists& nb,
                    std::vector<std::vector<std::int32_t>>& routes,

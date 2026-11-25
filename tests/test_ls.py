@@ -30,7 +30,7 @@ def spliced(route1, i1, j1, route2, i2, j2):
 
 
 def greedy_routes(core):
-    ok, routes = _core.greedy_makespan(core)
+    ok, routes = _core.greedy_construct(core)
     assert ok
     return routes
 
@@ -148,13 +148,13 @@ def test_local_search_invariants(gate_case) -> None:
     loaded = load_instance(path, verify=True)
     core = to_core(loaded)
     routes = greedy_routes(core)
-    before = _core.solution_duration(core, routes)
+    before = _core.solution_cost(core, routes)
     assert before != float("inf")
     served_before = sorted(c for route in routes for c in route)
 
     new_routes, value, applied, reverted = _core.ls_local_search(core, routes)
     assert value <= before
-    assert value == _core.solution_duration(core, new_routes)
+    assert value == _core.solution_cost(core, new_routes)
     assert sorted(c for route in new_routes for c in route) == served_before
     assert len(new_routes) <= len(routes)
     assert all(new_routes), "no empty route may survive"
@@ -174,7 +174,7 @@ def test_local_search_improves_greedy_dabia(problem_type, size_dir, name) -> Non
         pytest.skip("instance not present")
     core = load_core(path)
     routes = greedy_routes(core)
-    before = _core.solution_duration(core, routes)
+    before = _core.solution_cost(core, routes)
     _, value, applied, _ = _core.ls_local_search(core, routes)
     assert value < before, "TD-LS should improve the raw greedy seed"
     assert applied > 0
@@ -187,7 +187,7 @@ def test_solve_with_ls_beats_construction_only() -> None:
         pytest.skip("instance not present")
     budget = kayros.Params(ils_max_iterations=40)
     core = load_core(path)
-    construction_cost = _core.solution_duration(core, greedy_routes(core))
+    construction_cost = _core.solution_cost(core, greedy_routes(core))
     solution = kayros.solve(path, budget, seed=3)
     assert solution.cost < construction_cost
 

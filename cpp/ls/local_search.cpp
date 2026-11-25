@@ -445,7 +445,7 @@ double ls_descend(const Instance& inst, const NeighbourLists& nb,
     std::vector<std::vector<std::int32_t>> routes;
     routes.reserve(ss.states.size());
     for (const RouteState& s : ss.states) routes.push_back(s.vertices);
-    return solution_duration(inst, routes);
+    return solution_cost(inst, routes);
 }
 
 double local_search(const Instance& inst, const NeighbourLists& nb,

@@ -42,7 +42,7 @@ def test_split_preserves_the_solution() -> None:
     if path is None:
         pytest.skip("no Duration instance available")
     core = to_core(load_instance(path, verify=True))
-    ok, seed = _core.greedy_makespan(core)
+    ok, seed = _core.greedy_construct(core)
     assert ok
     seed = [list(r) for r in seed]
     target = 2 * len(seed)
@@ -55,7 +55,7 @@ def test_split_preserves_the_solution() -> None:
     assert all(routes), "a split must never leave an empty route"
     assert len(routes) > len(seed)
     assert len(routes) <= target
-    assert _core.solution_duration(core, routes) != float("inf")
+    assert _core.solution_cost(core, routes) != float("inf")
 
 
 def test_split_is_a_no_op_below_the_current_count() -> None:
@@ -64,7 +64,7 @@ def test_split_is_a_no_op_below_the_current_count() -> None:
     if path is None:
         pytest.skip("no Duration instance available")
     core = to_core(load_instance(path, verify=True))
-    ok, seed = _core.greedy_makespan(core)
+    ok, seed = _core.greedy_construct(core)
     assert ok
     seed = [list(r) for r in seed]
     split_ok, routes = _core.split_to_k(core, seed, len(seed))
@@ -91,7 +91,7 @@ def test_disabling_recovers_the_pre_1_5_seed_bitwise() -> None:
         pytest.skip("no Duration instance available")
     core = to_core(load_instance(path, verify=True))
     params = _core.IlsParams()
-    params.max_iterations = 120
+    params.ils_max_iterations = 120
     params.seed_k_factor = 1.0
 
     a = _core.solve_ils(core, params, 13, 0.0)
@@ -100,7 +100,7 @@ def test_disabling_recovers_the_pre_1_5_seed_bitwise() -> None:
     assert [list(r) for r in a.routes] == [list(r) for r in b.routes]
     assert a.work_units == b.work_units
 
-    ok, seed = _core.greedy_makespan(core)
+    ok, seed = _core.greedy_construct(core)
     assert ok
     assert a.k_stats.k_seed == len(seed), "disabled must start from the raw seed"
 
@@ -112,7 +112,7 @@ def test_seeding_starts_the_search_from_the_split_solution() -> None:
         pytest.skip("no Duration instance available")
     core = to_core(load_instance(path, verify=True))
     params = _core.IlsParams()
-    params.max_iterations = 120
+    params.ils_max_iterations = 120
 
     params.seed_k_factor = 1.0
     plain = _core.solve_ils(core, params, 13, 0.0)
@@ -135,7 +135,7 @@ def test_seeding_is_inert_under_fleet_cost_duration() -> None:
     assert core.fixed_route_cost > 0.0
 
     params = _core.IlsParams()
-    params.max_iterations = 120
+    params.ils_max_iterations = 120
     params.seed_k_factor = 1.0
     off = _core.solve_ils(core, params, 13, 0.0)
     params.seed_k_factor = 3.0
