@@ -82,6 +82,8 @@ class Params:
     acceptance_mode: Literal["each_incumbent", "final_only"] = "each_incumbent"
     # Final-only keeps this many distinct prior route sets alongside the current one.
     incumbent_history_size: int = 6
+    # Exact reference search evaluates feasible moves with the family profile.
+    search_mode: Literal["binary64", "exact"] = "binary64"
 
     def _to_ils_core(self) -> _core.IlsParams:
         params = _core.IlsParams()
@@ -126,6 +128,13 @@ _ORIGIN_NAMES = {0: "greedy", 2: "ils", 3: "warm_start"}
 # Anytime hook: called synchronously from inside the solve loop on every new
 # incumbent, with the incumbent record and its routes (customer ids, no depot).
 IncumbentHook = Callable[[Incumbent, list[list[int]]], None]
+
+
+def _display_cost(cost: Fraction) -> float | None:
+    try:
+        return float(cost)
+    except OverflowError:
+        return None
 
 
 class _Acceptance:
@@ -213,10 +222,7 @@ class _Acceptance:
 
     def publish(self, inc, routes):
         exact = self.best_exact
-        try:
-            display = float(exact) if exact is not None else inc.value
-        except OverflowError:
-            display = None
+        display = _display_cost(exact) if exact is not None else inc.value
         event = Incumbent(display, inc.seconds, inc.iteration, _ORIGIN_NAMES[inc.origin], exact, inc.value)
         self.events.append(event)
         if self.mode == "final_only" and self.capacity:
@@ -228,6 +234,27 @@ class _Acceptance:
                 self.history.popitem(last=False)
         if self.hook:
             self.hook(event, routes)
+
+    def publish_reference(self, routes, cost_pair, seconds, iteration, origin):
+        cost = Fraction(*cost_pair)
+        if self.best_exact is not None and cost >= self.best_exact:
+            raise KayrosError("exact reference search published a nonimproving incumbent")
+        self.best_exact = cost
+        self.stats["proposals"] += 1
+        event = Incumbent(_display_cost(cost), seconds, iteration, _ORIGIN_NAMES[origin], cost, None)
+        self.events.append(event)
+        if self.hook:
+            self.hook(event, routes)
+
+    def finish_reference(self, result):
+        try:
+            evaluation = self.prepared.evaluate(result.routes)
+        except ExactRouteError as error:
+            raise KayrosError("final exact evaluation rejected the reference search incumbent") from error
+        if (result.exact_cost is None or evaluation.cost != Fraction(*result.exact_cost)
+                or evaluation.cost != self.best_exact):
+            raise KayrosError("final exact evaluation disagrees with the reference search incumbent")
+        return result.routes, None, evaluation
 
     def finish(self, result):
         candidates = [(result.value, result.routes, result.incumbents[-1].from_squeeze)] if result.routes else []
@@ -276,7 +303,7 @@ class Solution:
 
     exact_cost is the rational objective and cost is its nearest binary64 display. FleetCostDuration includes the fixed charge for each used route. exact_route_durations and exact_route_departures give the rational duration and earliest minimizing departure for each route, in the order of routes. route_durations and route_departures contain their binary64 displays.
 
-    search_value is the approximate objective of the selected routes under the binary64 search fold, or None when that fold cannot represent the checked warm start. exact_evaluation contains the library record, including the profile, backend and authoritative cost."""
+    search_value is the approximate objective of the selected routes under the binary64 search fold, or None for an exact reference search or a warm start that the binary64 fold cannot represent. exact_evaluation contains the library record, including the profile, backend and authoritative cost."""
 
     instance_name: str
     routes: list[list[int]]
@@ -414,9 +441,11 @@ def solve(
 
     If binary64 initialization cannot represent a validated in-cap seed, the callback immediately receives its exact cost and search_value=None in either mode. The search tries cold construction with the remaining time. The seed is retained on an exact tie.
 
-    By default, each candidate new best must pass exact feasibility and strictly improve the rational objective before publication. The synchronous callback receives its exact_cost, its binary64 display as value and its approximate search_value. Distinct rational costs can have the same display. The display is None when the rational cost overflows binary64.
+    With search_mode="exact", construction, feasible moves and incumbent comparisons use exact rational arithmetic. Every published improvement has an exact cost and search_value=None in either acceptance mode. The reference search omits the penalized squeeze.
 
-    With acceptance_mode="final_only", subsequent search publications are provisional and carry exact_cost=None. If final verification rejects the last candidate, the solver tries up to incumbent_history_size earlier distinct candidates in increasing approximate cost order. Solution.routes and Solution.exact_cost describe the checked result."""
+    In the default binary64 search, each candidate new best must pass exact feasibility and strictly improve the rational objective before publication. The synchronous callback receives its exact_cost, its binary64 display as value and its approximate search_value. Distinct rational costs can have the same display. The display is None when the rational cost overflows binary64.
+
+    With binary64 search and acceptance_mode="final_only", subsequent search publications are provisional and carry exact_cost=None. If final verification rejects the last candidate, the solver tries up to incumbent_history_size earlier distinct candidates in increasing approximate cost order. Solution.routes and Solution.exact_cost describe the checked result."""
     if isinstance(instance, LoadedTDInstance):
         if verify:
             raise ValueError(
@@ -428,6 +457,11 @@ def solve(
     else:
         loaded = load_instance(instance, verify=verify)
     params = params or Params()
+    if params.search_mode not in ("binary64", "exact"):
+        raise ValueError(f"unknown search_mode {params.search_mode!r}")
+    reference = params.search_mode == "exact"
+    if reference and (params.sq_work_cap > 0 or params.sq_ladder):
+        raise ValueError("exact reference search requires sq_work_cap=0 and sq_ladder=False")
     objective = canonical_objective(params.objective)
     # The objective is always passed explicitly: the default of the library is
     # the published objective of the family, which is not "Duration" everywhere.
@@ -449,12 +483,18 @@ def solve(
     ils_core = params._to_ils_core()
     if tl <= 0.0 and params.ils_max_iterations <= 0:
         ils_core.ils_max_iterations = 5 * params.restart_no_improvement
-    result = _core.solve_ils(
-        core, ils_core, seed, tl, acceptance.publish,
-        initial_routes=seed_routes, accept_incumbent=acceptance.accept,
-        on_unusable_warm_start=acceptance.unusable_warm_start if seed_routes else None,
-        fleet_cost_objective=objective == "FleetCostDuration",
-    )
+    if reference:
+        result = _core.solve_reference(
+            core, ils_core, seed, tl, acceptance.publish_reference, initial_routes=seed_routes,
+            fleet_cost_objective=objective == "FleetCostDuration",
+        )
+    else:
+        result = _core.solve_ils(
+            core, ils_core, seed, tl, acceptance.publish,
+            initial_routes=seed_routes, accept_incumbent=acceptance.accept,
+            on_unusable_warm_start=acceptance.unusable_warm_start if seed_routes else None,
+            fleet_cost_objective=objective == "FleetCostDuration",
+        )
     if (result.status == _core.SolveStatus.Infeasible or not result.routes) and acceptance.checked_fallback is None:
         if acceptance.stats["infeasible"]:
             raise InfeasibleError(f"no exact-feasible incumbent in {acceptance.stats['proposals']} proposals")
@@ -469,7 +509,10 @@ def solve(
             f"{loaded.instance.instance_name}"
         )
 
-    routes, search_value, evaluation = acceptance.finish(result)
+    if reference:
+        routes, search_value, evaluation = acceptance.finish_reference(result)
+    else:
+        routes, search_value, evaluation = acceptance.finish(result)
     witnesses = dict(zip(evaluation.routes, evaluation.route_evaluations))
     evaluations = [witnesses[tuple(route)] for route in routes]
 

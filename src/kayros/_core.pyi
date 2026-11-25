@@ -85,12 +85,91 @@ class SolveStatus(enum.Enum):
     TimeLimit = 2
     Infeasible = 3
 
+class FleetKickStats:
+    kicks_total: int
+    kicks_applied: int
+    redraws_sum: int
+    dissolved_armed: int
+    dissolve_undone_in_kick: int
+    normal_kicks: int
+    k_after_kick_lt: int
+    k_after_kick_eq: int
+    k_after_kick_gt: int
+    k_after_descent_lt: int
+    k_after_descent_eq: int
+    k_after_descent_gt: int
+    dissolved_accepted_lahc: int
+    normal_accepted_lahc: int
+    dissolved_new_best: int
+    normal_new_best: int
+    dissolved_new_best_k_lt: int
+
+class FdStats:
+    triggers: int
+    attempts: int
+    successes: int
+    pops: int
+    step1_inserts: int
+    ejections: int
+    rollbacks_deadend: int
+    rollbacks_budget: int
+    rollbacks_time: int
+    rollbacks_work: int
+    evaluated: int
+    basin_evaluated: int
+    squeeze_phases: int
+    squeeze_evaluated: int
+    squeeze_checkpoints: int
+    squeeze_improved: int
+    ladder_squeezes: int
+    ladder_rescues: int
+
+class KStats:
+    k_seed: int
+    k_final: int
+    k_best_min: int
+    k_best_max: int
+    singleton_opens: int
+    kicks_opening: int
+    k_up_after_kick: int
+    k_down_after_kick: int
+    k_up_after_descent: int
+    k_down_after_descent: int
+    accepted_k_up: int
+    accepted_k_down: int
+    new_best_k_up: int
+    new_best_k_down: int
+
+class KCapStats:
+    seed_drain_attempts: int
+    reached_cap: int
+    rejected_above_cap: int
+    first_capped_work: int
+
 class SolveResult:
     routes: list[list[int]]
     value: float
     incumbents: list[Incumbent]
     status: SolveStatus
     iterations_run: int
+    work_units: int
+    restarts: int
+    k_stats: KStats
+    k_cap_stats: KCapStats
+    fleet_stats: FleetKickStats
+    fd_stats: FdStats
+
+class ReferenceResult:
+    routes: list[list[int]]
+    exact_cost: tuple[int, int] | None
+    status: SolveStatus
+    iterations_run: int
+    work_units: int
+    restarts: int
+    k_stats: KStats
+    k_cap_stats: KCapStats
+    fleet_stats: FleetKickStats
+    fd_stats: FdStats
 
 def greedy_construct(instance: Instance) -> tuple[bool, list[list[int]]]: ...
 def greedy_construct_lookahead(instance: Instance) -> tuple[bool, list[list[int]]]: ...
@@ -149,3 +228,13 @@ def solve_ils(
     on_unusable_warm_start: Callable[[float, bool], None] | None = None,
     fleet_cost_objective: bool = False,
 ) -> SolveResult: ...
+
+def solve_reference(
+    instance: Instance,
+    params: IlsParams,
+    seed: int,
+    time_limit: float,
+    on_incumbent: Callable[[list[list[int]], tuple[int, int], float, int, int], None] | None = None,
+    initial_routes: list[list[int]] = ...,
+    fleet_cost_objective: bool = False,
+) -> ReferenceResult: ...

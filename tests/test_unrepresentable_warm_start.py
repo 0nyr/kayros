@@ -197,3 +197,66 @@ def test_exact_warm_objective_exceeding_binary64_range(mode):
     event, = result.incumbents
     assert event.origin == "warm_start" and event.exact_cost == result.exact_cost
     assert event.value is None and event.search_value is None
+
+@pytest.mark.parametrize("mode", ["each_incumbent", "final_only"])
+@pytest.mark.parametrize("cap", [1, 2])
+def test_reference_search_from_an_exactly_feasible_seed(mode, cap):
+    loaded = tight_instance()
+    seed = [[1], [2]]
+    assert not to_core(loaded).evaluate_route([1])[0]
+    settings = params(mode, cap)
+    settings.search_mode = "exact"
+    published = []
+    result = kayros.solve(loaded, settings, initial_routes=seed,
+                          on_incumbent=lambda event, routes: published.append((event, routes)))
+    oracle = prepare_td(loaded.instance, loaded.atfs, objective_function="FleetCostDuration", backend="python")
+    assert result.routes == [[2, 1]] and result.exact_cost == 3
+    assert published[-1][1] == result.routes
+    assert [event.exact_cost for event, _ in published] == ([5, 3] if cap == 2 else [3])
+    for event, routes in published:
+        assert len(routes) <= cap
+        assert event.exact_cost == oracle.evaluate(routes).cost
+        assert event.value == float(event.exact_cost) and event.search_value is None
+    assert result.search_value is None and result.incumbents == [event for event, _ in published]
+    assert result.acceptance_stats["proposals"] == len(published)
+    assert result.exact_route_departures == [15] and result.exact_route_durations == [2]
+
+
+def test_reference_search_distinguishes_two_costs_with_one_display():
+    charge = 2**55
+    loaded = tight_instance(fixed_charge=charge)
+    oracle = prepare_td(loaded.instance, loaded.atfs, objective_function="FleetCostDuration", backend="python")
+    before = oracle.evaluate([[1, 2]])
+    after = oracle.evaluate([[2, 1]])
+    assert before.cost == charge + 3 and after.cost == charge + 2
+    assert before.display_cost == after.display_cost
+    settings = kayros.Params(search_mode="exact", objective="FleetCostDuration", k_cap=1, ils_max_iterations=2)
+    first = kayros.solve(loaded, settings, seed=17, initial_routes=[[1, 2]])
+    second = kayros.solve(loaded, settings, seed=17, initial_routes=[[1, 2]])
+    assert first.routes == second.routes == [[2, 1]]
+    assert first.work_units == second.work_units > 0
+    for run in (first, second):
+        assert run.exact_cost == after.cost and run.cost == after.display_cost
+        assert [event.exact_cost for event in run.incumbents] == [before.cost, after.cost]
+        assert [event.value for event in run.incumbents] == [before.display_cost, after.display_cost]
+
+
+def test_reference_search_deadline_keeps_the_checked_warm_start():
+    loaded = tight_instance(capacity=1)
+    settings = kayros.Params(search_mode="exact", objective="FleetCostDuration", k_cap=2)
+    seed = [[1], [2]]
+    result = kayros.solve(loaded, settings, initial_routes=seed, time_limit=1e-12)
+    assert result.routes == seed and result.exact_cost == 5
+    assert result.status == "time_limit"
+    assert_seed_event(result.incumbents[0], result.exact_cost)
+
+
+@pytest.mark.parametrize("changes", [{"sq_work_cap": 1}, {"sq_ladder": True}])
+def test_reference_squeeze_parameters_are_explicit(changes):
+    with pytest.raises(ValueError, match="sq_work_cap=0"):
+        kayros.solve(tight_instance(), kayros.Params(search_mode="exact", **changes), time_limit=1)
+
+
+def test_unknown_search_mode_rejected():
+    with pytest.raises(ValueError, match="unknown search_mode"):
+        kayros.solve(tight_instance(), kayros.Params(search_mode="other"), time_limit=1)
