@@ -260,3 +260,16 @@ def test_reference_squeeze_parameters_are_explicit(changes):
 def test_unknown_search_mode_rejected():
     with pytest.raises(ValueError, match="unknown search_mode"):
         kayros.solve(tight_instance(), kayros.Params(search_mode="other"), time_limit=1)
+
+def test_empty_reference_instance_has_exact_zero_cost():
+    loaded = tight_instance()
+    empty = loaded.instance.model_copy(update={
+        "num_customers": 0, "num_vehicles": 0, "demands": [0], "coordinates": [(0, 0)],
+        "service_times": [0], "time_windows": [(0, 22)],
+    })
+    atfs = InstanceATFs(empty.instance_name, "Blauth2024", (0, 22), 0, {})
+    result = kayros.solve(replace(loaded, instance=empty, atfs=atfs),
+                          kayros.Params(search_mode="exact", objective="FleetCostDuration", ils_max_iterations=1))
+    assert result.routes == result.exact_route_departures == result.exact_route_durations == []
+    assert result.cost == result.exact_cost == result.incumbents[0].exact_cost == 0
+    assert result.status == "finished" and result.search_value is None
