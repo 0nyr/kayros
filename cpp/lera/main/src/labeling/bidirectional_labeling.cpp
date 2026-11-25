@@ -261,6 +261,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	S_paths.clear(); // M13.0 path-keyed pool (step-carrying instances)
 	S_rc.clear();
 	last_pool_durations.clear();
+	last_empty_negative_routes = last_empty_near_routes = 0;
 	negative_count_ = near_count_ = 0;
 	near_eff_ = (!step_pool_ && near_threshold > 0.0 && near_limit > 0) ? near_threshold : 0.0;
 	last_negative_count = last_near_count = 0;
@@ -405,9 +406,16 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	// (kayros M5.2) Repricing the pool (one DP per route) is post-deadline
 	// work on a doomed run once the TL fired — cut the tail. The routes
 	// lost here would never be used: the caller terminates on the TL.
-	auto reprice_into_R = [&](const Route& r) {
+	auto reprice_into_R = [&](const Route& r, bool negative) {
+		// The pool can contain an unresolved INFTY placeholder without a path.
+		if (r.path.size() < 3) return;
 		// Compute r actual duration (nyr::RouteDuration -> goc::Route).
 		auto best = vrp_.BestDurationRoute(r.path);
+		if (best.path.empty()) {
+			if (negative) ++last_empty_negative_routes;
+			else ++last_empty_near_routes;
+			return;
+		}
 		// M13.0 trace: fate of the merge target through the pool repricing.
 		if (trace::merge_on() && r.path == trace::merge_target())
 			fprintf(stderr, "TRC POOL-EXIT path_len=%zu pool_dur=%.6f best_dur=%.6f best_empty=%d\n",
@@ -420,7 +428,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		for (auto& P_r: S_paths)
 		{
 			if (run_deadline_.Reached()) break;
-			reprice_into_R(P_r.second);
+			reprice_into_R(P_r.second, true);
 		}
 	}
 	else if (near_eff_ > 0.0)
@@ -431,7 +439,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		for (auto& V_r: S)
 		{
 			if (run_deadline_.Reached()) break;
-			if (epsilon_smaller(S_rc[V_r.first], 0.0)) reprice_into_R(V_r.second);
+			if (epsilon_smaller(S_rc[V_r.first], 0.0)) reprice_into_R(V_r.second, true);
 			else near.push_back({S_rc[V_r.first], &V_r.second});
 		}
 		last_negative_count = (int) R->size();
@@ -447,7 +455,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		for (auto& n: near)
 		{
 			if (run_deadline_.Reached()) break;
-			reprice_into_R(*n.second);
+			reprice_into_R(*n.second, false);
 		}
 		last_near_count = (int) R->size() - last_negative_count;
 	}
@@ -456,7 +464,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		for (auto& V_r: S)
 		{
 			if (run_deadline_.Reached()) break;
-			reprice_into_R(V_r.second);
+			reprice_into_R(V_r.second, true);
 		}
 	}
 	if (near_eff_ <= 0.0) last_negative_count = (int) R->size();

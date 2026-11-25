@@ -77,6 +77,9 @@ public:
 	// Run, in the same order. Read by the bridge integrity counters only.
 	std::vector<double> last_pool_durations;
 	int last_near_count;
+	// Nonempty priced paths that BestDurationRoute could not reconstruct.
+	int last_empty_negative_routes = 0;
+	int last_empty_near_routes = 0;
 
 	BidirectionalLabeling(
 		const nyr::VRPInstance& vrp,

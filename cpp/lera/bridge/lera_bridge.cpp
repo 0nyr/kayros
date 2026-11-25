@@ -266,6 +266,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         return rc;
     };
 
+    long long empty_negative_routes = 0, empty_near_routes = 0;
     size_t heuristic_level = 0;
     int last_negative = 0; // leading negative routes in the last R.
     auto run_one_level = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
@@ -291,6 +292,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         integrity_pp = &pp;
         integrity_pool = &lbl.last_pool_durations;
         auto lbl_log = lbl.Run(pp, &R, levels[heuristic_level]);
+        empty_negative_routes += lbl.last_empty_negative_routes;
+        empty_near_routes += lbl.last_empty_near_routes;
         last_negative = lbl.last_negative_count;
         last_exact_finished = heuristic_level == levels.size() - 1 && lbl_log.status == BLBStatus::Finished;
         if (last_exact_finished) ++exact_finished;
@@ -330,13 +333,6 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
             const auto& r = R[route_index];
             if (bcp.deadline.Reached()) break;
             if (MemoryMonitor::Exceeded()) break; // kayros (M13.2)
-            // Lera's solution pool holds an empty-path INFTY placeholder for
-            // merge candidates whose duration never resolved (Route({}, 0,
-            // INFTY) in AddSolution); pool repricing can emit it. It is not a
-            // column (no customers, INFTY value, never improving), so it is
-            // skipped rather than certified — the loud-fail below is for real
-            // routes the checker rejects.
-            if (r.path.size() < 3) continue;
             if (!column_keys.insert(path_key(r.path)).second) {
                 ++duplicate_columns;
                 if (priced_negative && integrity_pp) {
@@ -414,6 +410,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 break;
             }
             near_columns_discarded += (long long) (R.size() - negative);
+            bool covered = last_exact_finished && lbl.last_empty_negative_routes == 0;
             if (at_exact && verify_final && last_exact_finished && !bcp.deadline.Reached()) {
                 // Re-run the empty Exact pass with the masked features changed.
                 const bool s_corr = lbl.correcting, s_closing = lbl.closing_state, s_sort = lbl.sort_by_cost,
@@ -429,6 +426,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 if (verify_mask & 64) { lbl.packed_filter = 0; lbl.merge_prefilter = false; }
                 ++verify_final_runs;
                 const vector<Route> R2 = run_one_level(pp, lg);
+                covered = covered && last_exact_finished && lbl.last_empty_negative_routes == 0;
                 lbl.correcting = s_corr; lbl.closing_state = s_closing; lbl.sort_by_cost = s_sort;
                 lbl.unreachable_strengthened = s_unreach; lbl.partial = s_partial; lbl.limited_extension = s_limited;
                 lbl.merge_prefilter = s_prefilter; lbl.merge_start = s_merge_start; lbl.packed_filter = s_packed;
@@ -450,7 +448,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
                 // (If it still REPORTED a negative-reduced-cost duplicate, the
                 // discrepancy is labeling-vs-checker dust within the documented
                 // certificate tolerance; the Exact level did run.)
-                ladder_certified = last_exact_finished && !bcp.deadline.Reached() && !MemoryMonitor::Exceeded();
+                ladder_certified = covered && !bcp.deadline.Reached() && !MemoryMonitor::Exceeded();
                 heuristic_level = 0;
                 lbl.closing_state = false;
                 lbl.merge_start = 0;
@@ -504,6 +502,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     // (1.8.0) See the comment at the declaration of the counters.
     result["pricing_integrity"] = {
         {"epsilon", integrity_eps},
+        {"empty_negative_priced_routes", empty_negative_routes}, {"empty_near_priced_routes", empty_near_routes},
         {"phantom_columns", phantom_columns}, {"phantom_duplicates", phantom_duplicates},
         {"max_phantom_reduced_cost", max_phantom_reduced_cost},
         {"labeling_below_checker_columns", labeling_below_checker}, {"max_labeling_below_checker", max_labeling_gap},
@@ -533,7 +532,8 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
         result["closure_conditions"] = {
             {"status_optimum", status_optimum}, {"all_closures_certified", all_certified},
             {"no_unpriced_closure", no_unpriced}, {"no_checker_infeasible_column", no_infeasible},
-            {"all_hold", status_optimum && all_certified && no_unpriced && no_infeasible},
+            {"no_empty_negative_priced_route", empty_negative_routes == 0},
+            {"all_hold", status_optimum && all_certified && no_unpriced && no_infeasible && empty_negative_routes == 0},
             {"verify_final_mask", verify_mask}};
     }
     // kayros (M13.2): guard observability, never used in control flow.

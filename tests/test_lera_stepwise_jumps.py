@@ -31,6 +31,7 @@ ENUMERATED_ROOT_LP = 4193.857142857141
 
 # Counters of ``pricing_integrity`` that a sound pricing leaves at 0.
 INTEGRITY_COUNTERS = (
+    "empty_negative_priced_routes",
     "phantom_columns",
     "phantom_duplicates",
     "labeling_below_checker_columns",
@@ -113,7 +114,7 @@ def test_jump_free_solve_reports_clean_pricing_and_covered_closures(instance_pat
     assert result["exact_log"]["status"] == "Optimum"
     assert result["value"] == pytest.approx(stored["cost"], rel=1e-9)
     conditions = result["closure_conditions"]
-    for name in ("status_optimum", "all_closures_certified", "no_unpriced_closure", "no_checker_infeasible_column", "all_hold"):
+    for name in ("status_optimum", "all_closures_certified", "no_unpriced_closure", "no_checker_infeasible_column", "no_empty_negative_priced_route", "all_hold"):
         assert conditions[name] is True, name
     # Near-zero columns ride along with productive passes on jump-free solves,
     # so duplicates are legitimate there. Phantoms are not.
