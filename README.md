@@ -67,13 +67,13 @@ With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callb
 
 The Duration solver uses the implementation of Lera-Romero, Miranda Bront and Soulignac (2020). It can start from customer-only incumbent routes. A time limit and a configurable resident-memory limit allow it to return when pricing exhausts its budget. Its search log records pricing and node closure diagnostics. Under the 2.0 evaluation profile, verifying an incumbent establishes its objective value. An optimality claim also requires a verified lower bound.
 
-The same Dabia incumbent from the heuristic example can seed the exact solver. A checked incumbent is available through `result.routes` and `result.exact_cost`.
+The same Dabia incumbent from the heuristic example can seed the exact solver. A checked incumbent has `result.status == "feasible"`. Its routes and rational objective are in `result.routes` and `result.exact_cost`. The separate `result.termination_reason` distinguishes a closed search from a time, node or memory limit.
 
 ```python
 from kayros.exact import solve_exact
 
 result = solve_exact(instance_path, time_limit=600.0, initial_routes=solution.routes)
-print(result.routes, result.exact_cost)
+print(result.status, result.termination_reason, result.exact_cost)
 print(result.reported_best_bound, result.certified_dual_bound)
 ```
 
