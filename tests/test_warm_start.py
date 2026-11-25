@@ -38,3 +38,16 @@ def test_bad_warm_start_is_rejected_before_any_publication(blauth_seed, mode, ba
     with pytest.raises(ValueError, match="invalid initial_routes"):
         kayros.solve(loaded, kayros.Params(acceptance_mode=mode, ils_max_iterations=1),
                      initial_routes=bad_routes, on_incumbent=lambda *_: pytest.fail("invalid seed published"))
+
+
+def test_above_cap_seed_is_valid_but_cannot_be_published(blauth_seed):
+    loaded, prior = blauth_seed
+    split = [[c] for route in prior.routes for c in route]
+    assert len(split) > prior.num_routes
+    published = []
+    result = kayros.solve(
+        loaded, kayros.Params(objective="FleetCostDuration", k_cap=prior.num_routes, ils_max_iterations=100),
+        initial_routes=split, on_incumbent=lambda _, routes: published.append(len(routes)),
+    )
+    assert result.k_stats["k_seed"] == len(split)
+    assert published and max(published) <= prior.num_routes
