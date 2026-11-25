@@ -34,6 +34,18 @@ struct Instance {
     std::vector<double> atf_xs;
     std::vector<double> atf_ys;
 
+    // Windowed instances store the ready-time function of each arc. The return arc uses only the depot due date.
+    // Entry a holds its xs followed by its ys in leaf_data[leaf_offset[a], leaf_offset[a+1]).
+    std::vector<std::size_t> leaf_offset;
+    std::vector<double> leaf_data;
+    void prepare_leaves();
+    PwlfView packed_leaf(std::int32_t from, std::int32_t to) const;
+
+    // The view refers to the instance or to scratch. The caller owns scratch and keeps it until the view is consumed.
+    PwlfView move_leaf(std::int32_t from, std::int32_t to, Pwlf& scratch) const;
+    void apply_service(std::int32_t vertex, PwlfView arrivals, Pwlf& out) const;
+    PwlfView departure_window(double (&points)[2]) const;
+
     std::int32_t num_vertices() const { return num_customers + 1; }
 
     PwlfView arc(std::int32_t i, std::int32_t j) const {
@@ -41,6 +53,7 @@ struct Instance {
             static_cast<std::int64_t>(i) * num_vertices() + j;
         const std::int64_t b = atf_offset[a];
         const std::int64_t e = atf_offset[a + 1];
+        if (b == e) return {};
         return {atf_xs.data() + b, atf_ys.data() + b, e - b};
     }
 };
@@ -52,9 +65,7 @@ struct RouteEval {
 };
 
 // Route ready-time function delta_r over feasible depot departure times.
-// Exact port of the checker's compute_route_ready_time_function: per vertex
-// acc <- theta_v ∘ alpha_{prev,v} ∘ acc, with the TDVRPTW depot TW restriction
-// at departure and on return. Returns the empty function when time-infeasible.
+// The binary64 fold includes window and service at each customer and the depot restrictions at departure and return. Returns the empty function when time-infeasible.
 // route points to customer ids in 1..n, depot excluded.
 Pwlf route_ready_time_function(const Instance& inst, const std::int32_t* route,
                                std::int64_t len);

@@ -164,13 +164,15 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
     for (std::size_t a = 0; a < num_routes; ++a) deletion_rankings(inst, states[a]);
 
     const Pwlf dep = departure_identity(inst);
+    Pwlf prefix_next;
     for (std::size_t b = 0; b < num_routes; ++b) {
         RouteState& recv = states[b];
         const std::int64_t mb = static_cast<std::int64_t>(recv.vertices.size());
         Pwlf prefix = dep;
         for (std::int64_t p = 0; p <= mb; ++p) {
             if (p > 0) {
-                prefix = compose(view(recv.tree.leaf(p - 1)), view(prefix));
+                compose_into(view(recv.tree.leaf(p - 1)), view(prefix), prefix_next);
+                std::swap(prefix, prefix_next);
                 if (prefix.xs.empty()) break;
             }
             const std::int32_t before =
@@ -207,25 +209,8 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                     if (!(gain + empty_credit > kScreenEps)) continue;
                     if (stats) ++stats->evaluated;
                     // Insertion of c before position p, on the shared prefix.
-                    const Pwlf in_bridge = bridge_leaf(inst, before, c);
-                    if (in_bridge.xs.empty()) continue;
-                    Pwlf acc = compose(view(in_bridge), view(prefix));
-                    if (acc.xs.empty()) continue;
-                    if (p < mb) {
-                        const Pwlf out_bridge = bridge_leaf(inst, c, succ);
-                        if (out_bridge.xs.empty()) continue;
-                        acc = compose(view(out_bridge), view(acc));
-                        if (acc.xs.empty()) continue;
-                        const Pwlf rest = recv.tree.query(p + 1, mb);
-                        if (rest.xs.empty()) continue;
-                        acc = compose(view(rest), view(acc));
-                    } else {
-                        const Pwlf ret = return_leaf(inst, c);
-                        if (ret.xs.empty()) continue;
-                        acc = compose(view(ret), view(acc));
-                    }
-                    if (acc.xs.empty()) continue;
-                    const MinShift s = min_shifted_image(view(acc));
+                    MinShift s;
+                    if (!price_insertion(inst, recv, view(prefix), before, c, p, mb, s)) continue;
                     const double delta =
                         (s.value - recv.duration) - gain - empty_credit;
                     if (delta < -kScreenEps) {
@@ -423,14 +408,8 @@ void mark_all_touched(SearchState& ss) {
 }
 
 Pwlf departure_identity(const Instance& inst) {
-    double dep_lo = inst.horizon_start;
-    double dep_hi = inst.horizon_end;
-    if (inst.has_time_windows) {
-        dep_lo = std::max(dep_lo, inst.tw_earliest[0]);
-        dep_hi = std::min(dep_hi, inst.tw_latest[0]);
-    }
-    if (dep_lo > dep_hi) return {};
-    return identity(dep_lo, dep_hi);
+    double points[2];
+    return copy_pwlf(inst.departure_window(points));
 }
 
 bool init_search_state(const Instance& inst,
