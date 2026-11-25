@@ -24,6 +24,8 @@ __all__ = ["ExactResult", "solve_exact"]
 class ExactResult:
     """Checked incumbent and diagnostic BPC termination for the Duration objective.
 
+    Status is "feasible" when a checked solution exists, including a retained warm start, or "no_incumbent" otherwise. The independent termination reason "search_closed" records the BPC's numerical closure.
+
     The rational cost and its display belong to the returned customer-only routes. A run without a checked incumbent has empty routes and no cost. The raw record contains the native numerical bounds and pricing diagnostics. Its routes also use customer IDs. A certified dual bound requires verification under the exact profile.
     """
 
