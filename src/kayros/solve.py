@@ -495,7 +495,8 @@ def solve(
             on_unusable_warm_start=acceptance.unusable_warm_start if seed_routes else None,
             fleet_cost_objective=objective == "FleetCostDuration",
         )
-    if (result.status == _core.SolveStatus.Infeasible or not result.routes) and acceptance.checked_fallback is None:
+    has_incumbent = result.exact_cost is not None if reference else bool(result.routes)
+    if (result.status == _core.SolveStatus.Infeasible or not has_incumbent) and acceptance.checked_fallback is None:
         if acceptance.stats["infeasible"]:
             raise InfeasibleError(f"no exact-feasible incumbent in {acceptance.stats['proposals']} proposals")
         if params.k_cap > 0 and objective != "Duration":
