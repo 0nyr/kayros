@@ -21,7 +21,7 @@
           # guarded ./.venv activation.
           inputsFrom = [ base.devShells.${system}.default ];
 
-          packages = with pkgs; [ boost highs ];
+          packages = with pkgs; [ boost gmpxx highs ];
 
           shellHook = ''
             # Vendored Lera BPC (cpp/lera, KAYROS_WITH_LERA=ON builds only):
