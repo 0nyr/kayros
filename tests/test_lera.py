@@ -104,3 +104,32 @@ def test_memory_limit_is_independent_of_incumbent_status(instance_path):
         assert result.status == "feasible" and isinstance(result.exact_cost, Fraction)
     else:
         assert result.status == "no_incumbent" and result.exact_cost is None
+
+
+@pytest.mark.parametrize("instance_path", C101, ids=["C101"])
+@pytest.mark.parametrize(("limits", "expected"), [
+    ({"time_limit": 0.0}, "time_limit"),
+    ({"memory_limit_mb": 1}, "memory_limit"),
+])
+def test_checked_warm_start_survives_limits(instance_path, limits, expected):
+    seed = solve_exact(instance_path, time_limit=120)
+    stopped = solve_exact(instance_path, initial_routes=seed.routes, **limits)
+    assert stopped.status == "feasible" and stopped.termination_reason == expected
+    assert stopped.routes == seed.routes and stopped.exact_cost == seed.exact_cost
+    assert stopped.incumbents[0].origin == "warm_start"
+    assert stopped.certified_dual_bound is stopped.certified_gap is None
+
+
+@pytest.mark.parametrize("instance_path", C101, ids=["C101"])
+def test_native_closure_with_no_routes_is_no_incumbent(instance_path, monkeypatch):
+    from kayros import _bpc
+    monkeypatch.setattr(_bpc, "solve_duration", lambda *args, **kwargs: {
+        "routes": [], "incumbents": [], "value": 0.0,
+        "exact_log": {"status": "Optimum", "best_bound": 0.0, "time": 0.1},
+        "closure_conditions": {"all_hold": True}, "pricing_integrity": {},
+    })
+    result = solve_exact(instance_path)
+    assert result.status == "no_incumbent" and result.termination_reason == "search_closed"
+    assert result.routes == [] and result.incumbents == []
+    assert result.cost is result.exact_cost is result.certified_dual_bound is result.certified_gap is None
+    assert result.reported_best_bound == 0.0 and result.closure_conditions["all_hold"]
