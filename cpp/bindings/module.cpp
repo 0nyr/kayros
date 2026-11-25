@@ -539,6 +539,8 @@ PYBIND11_MODULE(_core, m) {
           py::arg("on_incumbent") = kayros::IncumbentCallback{},
           py::arg("initial_routes") = std::vector<std::vector<std::int32_t>>{},
           py::arg("accept_incumbent") = kayros::IncumbentGate{},
+          py::arg("on_unusable_warm_start") = std::function<void(double, bool)>{},
+          py::arg("fleet_cost_objective") = false,
           py::call_guard<py::gil_scoped_release>());
 
     // Local-search operations used by tests and experiments.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -125,7 +126,8 @@ struct SolveResult {
 
 // Deterministic nearest-ready-time construction adapted from GMH1. Start at the earliest depot departure, choose the unserved customer with the earliest direct ready time, and break ties by customer ID. Return false if a remaining customer cannot start a fresh route.
 bool greedy_construct(const Instance& inst,
-                     std::vector<std::vector<std::int32_t>>& routes_out);
+                     std::vector<std::vector<std::int32_t>>& routes_out,
+                     const std::chrono::steady_clock::time_point* deadline = nullptr);
 
 // Multi-hop lookahead reference for the direct greedy construction. Dijkstra selection can break direct-ready-time ties differently and raises construction complexity from quadratic to cubic.
 bool greedy_construct_lookahead(
@@ -134,7 +136,8 @@ bool greedy_construct_lookahead(
 // Split a feasible Duration seed towards target_k. At each step choose the feasible split with the smallest change in the two affected binary64 route durations. Stop if no feasible split remains. The caller enables this only when routes carry no fixed charge.
 bool split_to_k(const Instance& inst,
                 std::vector<std::vector<std::int32_t>>& routes,
-                std::int32_t target_k);
+                std::int32_t target_k,
+                const std::chrono::steady_clock::time_point* deadline = nullptr);
 
 // Objective value of a full solution: canonical route order (sorted by first
 // customer), approximate per-route pricing, plus the FleetCostDuration term
@@ -155,10 +158,13 @@ using IncumbentGate = std::function<bool(
     const std::vector<std::vector<std::int32_t>>&, bool from_squeeze)>;
 
 // Iterated local search starts from a feasible warm seed or the greedy construction. Perturbation, descent and late acceptance use the binary64 search objective. A new best passes the supplied gate before publication or restart. Time checks run between iterations and local-search passes.
+// on_unusable_warm_start receives elapsed seconds and publication eligibility for an exact-checked seed that binary64 cannot represent.
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit,
                       const IncumbentCallback& on_incumbent = {},
                       std::vector<std::vector<std::int32_t>> initial_routes = {},
-                      const IncumbentGate& accept_incumbent = {});
+                      const IncumbentGate& accept_incumbent = {},
+                      const std::function<void(double, bool)>& on_unusable_warm_start = {},
+                      bool fleet_cost_objective = false);
 
 }  // namespace kayros

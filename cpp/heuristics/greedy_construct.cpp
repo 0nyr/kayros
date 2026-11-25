@@ -20,7 +20,7 @@ namespace {
 // O(n^2) construction instead of an O(n^3) one.
 bool construct(const Instance& inst,
                std::vector<std::vector<std::int32_t>>& routes_out,
-               bool lookahead) {
+               bool lookahead, const std::chrono::steady_clock::time_point* deadline) {
     const std::int32_t n = inst.num_customers;
     const std::int32_t nv = inst.num_vertices();
     std::vector<std::uint8_t> free_v(static_cast<std::size_t>(nv), 1);
@@ -36,6 +36,7 @@ bool construct(const Instance& inst,
         double t = dep_lo;
         std::int64_t load = 0;
         while (true) {
+            if (deadline && std::chrono::steady_clock::now() >= *deadline) return false;
             if (lookahead) {
                 detail::earliest_ready_times(inst, current, t, free_v, eat);
             }
@@ -76,19 +77,21 @@ bool construct(const Instance& inst,
 }  // namespace
 
 bool greedy_construct(const Instance& inst,
-                     std::vector<std::vector<std::int32_t>>& routes_out) {
-    return construct(inst, routes_out, /*lookahead=*/false);
+                     std::vector<std::vector<std::int32_t>>& routes_out,
+                     const std::chrono::steady_clock::time_point* deadline) {
+    return construct(inst, routes_out, /*lookahead=*/false, deadline);
 }
 
 bool greedy_construct_lookahead(
     const Instance& inst,
     std::vector<std::vector<std::int32_t>>& routes_out) {
-    return construct(inst, routes_out, /*lookahead=*/true);
+    return construct(inst, routes_out, /*lookahead=*/true, nullptr);
 }
 
 bool split_to_k(const Instance& inst,
                 std::vector<std::vector<std::int32_t>>& routes,
-                std::int32_t target_k) {
+                std::int32_t target_k,
+                const std::chrono::steady_clock::time_point* deadline) {
     if (target_k <= static_cast<std::int32_t>(routes.size())) return false;
 
     const auto route_duration = [&inst](const std::vector<std::int32_t>& r) {
@@ -116,6 +119,7 @@ bool split_to_k(const Instance& inst,
             const std::vector<std::int32_t>& route = routes[r];
             if (route.size() < 2 || durations[r] == kInfeasible) continue;
             for (std::size_t p = 1; p < route.size(); ++p) {
+                if (deadline && std::chrono::steady_clock::now() >= *deadline) return split_any;
                 head.assign(route.begin(), route.begin() + static_cast<std::ptrdiff_t>(p));
                 tail.assign(route.begin() + static_cast<std::ptrdiff_t>(p), route.end());
                 const double dh = route_duration(head);
