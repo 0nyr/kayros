@@ -8,6 +8,8 @@ The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancie
 
 > Status: **beta (2.0.0 in development, latest release v1.7.1)**, developed as part of a PhD. KAYROS offers two solving modes on one exact time-dependent engine: an anytime iterated local search, which produced most of the best-known solutions of the MAMUT-routing store, and an exact branch-price-and-cut component (`kayros.lera`) that issues checker-exact optimality certificates. Every run ends with an honest verdict (optimum, time limit, or resource limit), never a silent kill.
 
+> **Known issue in releases 1.1.0 to 1.7.1.** On instances whose travel times have value jumps (stepwise arrival functions, such as the Rifki2020 families), the exact component could miss improving columns, so a lower bound or an optimality certificate obtained on such an instance with these releases should not be relied on. Feasible solutions and their values are not affected, and neither are instances without value jumps or the anytime local search. The repair is on `main` and will be part of the next release. See the changelog section [Stepwise repair (prepared as 1.8.0)](CHANGELOG.md#stepwise-repair-prepared-as-180) and [issue #11](https://github.com/0nyr/kayros/issues/11).
+
 ## Install
 
 ```sh
