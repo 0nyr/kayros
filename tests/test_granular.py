@@ -79,7 +79,7 @@ def test_neighbour_lists_exhaustive_sentinel(pick) -> None:
     assert all(l == [] for l in lists)
 
 
-@pytest.mark.parametrize("k", [10, 50])
+@pytest.mark.parametrize("k", [1, 10, 50])
 def test_granular_ls_invariants(pick, k) -> None:
     """Granular descent preserves coverage, returns the binary64 objective, and yields an exact-valid solution within the duration tolerance."""
     from exact_reference import assert_exact_check_valid
