@@ -130,7 +130,7 @@ struct Incumbent {
     double value = 0.0;            // solution_duration (canonical-order, checker-exact)
     double seconds = 0.0;          // wall time since solve start
     std::uint64_t iteration = 0;   // 0 = greedy seed
-    std::int32_t origin = 0;       // 0 = greedy, 2 = ils
+    std::int32_t origin = 0;       // 0 = greedy, 2 = ils, 3 = supplied warm start
     bool from_squeeze = false;
 };
 

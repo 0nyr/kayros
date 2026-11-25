@@ -197,11 +197,11 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         return result;
     }
     if (warm_start && accept_incumbent)
-        consider(solution_duration(inst, seed_routes), 0, 0, seed_routes);
+        consider(solution_duration(inst, seed_routes), 0, 3, seed_routes);
     result.k_stats.k_seed = static_cast<std::int64_t>(seed_routes.size());
     double curr = ls_descend(inst, nb, ss, &ls_stats, deadline);
 
-    consider(curr, 0, 0, extract_routes(ss));
+    consider(curr, 0, warm_start && accept_incumbent ? 2 : 0, extract_routes(ss));
 
     // Exhaustive polish of the initial best (PyVRP's exhaustive_on_best).
     if (params.exhaustive_on_best && !past()) {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 import logging
@@ -187,12 +188,12 @@ class Incumbent:
     value: float
     seconds: float
     iteration: int
-    origin: str  # "greedy" | "ils"
+    origin: str  # "greedy" | "ils" | "warm_start"
     exact_cost: Fraction | None = None
     search_value: float | None = None
 
 
-_ORIGIN_NAMES = {0: "greedy", 2: "ils"}
+_ORIGIN_NAMES = {0: "greedy", 2: "ils", 3: "warm_start"}
 
 
 # Anytime hook: called synchronously from inside the solve loop on every new
@@ -214,6 +215,7 @@ class _Acceptance:
             raise ValueError("incumbent_history_size must be a nonnegative integer")
         self.hook = hook
         self.best_exact = None
+        self.verified_seed = None
         self.events = []
         self.history = OrderedDict()
         self.stats = dict(proposals=0, infeasible=0, nonimproving=0, squeeze_rejections=0,
@@ -223,12 +225,24 @@ class _Acceptance:
     def prepared(self):
         return prepare_exact(self.loaded, objective_function=self.objective)
 
+    def validate_seed(self, routes):
+        try:
+            evaluation = self.prepared.evaluate(routes)
+        except ExactRouteError as error:
+            raise ValueError(f"invalid initial_routes ({error.status.value}): {error}") from error
+        # Preserve the caller's route enumeration, which affects the order of local search.
+        seed = [list(route) for route in routes]
+        if self.mode == "each_incumbent":
+            self.verified_seed = (seed, evaluation.cost)
+        return seed
+
     def accept(self, routes, from_squeeze):
         self.stats["proposals"] += 1
         if self.mode == "final_only":
             return True
+        seed, self.verified_seed = self.verified_seed, None
         try:
-            cost = self.prepared.evaluate(routes).cost
+            cost = seed[1] if seed is not None and routes == seed[0] else self.prepared.evaluate(routes).cost
         except ExactRouteError:
             self.stats["infeasible"] += 1
         else:
@@ -434,6 +448,7 @@ def solve(
     seed: int = 0,
     on_incumbent: IncumbentHook | None = None,
     verify: bool = False,
+    initial_routes: Sequence[Sequence[int]] | None = None,
 ) -> Solution:
     """Solve a MAMUT TD instance (TDVRPTW or TDVRP; Duration minimization by
     default, FleetCostDuration via ``params.objective``).
@@ -454,6 +469,11 @@ def solve(
     gigabytes of peak memory at n = 1000. It is rejected when ``instance`` is
     an already-loaded ``LoadedTDInstance``, because by then the artifacts have
     been read and it is too late to verify them here.
+
+    Pass customer-only routes in ``initial_routes`` to start from a complete feasible solution.
+    The library validates the seed under the requested objective in both acceptance modes.
+    An otherwise feasible seed may exceed the search target ``k_cap``. The fleet descent
+    can use it, and only solutions meeting the target enter the incumbent stream.
 
     By default, a candidate new best must pass exact feasibility and strictly improve the
     rational objective before it replaces the incumbent. The synchronous callback receives
@@ -487,6 +507,7 @@ def solve(
                 f"fleet_fixed_cost; the FleetCostDuration objective requires it"
             )
     acceptance = _Acceptance(loaded, objective, params, on_incumbent)
+    seed_routes = acceptance.validate_seed(initial_routes) if initial_routes is not None else []
     core = to_core(loaded, objective_function=objective)
     tl = 0.0 if time_limit is None else float(time_limit)
 
@@ -496,7 +517,10 @@ def solve(
     ils_core = params._to_ils_core()
     if tl <= 0.0 and params.ils_max_iterations <= 0:
         ils_core.max_iterations = 5 * params.restart_no_improvement
-    result = _core.solve_ils(core, ils_core, seed, tl, acceptance.publish, accept_incumbent=acceptance.accept)
+    result = _core.solve_ils(
+        core, ils_core, seed, tl, acceptance.publish,
+        initial_routes=seed_routes, accept_incumbent=acceptance.accept,
+    )
     if result.status == _core.SolveStatus.Infeasible or not result.routes:
         if acceptance.stats["infeasible"]:
             raise InfeasibleError(f"no exact-feasible incumbent in {acceptance.stats['proposals']} proposals")
