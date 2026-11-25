@@ -33,6 +33,7 @@ pybind11_add_module(_core
     cpp/core/warp_eval.cpp
     cpp/heuristics/greedy_construct.cpp
     cpp/heuristics/ils.cpp
+    cpp/heuristics/reference_search.cpp
     cpp/ls/lca_tree.cpp
     cpp/ls/leaves.cpp
     cpp/ls/neighbours.cpp
