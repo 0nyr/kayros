@@ -18,10 +18,7 @@
 
 #include "goc/graph/arc.h"
 #include "goc/graph/digraph.h"
-#include "goc/graph/edge.h"
-#include "goc/graph/graph.h"
 #include "goc/graph/graph_path.h"
-#include "goc/graph/maxflow_mincut.h"
 #include "goc/graph/path_finding.h"
 #include "goc/graph/vertex.h"
 
@@ -59,16 +56,11 @@
 #include "goc/print/printable.h"
 #include "goc/print/table_stream.h"
 
-#include "goc/runner/runner_utils.h"
-
 #include "goc/string/string_utils.h"
 
-#include "goc/time/date.h"
 #include "goc/time/deadline.h"
 #include "goc/time/duration.h"
-#include "goc/time/point_in_time.h"
 #include "goc/time/stopwatch.h"
-#include "goc/time/watch.h"
 
 #include "goc/vrp/route.h"
 #include "goc/vrp/vrp_solution.h"

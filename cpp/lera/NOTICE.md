@@ -57,4 +57,4 @@ The C++ tests of `tests/cpp` cited above are CMake targets `kayros_test_<name>`,
 
 ## Conventions
 
-This subtree is **vendored code**: kayros' plain-old-data / style conventions do not apply here. Keep diffs against upstream minimal and documented in this NOTICE.
+Kayros follows the upstream style in this subtree. Keep edits to the retained upstream files small and document them here. The build lists its sources explicitly for HiGHS and CPLEX. In 2.0, Kayros drops the standalone IGP loader and its preprocessing, the unused NG preprocessing entry point, the undirected graph and max-flow utilities, standalone runner and calendar utilities, and unused NYR solution, parameter and test helpers. The labeling code and the NYR piecewise-linear test interface remain available.

@@ -65,9 +65,4 @@ inline bool interval_vector_disjoints(
     goc::epsilon_bigger(v.front(), w.back());
 }
 
-// Tests for the interval_vector functions.
-void test_interval_vector_intersects();
-void test_interval_vector_includes();
-
-
 } // namespace nyr
