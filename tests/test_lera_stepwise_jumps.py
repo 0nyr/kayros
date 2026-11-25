@@ -78,7 +78,7 @@ def _assert_clean_pricing(result: dict) -> None:
 @pytest.mark.parametrize("instance_path", RIFKI30_10, ids=lambda p: "Rifki-30-n10")
 @pytest.mark.parametrize("symmetric", [False, True], ids=["asym", "sym"])
 def test_rifki30_n10_root_lp_equals_the_enumerated_value(instance_path, symmetric, monkeypatch) -> None:
-    from kayros.lera import solve_duration
+    from kayros._bpc import solve_duration
 
     _set_mode(monkeypatch, symmetric)
     loaded = load_td_instance(instance_path)
@@ -92,7 +92,7 @@ def test_rifki30_n10_root_lp_equals_the_enumerated_value(instance_path, symmetri
 
 @pytest.mark.parametrize("instance_path, optimum, symmetric", CLOSURE_CASES)
 def test_stepwise_closures_leave_no_column_behind(instance_path, optimum, symmetric, monkeypatch) -> None:
-    from kayros.lera import routes_to_mamut, solve_duration
+    from kayros._bpc import routes_to_mamut, solve_duration
 
     _set_mode(monkeypatch, symmetric)
     # Every empty final Exact pass is run again without partial dominance and
@@ -116,7 +116,7 @@ def test_stepwise_closures_leave_no_column_behind(instance_path, optimum, symmet
 
 @pytest.mark.parametrize("instance_path", JUMP_FREE, ids=lambda p: "C205-n25")
 def test_jump_free_solve_reports_clean_pricing_and_covered_closures(instance_path) -> None:
-    from kayros.lera import solve_duration
+    from kayros._bpc import solve_duration
 
     loaded = load_td_instance(instance_path)
     result = solve_duration(loaded, time_limit_s=120.0)

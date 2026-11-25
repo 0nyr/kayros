@@ -113,7 +113,7 @@ def run_ils(loaded: LoadedTDInstance, seed: int, tl: float):
 
 
 def run_exact(loaded: LoadedTDInstance, tl: float, warm=None):
-    from kayros.lera import solve_duration
+    from kayros._bpc import solve_duration
 
     return solve_duration(loaded, time_limit_s=tl, initial_routes=warm)
 

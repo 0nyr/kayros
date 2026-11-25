@@ -1,100 +1,106 @@
-"""The exact BPC component (Lera bridge, HiGHS backend) ships in the default install.
+"""Public branch-price-and-cut result and exact-family incumbent checks."""
 
-Import must succeed on any default build; the solve gates certify a small instance
-end-to-end with the checker-exact contract (reported value == checker repricing,
-bit-exactly) and exercise the warm-start path and the optimality-stamp helper.
-"""
+from fractions import Fraction
 
 import pytest
-from mamut_routing_lib.td import load_td_instance
+from mamut_routing_lib.enums import ObjectiveFunction
+from mamut_routing_lib.td import compute_solution_cost, load_td_instance
 
+from kayros.exact import ExactResult, solve_exact
 from conftest import family_instances
-from exact_reference import assert_value_close, exact_duration_cost
 
 
-def pick(paths, names):
-    return [p for p in paths if p.name.removesuffix(".vrp.json") in names]
+def named(family, size, name):
+    return [path for path in family_instances("TDVRPTW", family, [size]) if path.name == name]
 
 
-C101_25 = pick(family_instances("TDVRPTW", "Dabia2013", ["n=25"]), {"C101"})
+C101 = named("Dabia2013", "n=25", "C101.vrp.json")
+RIFKI = named("Rifki2020", "n=10", "Rifki-1.vrp.json")
 
 
-def test_lera_module_present() -> None:
-    import kayros._lera  # noqa: F401
-    from kayros import lera  # noqa: F401
-
-
-def test_lera_exposes_lp_backend() -> None:
-    import kayros._lera as _lera
-
+def test_exact_backend_is_available():
+    from kayros import _lera
     assert _lera.LP_BACKEND in ("HiGHS", "CPLEX")
 
 
-@pytest.mark.parametrize("instance_path", C101_25, ids=lambda p: "C101")
-def test_lera_certifies_c101(instance_path) -> None:
-    from kayros.lera import CERTIFICATE, optimality_metadata, routes_to_mamut, solve_duration
-
+@pytest.mark.parametrize("instance_path", C101 + RIFKI, ids=lambda p: p.stem)
+def test_cold_result_and_callbacks(instance_path):
+    events = []
+    result = solve_exact(instance_path, verify=True, time_limit=120, on_incumbent=lambda event, routes: events.append((event, routes)))
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=120.0)
-    assert result["exact_log"]["status"] == "Optimum"
-    routes = [r[1:-1] for r in routes_to_mamut(result["routes"], loaded.instance.num_customers)]
-    checker_value = exact_duration_cost(loaded.instance, loaded.atfs, routes)
-    # The reported value is the checker value up to the old float fold.
-    # M2: becomes exact equality once priced columns are evaluated exactly
-    assert_value_close(result["value"], checker_value)
-
-    stamp = optimality_metadata(result, wall_time_s=1.0, time_limit_s=120.0, date="2026-07-07")
-    assert stamp is not None
-    assert stamp["proven"] is True
-    assert stamp["certificate"] == CERTIFICATE
-    assert stamp["proven_optimum"] == result["value"]
-    assert stamp["dual_bound"] == result["exact_log"]["best_bound"]
-    assert stamp["prover"].startswith("kayros ")
-    assert "LP backend" in stamp["prover"]
-    assert stamp["date"] == "2026-07-07"
-    assert "campaign" not in stamp  # omitted when not provided
-
-
-def test_optimality_metadata_none_unless_optimum() -> None:
-    from kayros.lera import optimality_metadata
-
-    assert optimality_metadata({"exact_log": {"status": "TimeLimitReached"}}) is None
-    assert optimality_metadata({}) is None
+    assert isinstance(result, ExactResult)
+    assert result.status == "feasible" and result.termination_reason == "search_closed"
+    assert result.raw["exact_log"]["status"] == "Optimum"
+    assert result.certified_dual_bound is result.certified_gap is None and result.objective == "Duration"
+    assert result.reported_best_bound == result.raw["exact_log"].get("best_bound")
+    assert result.pricing_integrity == result.raw["pricing_integrity"]
+    assert result.closure_conditions == result.raw["closure_conditions"]
+    assert [r["path"] for r in result.raw["routes"]] == result.routes
+    assert result.raw["stepwise_atfs"] == ("Rifki" in instance_path.name)
+    assert events and result.incumbents == [event for event, _ in events]
+    costs = []
+    for event, routes in events:
+        assert sorted(c for route in routes for c in route) == list(range(1, loaded.instance.num_customers + 1))
+        value = compute_solution_cost(loaded.instance, loaded.atfs, routes, ObjectiveFunction.DURATION)
+        assert event.value == float(value) and event.exact_cost == value
+        costs.append(value)
+    assert all(b < a for a, b in zip(costs, costs[1:]))
+    assert result.routes == events[-1][1]
+    assert result.cost == float(result.exact_cost) and result.exact_cost == costs[-1]
+    assert (result.exact_evaluation["objective"], result.exact_evaluation["profile"]) == ("Duration", "td-binary64-exact-v1")
 
 
-RIFKI_10 = pick(family_instances("TDVRPTW", "Rifki2020", ["n=10"]), {"Rifki-1"})
+@pytest.mark.parametrize("instance_path", C101, ids=["C101"])
+def test_winning_warm_start_keeps_its_routes(instance_path):
+    cold = solve_exact(instance_path, time_limit=120)
+    events = []
+    warm = solve_exact(load_td_instance(instance_path), time_limit=120, initial_routes=cold.routes,
+                       on_incumbent=lambda event, routes: events.append((event, routes)))
+    assert warm.raw["exact_log"]["status"] == "Optimum" and warm.raw["routes"] == []
+    assert warm.routes == cold.routes and warm.exact_cost == cold.exact_cost
+    assert warm.incumbents[0].origin == "warm_start" and events[0][1] == cold.routes
+    assert warm.status == "feasible" and warm.certified_dual_bound is None
 
 
-@pytest.mark.parametrize("instance_path", RIFKI_10, ids=lambda p: "Rifki-1")
-def test_stepwise_atfs_stamp_after_m130_promotion(instance_path) -> None:
-    # M13.0: stepwise (duplicate-x jump) ATFs solve on the exact
-    # tagged-vertical path by default (auto-detected per instance) and their
-    # certificates stamp like any other. The pre-M13.0 single-run refusal
-    # guarded the retired mollified path (2026-07-08 retraction, NOTICE item
-    # 9); the exact path was validated by the 2026-07-17/18 campaign
-    # (0 unsound, 0 poisoned, cross-platform agreement).
-    from kayros.lera import optimality_metadata, solve_duration
+@pytest.mark.parametrize("instance_path", C101, ids=["C101"])
+def test_invalid_or_depot_delimited_warm_start_does_not_start_the_solver(instance_path, monkeypatch):
+    from kayros import _bpc
+    monkeypatch.setattr(_bpc, "solve_duration", lambda *a, **kw: pytest.fail("invalid seed reached BPC"))
+    with pytest.raises(ValueError, match="invalid initial_routes"):
+        solve_exact(instance_path, initial_routes=[[1]])
+    with pytest.raises(ValueError, match="invalid initial_routes"):
+        solve_exact(instance_path, initial_routes=[[0, 1, 0]])
+    with pytest.raises(ValueError, match="verify=True"):
+        solve_exact(load_td_instance(instance_path), verify=True)
 
+
+@pytest.mark.parametrize("instance_path", RIFKI, ids=["Rifki-1"])
+def test_raw_closure_cannot_certify_an_invalid_incumbent(instance_path, monkeypatch):
+    from kayros import _bpc
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=120.0)
-    assert result["stepwise_atfs"] is True
-    assert result["exact_log"]["status"] == "Optimum"
-    stamp = optimality_metadata(result, wall_time_s=1.0, time_limit_s=120.0)
-    assert stamp is not None and stamp["proven"] is True
-    assert stamp["proven_optimum"] == result["value"]
+    bad = [{"path": [0, 1, loaded.instance.num_customers + 1]}]
+
+    def raw(loaded, *, on_incumbent, **kwargs):
+        event = {"routes": bad, "time": 1.0, "origin": "lp", "value": 1.0}
+        on_incumbent(event)
+        return {"routes": bad, "value": 1.0, "incumbents": [event],
+                "exact_log": {"status": "Optimum", "time": 1.0, "best_bound": 1.0},
+                "closure_conditions": {"all_hold": True}, "pricing_integrity": {}}
+
+    monkeypatch.setattr(_bpc, "solve_duration", raw)
+    result = solve_exact(loaded, on_incumbent=lambda *args: pytest.fail("published invalid incumbent"))
+    assert result.status == "no_incumbent" and result.termination_reason == "search_closed"
+    assert result.routes == [] and not result.incumbents and result.rejected_incumbents == 1
+    assert result.cost is result.exact_cost is result.certified_dual_bound is None
 
 
-@pytest.mark.parametrize("instance_path", C101_25, ids=lambda p: "C101")
-def test_lera_warm_start_contract(instance_path) -> None:
-    from kayros.lera import routes_to_mamut, solve_duration
-
-    loaded = load_td_instance(instance_path)
-    cold = solve_duration(loaded, time_limit_s=120.0)
-    assert cold["exact_log"]["status"] == "Optimum"
-    seed = [r[1:-1] for r in routes_to_mamut(cold["routes"], loaded.instance.num_customers)]
-    warm = solve_duration(loaded, time_limit_s=120.0, initial_routes=seed)
-    assert warm["exact_log"]["status"] == "Optimum"
-    assert warm["value"] == cold["value"]
-    # Warm-start contract: proving the seed optimal returns the proven value
-    # with empty routes — the caller's own solution is the optimum.
-    assert warm["routes"] == []
+@pytest.mark.parametrize("instance_path", C101, ids=["C101"])
+def test_memory_limit_is_independent_of_incumbent_status(instance_path):
+    result = solve_exact(instance_path, time_limit=120, memory_limit_mb=1)
+    assert result.termination_reason == "memory_limit"
+    assert result.raw["memory"]["limit_reached"]
+    assert result.certified_dual_bound is None
+    if result.routes:
+        assert result.status == "feasible" and isinstance(result.exact_cost, Fraction)
+    else:
+        assert result.status == "no_incumbent" and result.exact_cost is None
