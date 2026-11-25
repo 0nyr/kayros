@@ -5,15 +5,7 @@
 
 namespace kayros {
 
-// Warp-augmented route evaluation (Stream 8, P8.0 design memo §3).
-//
-// The augmented fold carries a PAIR of functions of the depot departure time:
-//   rho  = clamped route ready-time delta~_r  (NDCPWLF, total in t except for
-//          horizon walls, which stay hard in both folds)
-//   warp = accumulated lateness W_r(t) = sum_k w_{v_k}(A_k(t)), non-decreasing
-// On the exactly-zero-warp set, rho reduces BITWISE to the checker's delta_r
-// (its breakpoint grid is the checker grid) — gates G1/G2. Time windows only:
-// on a TDVRP instance the fold is the base fold and warp is identically zero.
+// The binary64 augmented fold carries clamped ready time rho(t) and accumulated nonnegative lateness W(t). Horizon restrictions remain hard. On its zero-warp prefix the full knot grid agrees with sequential arc-then-window composition. Without time windows W is identically zero.
 
 // Domain end for the warp-augmented vertex builders: an upper bound on every
 // pre-clamp arrival. Max of the horizon end, every ATF image value, and every
@@ -26,19 +18,15 @@ struct WarpFunctions {
     Pwlf warp;  // same domain as rho
 };
 
-// route points to customer ids in 1..n, depot excluded (route_eval convention).
-// dedup=false is the checker-twin reference path (grid-prefix gate); dedup=true
-// applies the safe flat/vertical-run dedup after every composition step —
-// value-bitwise-identical accounting (gate-tested), a fraction of the
-// breakpoints. Search and accounting use dedup=true.
+// The route contains customer IDs only. The full sequential fold preserves the reference knot grid. Search removes interior flat and vertical knots while keeping the endpoints needed for duration and warp.
 WarpFunctions warp_route_functions(const Instance& inst, const std::int32_t* route,
                                    std::int64_t len, double t_end,
                                    bool dedup = false);
 
 struct WarpRouteEval {
     bool total = false;        // rho non-empty; false = hard horizon wall
-    bool feasible = false;     // zero-warp set non-empty == checker-feasible (G2)
-    double duration = 0.0;     // iff feasible: checker's Delta*_r bitwise (G1)
+    bool feasible = false;     // A departure with zero accumulated binary64 warp exists.
+    double duration = 0.0;     // Minimum binary64 duration among zero-warp departures, when feasible.
     double departure = 0.0;    // iff feasible: earliest zero-warp argmin (NEVER
                                // asserted across associations — value channel)
     double min_warp = 0.0;     // iff total: min achievable warp = W(domain start)

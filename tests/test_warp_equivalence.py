@@ -1,15 +1,4 @@
-"""P8.1 hard gates: the warp-augmented fold must reduce to the exact evaluation.
-
-Since library 0.13 the checker is exact and the solver's binary64 fold is an internal approximation. The gates against the library are feasibility agreement plus a distance bound (`exact_reference.TOL`), not bit identity. The bitwise comparisons between solver kernels (dedup'd versus full fold, C++ versus the Python twin, warp prefix versus the sequential unwarped fold) are unchanged.
-
-Stream 8 (TD time-warp) exact-reduction gates, per the accepted P8.0 design memo (workspace `reports/design/p8.0-td-time-warp-design.md` section 4):
-
-- G1: on every exactly-feasible route, the zero-warp duration is within TOL of the exact duration, the minimal warp is exactly 0.0, and the clamped ready-time function's breakpoint grid extends the sequential unwarped ready-time function (bitwise prefix). Durations are asserted, argmins never (association-fragile).
-- G2: the feasibility predicates agree exactly. Exact route evaluation feasible if and only if the zero-warp set is non-empty (exactly-zero warp, never a tolerance).
-- G3: hand-built late routes get controlled warp values.
-
-The C++ channels are additionally asserted bitwise against the pure-Python reference twin (`tests/warp_reference.py`) built on the canonical lib NDCPWLF algebra, mirroring the M3.2 checker-equivalence discipline.
-"""
+"""Check warp timing against the exact library and the sequential binary64 reference. Feasibility must agree with exact route timing and duration must meet exact_reference.TOL. The C++ warp channels must match the Python binary64 implementation bit for bit. On a feasible route the full clamped grid extends the sequential unwarped grid. Hand-built late routes exercise the nonzero-warp case."""
 
 import math
 import random
@@ -61,7 +50,7 @@ OUTCOME_TOTALS = {"feasible": 0, "warped": 0, "walled": 0}
 
 
 def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str:
-    """G1 + G2 + twin bit-identity on one route. Returns the outcome class."""
+    """Compare one warp evaluation with both references and return the observed outcome."""
     reference = exact_route(loaded, route)
     (rho_xs, rho_ys), (w_xs, w_ys) = core.route_warp_functions(route, t_end)
     twin_rho, twin_warp = ref.warp_route_functions(
@@ -96,7 +85,7 @@ def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str
                 prev_x = x
                 assert _core.pwlf_evaluate(dxs, dys, x) == y, (ctx, route, x)
 
-    # G2: exact feasibility equals (total AND exactly-zero achievable warp).
+    # Compare the attainable zero-warp predicate with exact feasibility.
     assert ev["feasible"] == (ev["total"] and ev["min_warp"] == 0.0), (ctx, route)
     assert ev["feasible"] == (reference is not None), (ctx, route)
 
@@ -111,7 +100,7 @@ def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str
             return "warped"
         return "walled"
 
-    # G1: zero-warp duration is within TOL of the exact duration.
+    # Compare both binary64 durations with the exact minimum.
     assert ev["min_warp"] == 0.0, (ctx, route)
     assert_close(loaded, base_duration, reference.duration, (ctx, route, "heuristic fold"))
     assert_close(loaded, ev["duration"], reference.duration, (ctx, route))
@@ -161,7 +150,7 @@ def test_warped_path_exercised() -> None:
 
 @pytest.mark.parametrize("instance_path", ALL_CASES)
 def test_warp_gate_bks_and_deadline_riders(instance_path) -> None:
-    """G1 on stored BKS routes; G2 + twin identity on adjacent-swap riders.
+    """Check stored routes and adjacent swaps against the exact and binary64 references.
 
     BKS routes ride time windows tightly, and swapping two adjacent customers
     usually produces a *slightly* late route — small positive warp, the regime
@@ -243,7 +232,7 @@ def test_builders_equivalence() -> None:
         assert r_xs == rwarp.xs and r_ys == rwarp.ys
 
 
-# --- G3: hand-built instance with controlled lateness ---------------------
+# Hand-built instance with controlled lateness
 
 def _toy_instance(customer_tw: tuple[float, float], depot_due: float = 100.0):
     """Depot + one customer, constant travel time 10 in both directions,
@@ -268,11 +257,10 @@ def test_g3_feasible_boundary() -> None:
     assert ev["total"] and ev["feasible"] and ev["min_warp"] == 0.0
     # 10 travel + 5 service + 10 travel back, no waiting anywhere.
     assert ev["duration"] == 25.0
-    # Base evaluation agrees (the instance is checker-feasible).
+    # The search fold also finds a feasible departure.
     feasible, duration, _ = inst.evaluate_route([1])
     assert feasible and duration == 25.0
-    # The zero-warp set ends exactly where the checker domain ends (t = 10:
-    # arrival hits the deadline 20).
+    # The zero-warp domain ends at departure 10, when arrival reaches the deadline of 20.
     (rho_xs, _), (w_xs, w_ys) = inst.route_warp_functions([1], t_end)
     base_xs, _ = inst.route_ready_time_function([1])
     assert base_xs[-1] == 10.0

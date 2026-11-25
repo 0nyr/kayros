@@ -30,9 +30,7 @@ bool attempt(const Instance& inst, const NeighbourLists& nb,
         is_removed[static_cast<std::size_t>(c)] = 1;
         removed.push_back(c);
     };
-    // Route-dissolve seed (M7 FleetCostDuration): every client of one
-    // smallest route (random among ties) goes out first, whole; the normal
-    // seed walk then tops the kick up to target_removals if there is room.
+    // A dissolve kick starts by removing one whole smallest route, randomly selected among ties, then fills the removal budget with the usual seed walk.
     if (dissolve) {
         std::size_t min_size = states[0].vertices.size();
         for (const RouteState& s : states) {
@@ -80,8 +78,7 @@ bool attempt(const Instance& inst, const NeighbourLists& nb,
         }
     }
 
-    // Recreate: random order, best tree-ranked feasible position, committed
-    // through the checker-fold rebuild (next-best on a fold disagreement).
+    // Reinsert in random customer order. Try tree-ranked positions and accept the first feasible rebuild with the search fold.
     std::vector<std::int32_t> insert_order = removed;
     fisher_yates(insert_order, rng);
     const Pwlf dep = departure_identity(inst);
@@ -140,8 +137,7 @@ PerturbOutcome perturb(const Instance& inst, const NeighbourLists& nb,
             n, params.min_perturbations +
                    static_cast<std::int32_t>(draw(
                        rng, static_cast<std::uint64_t>(span > 0 ? span : 1))));
-        // Dissolve arming is gated on fixed_route_cost > 0 BEFORE any draw:
-        // under Duration the rng stream is bitwise the pre-M7 one.
+        // Check for a positive route charge before drawing whether to dissolve.
         const bool dissolve =
             inst.fixed_route_cost > 0.0 && params.dissolve_pct > 0 &&
             ss.states.size() >= 2 &&

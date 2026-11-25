@@ -1,17 +1,4 @@
-"""K-diverse seeding gates (plan 13 I2, 1.5.0).
-
-`seed_k_factor` splits the greedy seed's routes before the search starts. What
-has to hold:
-
-- the split solution is a real solution (same customers, each exactly once,
-  every route feasible, priced by the reference fold);
-- it is reachable: the search starts from it, so `k_stats["k_seed"]` reports the
-  split count rather than the constructed one;
-- the default is the calibrated multiplier, and disabling it is bit-for-bit
-  the pre-1.5.0 seed;
-- it is never armed under FleetCostDuration, where every extra route is priced
-  and splitting would be actively harmful.
-"""
+"""Check route splitting in a Duration seed. Splits preserve coverage and feasibility, change the seed count reported by k_stats and consume no draws when disabled. FleetCostDuration starts from the unsplit seed."""
 
 import pytest
 
@@ -73,10 +60,7 @@ def test_split_is_a_no_op_below_the_current_count() -> None:
 
 
 def test_default_is_the_calibrated_multiplier() -> None:
-    """1.5.0 ships seeding ON at 2.0. Pinned here because it is a deliberate
-    default behaviour change: Duration trajectories move versus 1.4.x, and the
-    value is the one the multiplier sweep and the non-regression sweep both
-    cover."""
+    """Duration splits toward twice the greedy route count by default."""
     assert _core.IlsParams().seed_k_factor == 2.0
 
     from kayros import Params

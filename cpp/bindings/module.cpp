@@ -125,7 +125,7 @@ PYBIND11_MODULE(_core, m) {
         "heuristics";
     m.attr("__version__") = KAYROS_VERSION;
 
-    // --- pwlf primitives (exposed for the checker-equivalence test suite) ---
+    // Binary64 piecewise-linear primitives for reference comparisons.
     m.def("pwlf_identity", [](double low, double high) {
         kayros::Pwlf f = kayros::identity(low, high);
         return py::make_tuple(std::move(f.xs), std::move(f.ys));
@@ -155,7 +155,7 @@ PYBIND11_MODULE(_core, m) {
               return py::make_tuple(std::move(f.xs), std::move(f.ys));
           });
 
-    // --- TD time-warp primitives (Stream 8; exposed for the warp gate suite) ---
+    // Time-warp evaluation primitives.
     m.def("pwlf_add", [](std::vector<double> f_xs, std::vector<double> f_ys,
                          std::vector<double> g_xs, std::vector<double> g_ys) {
         const kayros::Pwlf f = make_pwlf(std::move(f_xs), std::move(f_ys));
@@ -243,7 +243,7 @@ PYBIND11_MODULE(_core, m) {
              py::arg("route"), py::arg("penalty"), py::arg("t_end"),
              py::arg("dedup") = false);
 
-    // --- warp-augmented LS structures (Stream 8, P8.2; gate + bench surface) ---
+    // Warp-augmented local-search structures for tests and timing measurements.
     py::class_<kayros::WarpRouteState>(m, "WarpRouteState")
         .def_readonly("duration", &kayros::WarpRouteState::duration)
         .def_readonly("min_warp", &kayros::WarpRouteState::min_warp)
@@ -296,8 +296,7 @@ PYBIND11_MODULE(_core, m) {
         "warp_tree_update_gate",
         [](const kayros::Instance& inst, const std::vector<std::int32_t>& route,
            double t_end, std::int64_t position, std::int32_t new_customer) {
-            // Localized update_leaf ≡ fresh rebuild, bitwise, on every query
-            // range (the td-route-trees P4.3 gate transposed to segments).
+            // Compare every range query after a leaf update against a fresh tree, bit for bit.
             const std::int64_t m = static_cast<std::int64_t>(route.size());
             if (position < 0 || position >= m) {
                 throw std::invalid_argument("bad position");
@@ -342,8 +341,7 @@ PYBIND11_MODULE(_core, m) {
                                         std::int64_t, std::int64_t, std::int64_t>>&
                draws,
            double penalty, double t_end) {
-            // Fair per-move cost: BOTH sides run over prebuilt trees, timed in
-            // C++ (P8.2 microbench; bench-only surface like the gates above).
+            // Time both move evaluators in C++ with their trees already constructed.
             std::vector<kayros::RouteState> base(routes.size());
             std::vector<kayros::WarpRouteState> warped(routes.size());
             for (std::size_t r = 0; r < routes.size(); ++r) {
@@ -519,8 +517,7 @@ PYBIND11_MODULE(_core, m) {
         const bool ok = kayros::greedy_construct(inst, routes);
         return py::make_tuple(ok, std::move(routes));
     });
-    // The pre-1.4.0 lookahead construction, exposed for the equality test
-    // that keeps greedy_construct honest against it.
+    // Multi-hop greedy lookahead used for comparison with the direct construction.
     m.def("greedy_construct_lookahead", [](const kayros::Instance& inst) {
         std::vector<std::vector<std::int32_t>> routes;
         const bool ok = kayros::greedy_construct_lookahead(inst, routes);
@@ -544,7 +541,7 @@ PYBIND11_MODULE(_core, m) {
           py::arg("accept_incumbent") = kayros::IncumbentGate{},
           py::call_guard<py::gil_scoped_release>());
 
-    // --- TD-LS layer (M3.7): exposed for the gate tests and experiments ---
+    // Local-search operations used by tests and experiments.
     m.def(
         "ls_local_search",
         [](const kayros::Instance& inst,

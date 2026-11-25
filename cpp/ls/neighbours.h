@@ -7,10 +7,7 @@
 
 namespace kayros {
 
-// Granular candidate lists (Stream 7 M7.0, per tdvrptw-workspace
-// reports/design/td-ils-design.md): per client, the num_neighbours nearest
-// other clients under a TD adaptation of the Vidal 2013 proximity used by
-// PyVRP:
+// Select the nearest customers using a time-dependent adaptation of the Vidal (2013) proximity used in PyVRP.
 //   prox(i,j) = mindur(i,j) + weight_wait * minwait(i,j)
 // with mindur the exact minimum of alpha_ij(t) - t over the feasible
 // departure domain [e_i + s_i, l_i + s_i] (from the ATF breakpoints),

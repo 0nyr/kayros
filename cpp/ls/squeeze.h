@@ -11,20 +11,7 @@
 
 namespace kayros {
 
-// Plan-15 S2: the post-drain squeeze. A penalised improvement phase on a
-// FEASIBLE solution: a granular first-improvement descent on
-// Phi = (rho(t) - t) + P * W(t) that may pass through transient time-window
-// violations, banking every exactly-zero-warp state that improves on the
-// entry duration, with a dominating-repair tail leg (the P8.3
-// stop_when_feasible exit) so the budget is not stranded warp-positive. The
-// move set is the td-time-warp branch's proven penalised descent
-// (inter-route relocate + swap, granular justification, route-level
-// staleness); see the plan-15 M1 memo for the v0 scope decision.
-//
-// Deterministic and rng-free. Operates on a routes COPY: the caller's search
-// state is untouched unless the phase returns true, so a phase that banks
-// nothing is a strict no-op. The returned routes are always exactly-zero
-// warp; the caller reprices them through the checker fold (repricing rule).
+// Post-drain squeeze runs first-improvement inter-route relocations and swaps on a copy of the routes. It minimizes duration plus penalty times accumulated warp and retains zero-warp states improving the starting duration. A final repair leg uses a larger penalty and stops on reaching zero warp. The caller rebuilds an improved route set with the binary64 search fold before adoption. The phase uses a deterministic candidate budget and consumes no RNG draws.
 struct SqueezeParams {
     double sq_penalty = 10.0;     // explore-leg P (ms of duration per ms of warp)
     std::int64_t sq_work_cap = 0; // pricing budget per phase; 0 disables entirely
@@ -48,19 +35,7 @@ bool squeeze_phase(const Instance& inst, const NeighbourLists& nb,
                    const std::chrono::steady_clock::time_point* deadline,
                    SqueezeStats* stats);
 
-// Plan-15 S1: the drain-assist squeeze (Nagata-Braysy's missing step 2,
-// placed strictly between feasible-insert failure and ejection). Force-insert
-// client `c` into `routes` (feasible, c absent) at the minimum-penalised
-// position (candidates: route ends + positions adjacent to granular
-// neighbours of c, the branch's recreate primitive), then the confined
-// reference repair: pick ONE warp-positive route at random, best-improvement
-// over its customers x granular neighbours (relocate-out + swap), strictly
-// improving penalised moves only, with the early-commit cutoff when a move
-// wipes the selected route's whole penalty; repeat until every route is
-// exactly-zero warp. On success returns true and `routes` holds the feasible
-// result with c placed; on failure (stuck route or budget) returns false and
-// `routes` is untouched. Charges *work_budget (never null); draws from `rng`
-// only for the warp-positive route pick.
+// Drain-assist squeeze follows the insertion step of Nagata and Bräysy. Force-insert the absent customer at a minimum-penalty route end or position next to a granular neighbour. Pick a warp-positive route at random and scan improving relocations and swaps, charging candidate evaluations to work_budget. Repeat until total warp reaches zero or repair fails. Only successful repair replaces the supplied routes.
 bool squeeze_insert(const Instance& inst, const NeighbourLists& nb,
                     std::vector<std::vector<std::int32_t>>& routes,
                     std::int32_t c, double penalty, std::int64_t* work_budget,

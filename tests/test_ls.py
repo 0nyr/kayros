@@ -1,15 +1,4 @@
-"""M3.7 TD-LS gates.
-
-Discipline per the Stream-4 decision memo (td-ls-structures-decision.md):
-- tree-based splice evaluations must agree with direct checker-fold pricing of
-  the spliced vertex vector on FEASIBILITY always; on value they may differ by
-  association-class noise only (P4.1), asserted tightly on Dabia (no vertical
-  steps), feasibility-only on step families (both are solver kernels);
-- local_search output must be a valid solution whose value equals the solver's
-  own Duration fold and lies within TOL of the library's exact Duration, never
-  worse than its input;
-- solve() with LS stays checker-refereed end to end (enforced by solve itself).
-"""
+"""Compare binary64 splice ranking and route rebuilding. Check feasibility on continuous and stepwise instances and duration tolerance on continuous Dabia functions. Local search must preserve coverage and never worsen its search objective. The library validates the final routes and exact cost."""
 
 import random
 
@@ -104,9 +93,7 @@ def test_evaluate_splice_matches_fold(gate_case) -> None:
         ref_feasible, ref_duration, _ = core.evaluate_route(candidate)
         assert feasible == ref_feasible, (path.name, route1, i1, j1, route2, i2, j2)
         if feasible and tight:
-            # Duration only: the earliest-argmin departure is association-
-            # fragile on duration plateaus (P4.1) — committed states take their
-            # departure from the checker fold, never from the tree evaluation.
+            # Different composition orders can select different departures on a duration plateau. The search records the departure from the rebuilt route.
             assert duration == pytest.approx(ref_duration, rel=REL_TOL)
         checked += 1
     assert checked > 100

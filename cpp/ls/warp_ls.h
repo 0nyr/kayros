@@ -8,19 +8,7 @@
 
 namespace kayros {
 
-// Warp-augmented route segments and their LCA-BST (Stream 8, P8.2; design
-// memo §5). A segment carries the PAIR
-//   rho:   entry ready-time -> clamped exit ready-time (NDCPWLF)
-//   omega: entry ready-time -> warp accrued inside the segment (ND PWLF)
-// with concatenation (a then b):
-//   rho_ab = rho_b ∘ rho_a,   omega_ab = omega_a + omega_b ∘ rho_a
-// — a monoid in exact arithmetic, so the Blauth LCA-BST applies unchanged at
-// ~2x storage / ~3 PWLF ops per concat (compose, compose, add).
-//
-// P4.1 discipline transposed: warp dissolves the domain wall, so BOTH channels
-// are value channels subject to association dust. Trees RANK penalised moves;
-// every accepted move is rebuilt and repriced by the sequential augmented fold
-// (warp_route_functions), which is the only accountant for duration AND warp.
+// A segment maps entry ready time to clamped exit ready time rho and accumulated warp omega. Concatenating a then b gives rho_b ∘ rho_a and omega_a + omega_b ∘ rho_a. The Blauth range tree uses this composition for ranking. Rebuild accepted moves with the sequential augmented binary64 fold because association can affect both channels.
 
 struct WarpSegment {
     Pwlf rho;
@@ -33,7 +21,7 @@ struct WarpSegment {
 // horizon wall — time windows never empty a warp segment).
 WarpSegment warp_concat(const WarpSegment& later, const WarpSegment& earlier);
 
-// Warp leaves, P4.0 convention transposed (route_leaves twin):
+// Warp leaves in route order:
 //   L_0 = (theta~_{r0} ∘ alpha ∘ id_dep,  w_{r0} ∘ alpha ∘ id_dep)
 //   L_i = (theta~_{r[i]} ∘ alpha,         w_{r[i]} ∘ alpha)
 //   L_m = (return-clamp ∘ alpha,          return-warp ∘ alpha)
@@ -46,9 +34,7 @@ WarpSegment warp_bridge_leaf(const Instance& inst, std::int32_t from,
 WarpSegment warp_return_leaf(const Instance& inst, std::int32_t from,
                              double t_end);
 
-// LcaTree twin over warp segments (same static BST, same localized update;
-// bitwise ≡ rebuild is gate-tested). Kept as a plain copy-adapt of LcaTree for
-// the P8.2 prototype — merging the two via a template is a P8.5 decision.
+// Range tree over warp segments. A localized leaf update follows the same composition order as a rebuild.
 class WarpLcaTree {
   public:
     void build(std::vector<WarpSegment> leaves);

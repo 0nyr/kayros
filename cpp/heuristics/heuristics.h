@@ -38,7 +38,7 @@ struct IlsParams {
 struct Incumbent {
     double value = 0.0;            // solution_cost (approximate search objective, canonical route order)
     double seconds = 0.0;          // wall time since solve start
-    std::uint64_t iteration = 0;   // 0 = greedy seed
+    std::uint64_t iteration = 0;   // 0 = seed or initial descent
     std::int32_t origin = 0;       // 0 = greedy, 2 = ils, 3 = supplied warm start
     bool from_squeeze = false;
 };
@@ -49,10 +49,7 @@ enum class SolveStatus : std::int32_t {
     Infeasible = 3,  // no feasible solution constructed
 };
 
-// Dissolve-kick lifecycle counters. Captured in solve_ils with integer increments and route-count reads
-// only (no rng draw, no double fed back into the search), so Duration runs
-// stay bitwise pre-M1. Under Duration the dissolve is never armed, so every
-// dissolved_* counter is structurally zero there.
+// Dissolve-kick counters read route counts without consuming RNG draws. Duration runs do not arm the dissolve operator.
 struct FleetKickStats {
     std::int64_t kicks_total = 0;      // perturb calls (one per ILS iteration)
     std::int64_t kicks_applied = 0;    // outcomes with applied == true
@@ -79,18 +76,7 @@ struct FleetKickStats {
     std::int64_t dissolved_new_best_k_lt = 0;  // dissolved new best with fewer routes than the incumbent
 };
 
-// Route-count movement over a solve, recorded under EVERY objective.
-//
-// FleetKickStats above answers the same question for FleetCostDuration only:
-// every one of its K counters lives inside the dissolve branch, which is
-// F-gated, so under Duration they are structurally zero. That made the
-// solver's K behavior unobservable exactly where it turned out to matter — a
-// Duration run's route count is set by the seed and then drifts down, and
-// nothing in the record said so. These counters are never gated.
-//
-// Same discipline as FleetKickStats: integer increments and route-count reads
-// only, no rng draw and no priced value, so streams stay bitwise with or
-// without them.
+// Route-count changes, recorded for every objective. The counters read the search state without drawing random numbers or changing prices.
 struct KStats {
     std::int64_t k_seed = 0;    // routes in the solution the search started from
     std::int64_t k_final = 0;   // routes in the returned best
@@ -112,9 +98,7 @@ struct KStats {
     std::int64_t new_best_k_down = 0;
 };
 
-// Plan-15 S3 K-cap diagnostics (ILS only; all zero when k_cap is off).
-// Integer increments, route-count reads and one work-unit stamp: no rng draw
-// and no priced value, so streams stay bitwise with or without them.
+// Fleet-cap counts and the number of candidate evaluations at the first in-cap incumbent. Disabled caps leave these fields zero.
 struct KCapStats {
     std::int64_t seed_drain_attempts = 0;  // back-to-back drain calls before the loop
     std::int64_t reached_cap = 0;          // 1 once any K <= k_cap incumbent published
@@ -129,9 +113,9 @@ struct SolveResult {
     SolveStatus status = SolveStatus::Infeasible;
     std::uint64_t iterations_run = 0;
     FleetKickStats fleet_stats;
-    FdStats fd_stats;  // Plan-12 M4 fleet-descent phase diagnostics (ILS only)
+    FdStats fd_stats;  // Fleet-descent diagnostics.
     KStats k_stats;    // route-count movement, recorded under every objective
-    KCapStats k_cap_stats;  // Plan-15 S3 K-cap diagnostics (ILS only)
+    KCapStats k_cap_stats;  // Fleet-cap diagnostics.
     // Work-trigger diagnostics (ILS only): total LS work units spent
     // (calibration source for the *_work thresholds: work_units divided by
     // wall seconds is the machine's work rate) and restart-to-best count.
@@ -139,47 +123,15 @@ struct SolveResult {
     std::int64_t restarts = 0;
 };
 
-// Deterministic greedy nearest-ready-time construction (GMH1 port): routes
-// depart at the earliest feasible depot time; selection by earliest direct
-// ready time over the remaining free customers, smallest id breaking ties.
-// Returns false when construction gets stuck (a remaining customer cannot
-// start a fresh route).
-//
-// Through 1.3.0 the selection ran a full TD Dijkstra over the free customers
-// at every placement and picked the earliest MULTI-HOP ready time. That
-// lookahead is almost entirely redundant: Dijkstra's first settled node is by
-// construction the one with the smallest direct ready time, so the multi-hop
-// minimum equals the direct minimum and is attained at the same customer. The
-// two rules can only part on ties — a customer reachable in the same total
-// time through a detour, which needs a time window binding hard enough for
-// the wait to absorb the detour — and there the lookahead is a different tie
-// break, not a better choice. Dropping it (1.4.0) turns an O(n^3) construction
-// into an O(n^2) one: 0.03 s instead of 36 s at n = 1000, which is what makes
-// the anytime stream open in well under a second at every scale. The removed
-// rule is kept below as the test oracle.
+// Deterministic nearest-ready-time construction adapted from GMH1. Start at the earliest depot departure, choose the unserved customer with the earliest direct ready time, and break ties by customer ID. Return false if a remaining customer cannot start a fresh route.
 bool greedy_construct(const Instance& inst,
                      std::vector<std::vector<std::int32_t>>& routes_out);
 
-// The pre-1.4.0 multi-hop-lookahead construction, kept as the reference oracle
-// for greedy_construct: not used by any solver path, exercised by the
-// equality tests and available to experiments that want to re-measure the
-// lookahead's effect. Same loop, O(n^3) selection.
+// Multi-hop lookahead reference for the direct greedy construction. Dijkstra selection can break direct-ready-time ties differently and raises construction complexity from quadratic to cubic.
 bool greedy_construct_lookahead(
     const Instance& inst, std::vector<std::vector<std::int32_t>>& routes_out);
 
-// Split routes of a feasible solution until it holds target_k of them, each
-// step taking the cheapest feasible split under the canonical fold. The
-// objective is a sum of per-route durations, so a candidate costs two route
-// evaluations rather than a whole-solution refold. Stops early when no route
-// admits a feasible split. Returns whether anything was split.
-//
-// This is the K-diverse seeding of plan 13 I2 (1.5.0). Under Duration the
-// search sheds routes freely and effectively never adds one, so the seed's
-// route count decides the final one, and on fleet-starved instances that
-// costs a great deal; starting above the greedy count and letting the search
-// descend is worth up to -27 percent there and is inside noise elsewhere.
-// It is NEVER right under FleetCostDuration, where every extra route is
-// priced: callers must gate on the objective.
+// Split a feasible Duration seed towards target_k. At each step choose the feasible split with the smallest change in the two affected binary64 route durations. Stop if no feasible split remains. The caller enables this only when routes carry no fixed charge.
 bool split_to_k(const Instance& inst,
                 std::vector<std::vector<std::int32_t>>& routes,
                 std::int32_t target_k);
@@ -202,14 +154,7 @@ using IncumbentCallback = std::function<void(
 using IncumbentGate = std::function<bool(
     const std::vector<std::vector<std::int32_t>>&, bool from_squeeze)>;
 
-// TD-ILS driver (M7.2): greedy seed -> granular descent (+ exhaustive polish)
-// -> {perturb, granular descent, LAHC accept, restart-to-best} until the
-// budget ends. Feasible-only; every value is the canonical checker Duration;
-// the incumbent stream is monotone (LAHC worse-accepts stay internal). The
-// time limit is checked per iteration and threaded into the descent's pass
-// boundaries, so the overshoot is bounded by one operator pass.
-// A non-empty initial_routes warm-starts the loop from that solution instead
-// of the greedy seed. The supplied routes must be feasible.
+// Iterated local search starts from a feasible warm seed or the greedy construction. Perturbation, descent and late acceptance use the binary64 search objective. A new best passes the supplied gate before publication or restart. Time checks run between iterations and local-search passes.
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit,
                       const IncumbentCallback& on_incumbent = {},

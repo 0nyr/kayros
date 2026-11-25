@@ -7,12 +7,7 @@
 
 namespace kayros {
 
-// Tree-ranked feasible insertion candidates of one client over all routes x
-// positions (shared-prefix scan per route, capacity-screened), best-first by
-// (delta, route, position). Ranking only: commits go through the checker-fold
-// rebuild (build_route_state), next-best on a fold disagreement. Hoisted
-// verbatim from perturb.cpp (M3, plan 12); shared by the ruin-and-recreate
-// repair and the fleet-descent ladder.
+// Rank capacity-screened insertions over every route and position by (delta, route, position). Ruin repair and fleet descent try these in order, rebuilding each proposed route with the search fold before accepting it.
 struct InsertionCandidate {
     double delta;
     std::size_t route;

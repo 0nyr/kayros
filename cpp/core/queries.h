@@ -7,13 +7,10 @@
 
 namespace kayros {
 
-// Point queries used by construction heuristics. They mirror the checker's
-// composition semantics point-wise (theta_j ∘ alpha_ij at a single departure),
-// with plain max/+ arithmetic: guidance-exact, while final pricing always goes
-// through the compose-based evaluate_route (bit-identical to the checker).
+// Construction evaluates one arc and the destination service/window at a single binary64 departure. The search prices a whole route by composing its functions.
 inline constexpr double kInfeasible = std::numeric_limits<double>::infinity();
 
-// Earliest feasible depot departure time (the checker's departure_low).
+// Earliest permitted depot departure within the horizon.
 inline double departure_low(const Instance& inst) {
     double lo = inst.horizon_start;
     if (inst.has_time_windows && inst.tw_earliest[0] > lo) lo = inst.tw_earliest[0];

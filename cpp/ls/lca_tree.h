@@ -7,10 +7,7 @@
 
 namespace kayros {
 
-// Blauth et al. 2024 (Theorem 12) LCA-BST over the m+1 route leaves, ported
-// from the gate-tested td-route-trees study implementation (Stream 4, P4.3;
-// decision memo: tdvrptw-workspace reports/design/td-ls-structures-decision.md).
-// No normalization anywhere: compositions carry the exact checker semantics.
+// Range-composition tree following Blauth et al. (2024), Theorem 12, adapted from the td-route-trees implementation. Store binary64 compositions without normalizing knots.
 //
 // Boundaries 0..m+1 delimit the leaves (leaf i lies between boundaries i and
 // i+1). G(b1, b2) := L_{b2-1} ∘ ... ∘ L_{b1} for b1 < b2, with the splice

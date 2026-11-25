@@ -1,11 +1,4 @@
-"""Pure-Python reference twin of the warp-augmented fold (Stream 8, P8.1).
-
-Mirrors ``cpp/pwlf/warp.cpp`` + ``cpp/core/warp_eval.cpp`` operation for
-operation on top of the canonical ``mamut_routing_lib.td.pwlf.NDCPWLF``
-algebra: every float expression here is the same expression as in the C++
-(the equivalence gates assert bitwise identity of both channels). Exact
-doubles, no epsilons — checker discipline.
-"""
+"""Python binary64 reference for the sequential warp fold. It uses the NDCPWLF arithmetic of mamut_routing_lib.td.pwlf in the same operation order as cpp/pwlf/warp.cpp and cpp/core/warp_eval.cpp. Both channels are compared bit for bit."""
 
 from __future__ import annotations
 

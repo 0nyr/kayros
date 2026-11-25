@@ -1,15 +1,4 @@
-"""M7.2 TD-ILS gates (Stream 7, td-ils-design.md).
-
-Discipline:
-- the returned best is a complete feasible solution, valid for the exact
-  library checker (partition, Duration within TOL of the exact cost);
-- the incumbent stream is strictly monotone — LAHC worse-accepts stay
-  internal to the loop and never surface;
-- seeded determinism under an iteration budget (no TL in the loop);
-- ILS beats its own greedy+LS seed given a few hundred iterations;
-- TL compliance: overshoot bounded (one operator pass at these sizes is
-  milliseconds, assert a generous absolute bound).
-"""
+"""Check iterated local search, including exact validation of the returned routes, monotone incumbents, seeded determinism, improvement over construction and time-limit handling."""
 
 import time
 
@@ -86,11 +75,7 @@ def test_ils_incumbents_monotone(pick) -> None:
     assert len(set(values)) == len(values), "incumbents must strictly improve"
     assert values[-1] == result.value
     assert events[-1][1] == [list(r) for r in result.routes]
-    # Origins: the seed phase publishes 0 and can do so more than once — the raw
-    # construction (1.4.0 publish-early), the K-diverse split when it improves
-    # (1.5.0 seed_k_factor), then the first descent. Everything the search finds
-    # afterwards is 2 (= ils), and the phases never interleave, so the origin
-    # sequence is a non-empty prefix of 0s followed by all 2s.
+    # The raw greedy seed, improving splits and initial descent publish with origin 0. Later ILS improvements publish with origin 2.
     origins = [inc.origin for inc in result.incumbents]
     assert set(origins) <= {0, 2}
     assert origins[0] == 0
@@ -100,8 +85,7 @@ def test_ils_incumbents_monotone(pick) -> None:
 
 
 def test_ils_publishes_the_raw_seed_first(pick) -> None:
-    """1.4.0 publish-early: the first incumbent is the greedy seed exactly as
-    built, before any descent has touched it."""
+    """The first publication is the raw greedy seed before descent."""
     core = to_core(load_instance(pick, verify=True))
     ok, seed_routes = _core.greedy_construct(core)
     assert ok

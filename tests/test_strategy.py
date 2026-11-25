@@ -25,7 +25,7 @@ def dabia(name, size_dir="n=25"):
 
 
 def test_default_strategy_is_ils() -> None:
-    # 0.4.0 default, picked by the M7.4 head-to-head campaign data.
+    # ILS is the default strategy.
     assert kayros.Params().strategy == "ils"
 
 

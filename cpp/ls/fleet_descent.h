@@ -9,29 +9,12 @@
 
 namespace kayros {
 
-// Plan-12 M4 fleet-descent attempt (NBRMH-lite ejection ladder): dissolve one
-// route into an ejection pool and drain it back through (1) feasible
-// best-insert, then (2) contiguous-window insertion-with-ejection choosing
-// the feasible window minimizing the ejected clients' difficulty counters
-// (p-counts, the NBRMH / BonnTour difficult-item idea; a client's count grows
-// each time step 1 fails for it). All-or-nothing: any dead end, pop-budget or
-// deadline hit restores the pre-attempt solution exactly (deterministic
-// rebuild from a vertices snapshot, the perturb undo discipline). No step
-// ever opens a route, so success means exactly one route fewer, all routes
-// feasible, every client served.
-//
-// Determinism/inertness contract: draws come from the caller's rng via the
-// shared modulo helpers (ls/rng.h) and the caller only invokes this behind
-// its fixed_route_cost > 0 gate, so Duration rng streams stay bitwise
-// unchanged. The M7.0 staleness stamps are NOT maintained during the attempt;
-// on success the caller must mark_all_touched(ss) before descending.
+// The Nagata-Bräysy-inspired ejection ladder dissolves one route into a pool. For each customer it tries feasible insertion, optional squeeze, then insertion with contiguous ejection. The ejection selects the feasible segment with the lowest sum of customer difficulty counts.
+// A successful drain preserves coverage and removes one route. A dead end, exhausted work or pop budget, or deadline restores the original routes. The caller marks all customers touched before the next descent. The caller enables the ladder only with a positive route charge and supplies its RNG.
 struct FleetDescentParams {
     std::int32_t fd_k_max = 2;         // max ejection-window size (clients)
     std::int64_t fd_ep_budget = 2000;  // max ejection-pool pops per attempt
-    // Plan-15 S1 (inert at false): squeeze between feasible-insert failure
-    // and ejection (the RMH step the ladder omitted). When armed, the
-    // p-count increments only after the squeeze also fails, per the
-    // reference semantics.
+    // Try a squeeze after feasible insertion fails and before ejection. Increment the difficulty count after these attempts fail.
     bool sq_ladder = false;
     double sq_penalty = 10.0;
 };
@@ -45,9 +28,7 @@ struct FdStats {
     std::int64_t ejections = 0;  // clients ejected back into the pool
     std::int64_t rollbacks_deadend = 0;
     std::int64_t rollbacks_budget = 0;
-    // Global time limit fired mid-drain (end-of-run only since the wall-clock
-    // per-trigger cap was removed for fd_work_cap, plan 15 M0.2; the counter
-    // keeps its name so stored fd_stats stay comparable across versions).
+    // Attempts rolled back when the global run deadline expires.
     std::int64_t rollbacks_time = 0;
     // Work-cap rollback (fd_work_cap exhausted mid-drain), and the drain's
     // work counter: candidate pricings (ranked insertion candidates, splice
@@ -57,26 +38,17 @@ struct FdStats {
     std::int64_t rollbacks_work = 0;
     std::int64_t evaluated = 0;
     std::int64_t basin_evaluated = 0;  // caller-side (ils.cpp), not this file
-    // Plan-15 S2 squeeze counters (caller-side, ils.cpp): phases run,
-    // penalised pricings spent, zero-warp improvements banked, and phases
-    // whose bank was adopted into the search state.
+    // Post-drain squeeze phases, candidate evaluations, zero-warp checkpoints and adoptions.
     std::int64_t squeeze_phases = 0;
     std::int64_t squeeze_evaluated = 0;
     std::int64_t squeeze_checkpoints = 0;
     std::int64_t squeeze_improved = 0;
-    // Plan-15 S1 counters: in-ladder squeeze attempts and rescues (a popped
-    // client placed through transient warp where step 1 had failed).
+    // In-ladder squeeze attempts and placements after direct insertion failed.
     std::int64_t ladder_squeezes = 0;
     std::int64_t ladder_rescues = 0;
 };
 
-// One attempt; true iff the route count strictly decreased (by exactly one).
-// `pcount` (size num_customers + 1) persists across attempts at the caller.
-// `work_budget` (nullable = uncapped) is decremented by every candidate
-// pricing; when it runs out mid-drain the attempt rolls back all-or-nothing
-// (FdStats::rollbacks_work). `deadline` is the GLOBAL time limit only: it
-// aborts a drain at end-of-run (FdStats::rollbacks_time) and takes no other
-// decision (plan 15 M0.2: no wall-clock in any decision path).
+// Returns true when the drain removes one route. The caller retains one difficulty count per customer across attempts. A non-null work budget charges each candidate pricing. Exhaustion or the global deadline restores the original solution.
 bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
                    SearchState& ss, std::mt19937_64& rng,
                    const FleetDescentParams& params,

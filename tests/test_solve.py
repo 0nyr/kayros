@@ -1,5 +1,4 @@
-"""M3.3: solve() behavior on real instances — validity (checker-refereed by
-construction), seeded determinism, and loose quality sanity vs stored BKS."""
+"""Check feasibility, seeded determinism and solution quality against stored incumbents."""
 
 import pytest
 from mamut_routing_lib.bks import get_bks_path_for_instance, load_bks
@@ -59,8 +58,7 @@ def test_solve_deterministic(instance_path) -> None:
     "instance_path", DABIA_25_TDVRPTW[:1], ids=lambda p: p.name.removesuffix(".vrp.json")
 )
 def test_solve_on_incumbent_hook(instance_path) -> None:
-    """M3.6 anytime hook: fires live on every incumbent, in step with
-    Solution.incumbents, and each event carries a complete routes snapshot."""
+    """Each synchronous callback receives the complete routes for the corresponding incumbent record."""
     events: list[tuple[kayros.Incumbent, list[list[int]]]] = []
     solution = kayros.solve(
         instance_path, SMALL_BUDGET, seed=1,

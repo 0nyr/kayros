@@ -129,7 +129,7 @@ IncumbentHook = Callable[[Incumbent, list[list[int]]], None]
 
 
 class _Acceptance:
-    """The native loop calls accept before storing its incumbent, then publish after acceptance."""
+    """Price proposed incumbents with the shared GMP evaluator and check the returned routes through the Python library."""
 
     def __init__(self, loaded, objective, params, hook):
         self.loaded = loaded
@@ -239,25 +239,15 @@ class _Acceptance:
 
 @dataclass
 class Solution:
-    """A solution checked under the exact profile of mamut-routing-lib
-    (``td-binary64-exact-v1``).
+    """A solution checked by mamut-routing-lib under the td-binary64-exact-v1 profile.
 
-    ``exact_cost`` is the authoritative rational value of ``objective``, as
-    computed by the prepared exact evaluator of mamut-routing-lib. ``cost`` is its
-    binary64 display (the nearest double). Under ``"FleetCostDuration"`` both
-    include the ``fleet_fixed_cost * num_routes`` term. ``route_durations`` and
-    ``route_departures`` are the displays of the exact per-route durations and
-    earliest minimizing departures, in the order of ``routes``. Their rational
-    values are in ``exact_route_durations`` and ``exact_route_departures``.
-    ``search_value`` is the value of the same solution under the binary64 fold
-    that the search uses. It is internal to the solver and can differ from
-    ``cost`` in the last bits. ``exact_evaluation`` is the record of the
-    library (profile, backend, authoritative cost as an integer pair)."""
+    exact_cost is the rational objective and cost is its nearest binary64 display. FleetCostDuration includes the fixed charge for each used route. exact_route_durations and exact_route_departures give the rational duration and earliest minimizing departure for each route, in the order of routes. route_durations and route_departures contain their binary64 displays.
+
+    search_value is the approximate objective of the selected routes under the binary64 search fold. exact_evaluation contains the library record, including the profile, backend and authoritative cost."""
 
     instance_name: str
     routes: list[list[int]]
-    # Named `duration` before 2.0.0. Under FleetCostDuration it holds the full
-    # objective value, including fleet_fixed_cost * num_routes.
+    # Binary64 display of the checked objective, including the per-route charge under FleetCostDuration.
     cost: float
     route_durations: list[float]
     route_departures: list[float]
@@ -270,26 +260,15 @@ class Solution:
     search_value: float | None = None
     exact_evaluation: dict | None = None
     incumbents: list[Incumbent] = field(default_factory=list)
-    # Plan-12 M1 dissolve-kick lifecycle counters (ILS iterations only), as a
-    # plain dict of the core FleetKickStats fields. None under "Duration",
-    # where the dissolve is never armed and the counters carry no signal.
+    # Route-dissolve kick counters from ILS, or None under Duration.
     fleet_stats: dict[str, int] | None = None
-    # Plan-12 M4 fleet-descent phase diagnostics (core FdStats fields), same
-    # contract: None under "Duration" (the phase is never armed there).
+    # Fleet-descent counters for FleetCostDuration, or None under Duration.
     fd_stats: dict[str, int] | None = None
-    # Route-count movement over the solve (core KStats fields). Unlike
-    # fleet_stats and fd_stats this is recorded under EVERY objective, because
-    # the route count moves under Duration too and used to be invisible there:
-    # every K counter the solver had lived inside the FleetCostDuration-gated
-    # dissolve branch. Always a dict.
+    # Route-count changes during search under either objective.
     k_stats: dict[str, int] = field(default_factory=dict)
-    # Plan-15 S3 K-cap diagnostics (core KCapStats fields). None when the cap
-    # is off or the objective is Duration (the cap is F-gated dead code there).
+    # Cap diagnostics for FleetCostDuration runs with a positive k_cap.
     k_cap_stats: dict[str, int] | None = None
-    # Work-trigger diagnostics: total
-    # LS work units spent (candidate pricings; work_units / wall seconds is
-    # the machine's work rate, the calibration source for the *_work
-    # thresholds) and restart-to-best count.
+    # Candidate pricings and restarts to the best accepted solution.
     work_units: int = 0
     restarts: int = 0
     acceptance_stats: dict[str, int] = field(default_factory=dict)
@@ -394,38 +373,15 @@ def solve(
     verify: bool = False,
     initial_routes: Sequence[Sequence[int]] | None = None,
 ) -> Solution:
-    """Solve a MAMUT TD instance (TDVRPTW or TDVRP; Duration minimization by
-    default, FleetCostDuration via ``params.objective``).
+    """Run iterated local search on a TDVRPTW or TDVRP instance. Duration is the default objective. Set params.objective to FleetCostDuration to price used routes.
 
-    ``instance`` is a ``.vrp.json`` path or an already-loaded
-    ``LoadedTDInstance``. The returned ``Solution.cost`` is the binary64
-    display of the exact objective, with its rational value in ``Solution.exact_cost``.
+    Pass a .vrp.json path or a LoadedTDInstance. For a path, verify=True checks the sidecar and materialized ATF digests against the instance declaration during loading. This check requires an additional pass over the arc data. An already-loaded instance must have been verified when it was loaded.
 
-    ``verify`` applies to the loading half only, and is forwarded to
-    ``kayros.io.load_instance``: it re-derives the sidecar digests and the
-    ``atf_sha256`` of the materialized arrival-time functions and pins them
-    against what the instance file declares. Verify on test runs and on the
-    first run over unfamiliar data, where the check catches a truncated
-    download or a mismatched sidecar; leave it off afterwards, since
-    materialization is deterministic and the check costs minutes and several
-    gigabytes of peak memory at n = 1000. It is rejected when ``instance`` is
-    an already-loaded ``LoadedTDInstance``, because by then the artifacts have
-    been read and it is too late to verify them here.
+    initial_routes accepts a complete, feasible solution expressed as customer-only routes. The library checks the seed under the requested objective in both acceptance modes. Fleet descent can start above k_cap, but only solutions meeting the target enter the incumbent stream.
 
-    Pass customer-only routes in ``initial_routes`` to start from a complete feasible solution.
-    The library validates the seed under the requested objective in both acceptance modes.
-    An otherwise feasible seed may exceed the search target ``k_cap``. The fleet descent
-    can use it, and only solutions meeting the target enter the incumbent stream.
+    By default, each candidate new best must pass exact feasibility and strictly improve the rational objective before publication. The synchronous callback receives its exact_cost, its binary64 display as value and its approximate search_value. Distinct rational costs can have the same display.
 
-    By default, a candidate new best must pass exact feasibility and strictly improve the
-    rational objective before it replaces the incumbent. The synchronous callback receives
-    its exact cost, its binary64 display as ``value``, and the approximate ``search_value``.
-    Distinct exact costs can have the same display. With ``acceptance_mode="final_only"``,
-    callback events and ``Solution.incumbents`` describe provisional search improvements
-    and carry ``exact_cost=None``. If the final candidate fails, the solver tries up to
-    ``incumbent_history_size`` prior distinct incumbents in increasing approximate cost
-    order. ``Solution.routes`` and its cost always describe the checked result.
-    """
+    With acceptance_mode="final_only", publications are provisional and carry exact_cost=None. If final verification rejects the last candidate, the solver tries up to incumbent_history_size earlier distinct candidates in increasing approximate cost order. Solution.routes and Solution.exact_cost describe the checked result."""
     if isinstance(instance, LoadedTDInstance):
         if verify:
             raise ValueError(
@@ -441,8 +397,7 @@ def solve(
     # The objective is always passed explicitly: the default of the library is
     # the published objective of the family, which is not "Duration" everywhere.
     if objective != "Duration":
-        # Contract guards up front (mirroring the checker's misuse guards):
-        # the objective needs the instance field and a lib that scores it.
+        # FleetCostDuration requires the per-route charge in the instance.
         if getattr(loaded.instance, "fleet_fixed_cost", None) is None:
             raise KayrosError(
                 f"instance {loaded.instance.instance_name} carries no "
@@ -467,8 +422,7 @@ def solve(
         if acceptance.stats["infeasible"]:
             raise InfeasibleError(f"no exact-feasible incumbent in {acceptance.stats['proposals']} proposals")
         if params.k_cap > 0 and objective != "Duration":
-            # Plan-15 S3 (D-S3.1): the run never reached the cap, so it
-            # publishes nothing. An empty cell is the honest outcome.
+            # No seed or accepted candidate met the fleet cap.
             raise InfeasibleError(
                 f"kayros found no solution within k_cap={params.k_cap} routes "
                 f"for {loaded.instance.instance_name}"

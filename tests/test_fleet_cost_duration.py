@@ -1,32 +1,4 @@
-"""M7 (Plan 11 Blauth2024 campaign): FleetCostDuration in the heuristic stack.
-
-The lib checker stays the authority. Since library 0.13 it evaluates exactly:
-``Solution.exact_cost`` must equal ``compute_solution_cost`` under
-``objective_function=FLEET_COST_DURATION`` (a Fraction), ``Solution.cost`` must be
-its binary64 display, and the solver's internal float fold is only required to
-lie within ``exact_reference.TOL`` of it. Every call passes the objective
-explicitly, since the library default is the family's published objective
-(FleetCostDuration for Blauth2024).
-These are the FleetCostDuration legs of the checker-equivalence and ILS gates:
-
-- fold equivalence: canonical duration fold + one ``F * K`` multiply-add, on
-  real instances with an injected ``fleet_fixed_cost``;
-- Duration orthogonality: an instance CARRYING ``fleet_fixed_cost`` solved
-  under Duration behaves bitwise like one without it (F ignored, rng streams
-  untouched);
-- LS emptying credit: relocates that empty a route are credited F, so
-  duration-increasing merges worth up to F are taken under FleetCostDuration
-  and refused under Duration;
-- route-dissolve kick: armed only when the core prices routes; inert (bitwise)
-  under Duration;
-- solve() API: objective selection, misuse guards, checker equality by
-  construction;
-- fleet_stats counters (Plan 12 M1): dissolve-kick lifecycle diagnostics,
-  self-consistent identities on a priced solve, None under Duration,
-  deterministic per seed;
-- Blauth-berlin n=10 smoke (skipped unless the converted family is reachable):
-  the 10 h fleet penalty must actually buy route dissolves.
-"""
+"""Check fixed-route charges in the binary64 search objective and the published rational FleetCostDuration cost. Exercise route-emptying moves, dissolve kicks, counters and the two objectives on the same data. The Duration search must ignore the fixed charge, including its effect on RNG draws."""
 
 import random
 
@@ -100,7 +72,7 @@ def test_to_core_objective_selects_fixed_route_cost(instance_path) -> None:
     assert core.fixed_route_cost == BLAUTH_F
 
 
-# --- fold equivalence (checker-equivalence leg) -------------------------------
+# Fixed-route charges
 
 
 def random_split(rng: random.Random, routes: list[list[int]]) -> list[list[int]]:
@@ -212,8 +184,7 @@ def test_ls_emptying_credit_isolated() -> None:
     "instance_path", DABIA_25[:1], ids=lambda p: p.name.removesuffix(".vrp.json")
 )
 def test_perturb_dissolve_inert_under_duration(instance_path) -> None:
-    """F == 0 arms nothing: no draw is consumed, kicks are bitwise the
-    pre-M7 ones whatever dissolve_pct says."""
+    """With F = 0 the dissolve selection consumes no draws, regardless of dissolve_pct."""
     core = to_core(load_td_instance(instance_path))
     routes = greedy_routes(core)
     a = _core.ls_perturb(core, routes, 123, dissolve_pct=0)
@@ -308,15 +279,14 @@ def test_duration_solve_unchanged_by_carried_field(instance_path) -> None:
     assert "objective_function" not in b.to_benchmark_solution().metadata
 
 
-# --- fleet_stats counters (Plan 12 M1) --------------------------------------------
+# Fleet kick counters
 
 
 @pytest.mark.parametrize(
     "instance_path", DABIA_25[:1], ids=lambda p: p.name.removesuffix(".vrp.json")
 )
 def test_fleet_stats_none_under_duration(instance_path) -> None:
-    """Under Duration the dissolve is never armed, so the counters carry no
-    signal and the Solution surface stays the pre-M1 one (None)."""
+    """Duration leaves fleet_stats empty because dissolve kicks are disabled."""
     solution = kayros.solve(
         load_td_instance(instance_path), kayros.Params(ils_max_iterations=50), seed=1
     )
