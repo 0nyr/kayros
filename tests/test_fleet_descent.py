@@ -51,14 +51,14 @@ def _ladder_core():
     )
 
 
-START = [[1, 2], [3, 5], [4]]
+START = [[1, 2], [3, 5], [4]]  # Seed 1 draws the singleton at index 2.
 
 
 def test_fleet_descent_drops_a_route() -> None:
     core = _ladder_core()
     assert _core.solution_duration(core, START) != float("inf")
     routes, value, success, pops, step1, ejections, dead, budget, work_rb, evaluated = (
-        _core.ls_fleet_descent(core, START, 0, route_choice=1, num_neighbours=0)
+        _core.ls_fleet_descent(core, START, 1, num_neighbours=0)
     )
     assert success
     assert len(routes) == 2
@@ -77,7 +77,7 @@ def test_fleet_descent_all_or_nothing_on_impossible() -> None:
     start = [[1, 2], [4]]
     routes, value, success, _pops, _s1, _ej, dead, budget, _wrb, _ev = (
         _core.ls_fleet_descent(
-            core, start, 0, route_choice=1, ep_budget=25, num_neighbours=0
+            core, start, 0, ep_budget=25, num_neighbours=0
         )
     )
     assert not success
@@ -99,7 +99,7 @@ def test_fleet_descent_work_cap_rolls_back() -> None:
     core = _ladder_core()
     routes, value, success, _pops, _s1, _ej, dead, budget, work_rb, evaluated = (
         _core.ls_fleet_descent(
-            core, START, 0, route_choice=1, num_neighbours=0, work_cap=1
+            core, START, 1, num_neighbours=0, work_cap=1
         )
     )
     assert not success

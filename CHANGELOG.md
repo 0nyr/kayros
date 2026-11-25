@@ -6,6 +6,8 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 
 The heuristic solver uses iterated local search. The `aco` and `aco+ils` strategies and the ant-colony parameters have been removed. Historical runs can be replayed with Kayros 1.7.1.
 
+Fleet descent draws its victim route uniformly and processes ejected customers in reverse insertion order. Use `fd_period_work` for periodic triggers. The experimental `fd_period`, `fd_route_choice` and `fd_pop_order` parameters have been removed.
+
 Development towards 2.0.0. Version 1.8.0 was prepared and not released. Its entry is kept below as written and becomes part of the 2.0.0 entry. Its figures are to be checked again before the release.
 
 ### Stepwise repair (prepared as 1.8.0)

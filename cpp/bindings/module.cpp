@@ -405,13 +405,10 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("sq_on_nodrop", &kayros::IlsParams::sq_on_nodrop)
         .def_readwrite("sq_ladder", &kayros::IlsParams::sq_ladder)
         .def_readwrite("k_cap", &kayros::IlsParams::k_cap)
-        .def_readwrite("fd_period", &kayros::IlsParams::fd_period)
         .def_readwrite("fd_period_work", &kayros::IlsParams::fd_period_work)
         .def_readwrite("seed_k_factor", &kayros::IlsParams::seed_k_factor)
         .def_readwrite("restart_no_improvement_work",
-                       &kayros::IlsParams::restart_no_improvement_work)
-        .def_readwrite("fd_route_choice", &kayros::IlsParams::fd_route_choice)
-        .def_readwrite("fd_pop_order", &kayros::IlsParams::fd_pop_order);
+                       &kayros::IlsParams::restart_no_improvement_work);
 
     py::class_<kayros::Incumbent>(m, "Incumbent")
         .def_readonly("value", &kayros::Incumbent::value)
@@ -614,7 +611,6 @@ PYBIND11_MODULE(_core, m) {
         [](const kayros::Instance& inst,
            std::vector<std::vector<std::int32_t>> routes, std::uint64_t seed,
            std::int32_t k_max, std::int64_t ep_budget,
-           std::int32_t route_choice, std::int32_t pop_order,
            std::int32_t num_neighbours, double weight_wait,
            std::int64_t work_cap) {
             const kayros::NeighbourLists nb =
@@ -627,8 +623,6 @@ PYBIND11_MODULE(_core, m) {
             kayros::FleetDescentParams params;
             params.k_max = k_max;
             params.ep_budget = ep_budget;
-            params.route_choice = route_choice;
-            params.pop_order = pop_order;
             std::vector<std::int32_t> pcount(
                 static_cast<std::size_t>(inst.num_customers) + 1, 0);
             kayros::FdStats stats;
@@ -650,7 +644,6 @@ PYBIND11_MODULE(_core, m) {
         },
         py::arg("instance"), py::arg("routes"), py::arg("seed"),
         py::arg("k_max") = 2, py::arg("ep_budget") = 2000,
-        py::arg("route_choice") = 0, py::arg("pop_order") = 0,
         py::arg("num_neighbours") = 50, py::arg("weight_wait") = 0.2,
         py::arg("work_cap") = 0);
     m.def(

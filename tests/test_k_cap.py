@@ -54,7 +54,7 @@ def _priced_ladder_core():
 
 def _solve_capped(core, k_cap, seed=3, iterations=600):
     params = kayros.Params(
-        ils_max_iterations=iterations, k_cap=k_cap, fd_period=25
+        ils_max_iterations=iterations, k_cap=k_cap, fd_period_work=2000
     )._to_ils_core()
     published_k = []
 

@@ -28,8 +28,6 @@ namespace kayros {
 struct FleetDescentParams {
     std::int32_t k_max = 2;         // max ejection-window size (clients)
     std::int64_t ep_budget = 2000;  // max ejection-pool pops per attempt
-    std::int32_t route_choice = 0;  // 0 uniform random; 1 smallest (ties uniform)
-    std::int32_t pop_order = 0;     // 0 LIFO; 1 difficult-first (max p-count)
     // Plan-15 S1 (inert at false): squeeze between feasible-insert failure
     // and ejection (the RMH step the ladder omitted). When armed, the
     // p-count increments only after the squeeze also fails, per the
