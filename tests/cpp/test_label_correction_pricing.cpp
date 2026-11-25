@@ -94,8 +94,38 @@ double oracle(const PricingProblem& problem, int seed) {
     return best;
 }
 
+namespace solver {
+struct PricingPoolTest {
+    static void break_reconstruction(BidirectionalLabeling& labeling) {
+        labeling.vrp_.arr[0][0] = PWLFunction();
+    }
+};
+}
+
+// Keep the pricing functions intact and make route reconstruction fail at the
+// depot. A negative route then exists even though no column reaches the master.
+void test_empty_negative_route_is_counted() {
+    auto vrp = instance(0);
+    BidirectionalLabeling labeling(vrp, std::nullopt);
+    PricingPoolTest::break_reconstruction(labeling);
+    PricingProblem problem;
+    problem.P = {0, 5, 5, 5, 5, 0};
+    std::vector<goc::Route> routes;
+    auto log = labeling.Run(problem, &routes, LabelingLevel::Exact);
+    require(log.status == BLBStatus::Finished, "Pricing should finish on the tiny graph");
+    require(routes.empty() && labeling.last_empty_negative_routes > 0,
+            "A dropped negative route must be distinguished from an empty pricing pool");
+    require(labeling.last_empty_near_routes == 0, "Near routes were disabled");
+
+    problem.P.assign(6, 0);
+    log = labeling.Run(problem, &routes, LabelingLevel::Exact);
+    require(routes.empty() && labeling.last_empty_negative_routes == 0,
+            "A genuinely empty pass must reset the preceding drop count");
+}
+
 int main() {
     try {
+        test_empty_negative_route_is_counted();
         int calls = 0;
         long long corrected = 0;
         for (bool arithmetic : {false, true}) {

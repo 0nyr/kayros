@@ -31,6 +31,7 @@ ENUMERATED_ROOT_LP = 4193.857142857141
 
 # Counters of ``pricing_integrity`` that a sound pricing leaves at 0.
 INTEGRITY_COUNTERS = (
+    "empty_negative_priced_routes",
     "phantom_columns",
     "phantom_duplicates",
     "labeling_below_checker_columns",
@@ -45,27 +46,19 @@ def _instance(problem_type: str, family: str, size_dir: str, name: str) -> list:
 
 
 RIFKI30_10 = _instance("TDVRPTW", "Rifki2020", "n=10", "Rifki-30")
-# (size directory, instance, proven optimum, symmetric labeling).
+# Historical value-jump witnesses and their independent objective values.
 CLOSURES = [
-    ("n=10", "Rifki-16", 5321.0, True),
-    ("n=10", "Rifki-18", 4025.0, True),
-    ("n=50", "Rifki-17", 21319.0, True),
-    ("n=40", "Rifki-23", 16109.0, False),
+    ("n=10", "Rifki-16", 5321.0),
+    ("n=10", "Rifki-18", 4025.0),
+    ("n=50", "Rifki-17", 21319.0),
+    ("n=40", "Rifki-23", 16109.0),
 ]
 CLOSURE_CASES = [
-    pytest.param(path, optimum, symmetric, id=f"{name}-{size}-{'sym' if symmetric else 'asym'}")
-    for size, name, optimum, symmetric in CLOSURES
+    pytest.param(path, optimum, id=f"{name}-{size}")
+    for size, name, optimum in CLOSURES
     for path in _instance("TDVRPTW", "Rifki2020", size, name)
 ]
 JUMP_FREE = _instance("TDVRPTW", "Dabia2013", "n=25", "C205")
-
-
-def _set_mode(monkeypatch, symmetric: bool) -> None:
-    # The labeling reads the variable when it is built, once per solve.
-    if symmetric:
-        monkeypatch.setenv("KAYROS_LBL_SYMMETRIC", "1")
-    else:
-        monkeypatch.delenv("KAYROS_LBL_SYMMETRIC", raising=False)
 
 
 def _assert_clean_pricing(result: dict) -> None:
@@ -76,11 +69,9 @@ def _assert_clean_pricing(result: dict) -> None:
 
 
 @pytest.mark.parametrize("instance_path", RIFKI30_10, ids=lambda p: "Rifki-30-n10")
-@pytest.mark.parametrize("symmetric", [False, True], ids=["asym", "sym"])
-def test_rifki30_n10_root_lp_equals_the_enumerated_value(instance_path, symmetric, monkeypatch) -> None:
+def test_rifki30_n10_root_lp_equals_the_enumerated_value(instance_path) -> None:
     from kayros._bpc import solve_duration
 
-    _set_mode(monkeypatch, symmetric)
     loaded = load_td_instance(instance_path)
     result = solve_duration(loaded, time_limit_s=120.0, cut_limit=0, node_limit=0)
     assert result["stepwise_atfs"] is True
@@ -90,17 +81,15 @@ def test_rifki30_n10_root_lp_equals_the_enumerated_value(instance_path, symmetri
     _assert_clean_pricing(result)
 
 
-@pytest.mark.parametrize("instance_path, optimum, symmetric", CLOSURE_CASES)
-def test_stepwise_closures_leave_no_column_behind(instance_path, optimum, symmetric, monkeypatch) -> None:
+@pytest.mark.parametrize("instance_path, optimum", CLOSURE_CASES)
+def test_stepwise_closures_leave_no_column_behind(instance_path, optimum) -> None:
     from kayros._bpc import routes_to_mamut, solve_duration
 
-    _set_mode(monkeypatch, symmetric)
     # Every empty final Exact pass is run again without partial dominance and
     # without label correction. On 1.7.1 that pass added columns on each of
     # these instances, improving ones on the three symmetric cases.
-    monkeypatch.setenv("KAYROS_BPC_VERIFY_FINAL", "16")
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=300.0)
+    result = solve_duration(loaded, time_limit_s=300.0, verify_final_mask=16)
     assert result["exact_log"]["status"] == "Optimum"
     assert result["value"] == pytest.approx(optimum, abs=1e-6)
     routes = [r[1:-1] for r in routes_to_mamut(result["routes"], loaded.instance.num_customers)]
@@ -125,7 +114,7 @@ def test_jump_free_solve_reports_clean_pricing_and_covered_closures(instance_pat
     assert result["exact_log"]["status"] == "Optimum"
     assert result["value"] == pytest.approx(stored["cost"], rel=1e-9)
     conditions = result["closure_conditions"]
-    for name in ("status_optimum", "all_closures_certified", "no_unpriced_closure", "no_checker_infeasible_column", "all_hold"):
+    for name in ("status_optimum", "all_closures_certified", "no_unpriced_closure", "no_checker_infeasible_column", "no_empty_negative_priced_route", "all_hold"):
         assert conditions[name] is True, name
     # Near-zero columns ride along with productive passes on jump-free solves,
     # so duplicates are legitimate there. Phantoms are not.

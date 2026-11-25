@@ -146,8 +146,8 @@ def test_stepwise_certification_is_warm_start_independent():
 # --- The pinned SYMMETRIC-merge defect (target of the exact value-jump work) --
 
 
-def test_symmetric_merge_stepwise_is_sound(monkeypatch):
-    """Under KAYROS_LBL_SYMMETRIC=1 the prover must certify the true optimum.
+def test_rifki25_stepwise_is_sound():
+    """Rifki-25 retains the independently verified objective value.
 
     History: unsound (uninitialized-`symmetric` UB era, 4820) -> fixed by the
     13.2 tags -> apparently regressed (4820) -> ROOT CAUSE was the pricing
@@ -158,7 +158,6 @@ def test_symmetric_merge_stepwise_is_sound(monkeypatch):
     require_benchmarks()
     src = instance_path("TDVRPTW", "Rifki2020", "n=10", "Rifki-25")
     _need(src, "Rifki-25 n=10 TDVRPTW")
-    monkeypatch.setenv("KAYROS_LBL_SYMMETRIC", "1")
     loaded = load_td_instance(src)
     res = _cold(loaded, tl=60.0)
     assert res["exact_log"]["status"] == "Optimum"
@@ -212,21 +211,6 @@ def test_asymmetric_rifki14_k15_is_sound():
     assert res["value"] <= RIFKI14_K15_TRUE_UB + 1e-6
 
 
-def test_symmetric_rifki14_k15_is_sound():
-    """The symmetric tagged-vertical path certifies the true 5572 (hard gate)."""
-    require_benchmarks()
-    import os as _os
-
-    _os.environ["KAYROS_LBL_SYMMETRIC"] = "1"
-    try:
-        inst = _load_rifki14_k15()
-        res = _cold(inst, tl=120.0)
-    finally:
-        _os.environ.pop("KAYROS_LBL_SYMMETRIC", None)
-    assert res["exact_log"]["status"] == "Optimum"
-    assert res["value"] == pytest.approx(RIFKI14_K15_TRUE_UB, abs=1e-6)
-
-
 # --- M13.0: the 3 exact-arm incompleteness reproducers (1.1.0) ---------------
 # Under KAYROS_STEP_EXACT=1 (the exact tagged-vertical path, which also
 # bypasses the reverse-side normalizer) the cold
@@ -249,30 +233,29 @@ M130_EXACT_CASES = {
 }
 
 
-def _exact_cold_result(name, monkeypatch):
+def _exact_cold_result(name):
     require_benchmarks()
     size, truth, tl = M130_EXACT_CASES[name]
     src = instance_path("TDVRPTW", "Rifki2020", size, name)
     _need(src, f"{name} {size} TDVRPTW")
-    monkeypatch.setenv("KAYROS_STEP_EXACT", "1")
     loaded = load_td_instance(src)
     return _cold(loaded, tl=tl), truth
 
 
-def test_exact_path_rifki2_n20_certifies_truth(monkeypatch):
-    res, truth = _exact_cold_result("Rifki-2", monkeypatch)
+def test_exact_path_rifki2_n20_certifies_truth():
+    res, truth = _exact_cold_result("Rifki-2")
     assert res["exact_log"]["status"] == "Optimum"
     assert res["value"] <= truth + 1e-6
 
 
-def test_exact_path_rifki17_n50_certifies_truth(monkeypatch):
-    res, truth = _exact_cold_result("Rifki-17", monkeypatch)
+def test_exact_path_rifki17_n50_certifies_truth():
+    res, truth = _exact_cold_result("Rifki-17")
     assert res["exact_log"]["status"] == "Optimum"
     assert res["value"] <= truth + 1e-6
 
 
-def test_exact_path_rifki18_n20_is_sound(monkeypatch):
-    res, truth = _exact_cold_result("Rifki-18", monkeypatch)
+def test_exact_path_rifki18_n20_is_sound():
+    res, truth = _exact_cold_result("Rifki-18")
     status = res["exact_log"]["status"]
     if status == "Optimum":
         assert res["value"] <= truth + 1e-6

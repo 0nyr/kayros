@@ -28,7 +28,7 @@ namespace goc
 // M13.0 exact tagged-vertical rules; the lera bridge scopes it per solve.
 namespace
 {
-bool g_step_exact_arithmetic = true;
+thread_local bool g_step_exact_arithmetic = true;
 }
 
 bool step_exact_arithmetic() { return g_step_exact_arithmetic; }

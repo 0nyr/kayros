@@ -43,9 +43,8 @@ namespace goc
 // solves, except for the scalar-point addition repair needed to preserve all
 // attainable departure choices on a tight connection.
 //
-// Process-global, defaulting to the M13.0 rules (the library semantics the goc
-// unit tests pin). `kayros::lera::solve_duration_json` sets it per solve from
-// KAYROS_STEP_EXACT through StepExactArithmeticScope and restores it on exit.
+// Each solve scopes the arithmetic to its calling thread. Outside a solve the
+// primitives use the exact vertical semantics.
 bool step_exact_arithmetic();
 
 // (1.8.0) Raised by PWLFunction::Inverse, on a step-carrying solve, on a

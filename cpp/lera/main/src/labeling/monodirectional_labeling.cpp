@@ -124,7 +124,6 @@ MonodirectionalLabeling::MonodirectionalLabeling(
 	time_limit = 2.0_hr;
 	partial = limited_extension = lazy_extension = unreachable_strengthened = sort_by_cost = true;
 	elementary_check_relaxation = cost_check_relaxation = ng_routes_relaxation = false;
-	theta_relaxation = false;
 	cut_blind_dominance = false;
 	packed_filter = 0;
 	processed_count = 0;
@@ -379,9 +378,7 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	}
 	lv->rw = dom(lv->duration);
 	
-	if (theta_relaxation)
-		lv->S = unite(intersection(l->S, theta_local.empty() ? theta : theta_local[v]), {v}); // S := (S(parent) ∩ theta) ∪ {v}
-	else if (ng_routes_relaxation && ng.has_value())
+	if (ng_routes_relaxation && ng.has_value())
 	{
 		const VertexSet& ng_v = ng->neighbors(v, lv->rw.left);
 		lv->S = unite(intersection(l->S, ng_v), {v}); // S := (S(parent) ∩ N(v, t)) ∪ {v}

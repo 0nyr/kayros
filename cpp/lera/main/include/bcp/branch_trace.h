@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -22,10 +23,9 @@ class FirstBranchTrace
 public:
     FirstBranchTrace()
     {
-        static bool claimed = false;
+        static std::atomic_flag claimed = ATOMIC_FLAG_INIT;
         const char* path = std::getenv("KAYROS_FIRST_BRANCH_TRACE");
-        if (path == nullptr || *path == '\0' || claimed) return;
-        claimed = true;
+        if (path == nullptr || *path == '\0' || claimed.test_and_set()) return;
         stream_ = std::fopen(path, "wx");
         if (stream_ == nullptr) throw std::runtime_error("Cannot exclusively create first-branch trace");
     }

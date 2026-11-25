@@ -142,7 +142,7 @@ VRPInstance reverse_instance(const VRPInstance& vrp)
 			// is the invariant the legacy (non-exact) arithmetic requires. Only the
 			// exact value-jump path skips it, and that path carries verticals on
 			// purpose. See the helper's header before touching this.
-			if (!std::getenv("KAYROS_STEP_EXACT")) // M5.9 exact-jump path (13.2 tagged verticals)
+			if (!goc::step_exact_arithmetic()) // M5.9 exact-jump path (13.2 tagged verticals)
 				r.arr[v][u] = continuize_value_jumps(r.arr[v][u]); // kayros (M5.7): see above.
 			r.tau[v][u] = r.arr[v][u] - PWLFunction::IdentityFunction({0.0, vrp.T});
 			try { r.dep[v][u] = r.arr[v][u].Inverse(); }
@@ -191,17 +191,10 @@ BidirectionalLabeling::BidirectionalLabeling(
 {
 	solution_limit = INT_MAX;
 	packed_filter = 0;
-	last_complete = false;
-	extended_budget = 0;
-	last_budget_exhausted = false;
-	last_extended = 0;
 	merge_prefilter = false;
 	merge_prefilter_hits = 0;
 	heuristic_cut_blind = false;
 	last_arc_merge_iterate = false;
-	theta_relaxation = false;
-	last_nonelementary_count = 0;
-	theta_growth_routes = 10;
 	near_threshold = 0.0;
 	near_limit = 0;
 	near_pool_cap = 200000;
@@ -214,29 +207,9 @@ BidirectionalLabeling::BidirectionalLabeling(
 	lbl_[0].cross = false, lbl_[1].cross = true;
 	partial = limited_extension = lazy_extension = unreachable_strengthened = sort_by_cost = true;
 	elementary_check_relaxation = cost_check_relaxation = ng_routes_relaxation = false;
-	// Label correction is on by default since 1.7.0 (repaired step, see NOTICE.md
-	// item 13). Native callers can disable it, and the Python bridge does so
-	// when KAYROS_BPC_CORRECTION=0.
 	correcting = true;
-	// M5.9: `symmetric` was NEVER initialized (upstream set it from the
-	// experiment JSON, e.g. bpc_lera.json: false; the vendoring dropped that
-	// wiring), so line ~172 read an indeterminate value: per-binary-
-	// deterministic garbage that can differ across toolchains. Prime suspect
-	// for the 2026-07-10 cross-platform certification divergence. Default =
-	// upstream Lera BPC config (false: asymmetric, t_m = T). Env toggle for
-	// the divergence experiment; TODO remove after the experiment concludes.
-	symmetric = std::getenv("KAYROS_LBL_SYMMETRIC") != nullptr;
-	// M13.0: path-keyed solution pool on the exact value-jump path only. The
-	// marker mirrors the continuize gate in reverse_instance above: with
-	// KAYROS_STEP_EXACT the reversed arrivals keep the verticals that the
-	// normalizer would otherwise flatten, which is exactly when merge-time
-	// duration bounds carry vertical-arithmetic dust (measured on Rifki-2:
-	// forward dep carries 5367 choice verticals; the reversed arr inherits them
-	// under the toggle and holds none when the normalizer runs). Every default
-	// run, jump-free or stepwise, keeps the legacy set-keyed pool
-	// bit-identically.
 	step_pool_ = false;
-	if (std::getenv("KAYROS_STEP_EXACT"))
+	if (goc::step_exact_arithmetic())
 	{
 		for (Vertex u: vrp_.D.Vertices())
 		{
@@ -288,14 +261,10 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	S_paths.clear(); // M13.0 path-keyed pool (step-carrying instances)
 	S_rc.clear();
 	last_pool_durations.clear();
+	last_empty_negative_routes = last_empty_near_routes = 0;
 	negative_count_ = near_count_ = 0;
 	near_eff_ = (!step_pool_ && near_threshold > 0.0 && near_limit > 0) ? near_threshold : 0.0;
 	last_negative_count = last_near_count = 0;
-	nonelementary_count_ = 0;
-	nonelementary_best_.clear();
-	last_nonelementary_count = 0;
-	last_repeated = {};
-	last_nonelementary_paths.clear();
 	M[0] = M[1] = vector<MonodirectionalLabeling::DemandLevel>(vrp_.D.NbVertices());
 	
 	// Set pricing problem.
@@ -306,7 +275,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	// Init forward and backward labeling.
 	lbl_[0].SetProblem(pp_);
 	lbl_[1].SetProblem(reverse_pricing_problem(pp_));
-	lbl_[0].t_m = lbl_[1].t_m = symmetric ? vrp_.T / 2 : vrp_.T;
+	lbl_[0].t_m = lbl_[1].t_m = vrp_.T;
 	
 	// Determine level flags.
 	setup_labeling_level_flag(level);
@@ -320,18 +289,11 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	lbl_[0].sort_by_cost = lbl_[1].sort_by_cost = sort_by_cost;
 	lbl_[0].unreachable_strengthened = lbl_[1].unreachable_strengthened = unreachable_strengthened;
 	lbl_[0].correcting = lbl_[1].correcting = correcting;
-	// The relaxation only ever applies to the Exact level, and never on
-	// the path-keyed step pool.
-	theta_eff_ = theta_relaxation && level == LabelingLevel::Exact && !step_pool_;
-	lbl_[0].theta_relaxation = lbl_[1].theta_relaxation = theta_eff_;
-	lbl_[0].theta = lbl_[1].theta = theta;
-	lbl_[0].theta_local = lbl_[1].theta_local = theta_local;
 	lbl_[0].packed_filter = lbl_[1].packed_filter = packed_filter;
 	lbl_[0].cut_blind_dominance = lbl_[1].cut_blind_dominance =
 		heuristic_cut_blind && level != LabelingLevel::Exact && (cost_check_relaxation || elementary_check_relaxation);
 	
 	BLBExecutionLog log(true);
-	last_budget_exhausted = false;
 	Stopwatch rolex(false), merge_rolex(false);
 	run_deadline_ = Deadline::In(time_limit); // (kayros M5.2)
 	
@@ -368,13 +330,6 @@ BLBExecutionLog BidirectionalLabeling::Run(
 			// kayros (M13.2): sticky memory watermark; also catches a
 			// monodirectional Run below that broke on MemoryLimitReached.
 			if (MemoryMonitor::Exceeded()) { log.status = BLBStatus::MemoryLimitReached; break; }
-			if (extended_budget > 0 && (long long) *mlb_log[0]->extended_count + (long long) *mlb_log[1]->extended_count >= extended_budget)
-			{
-				// Work budget reached: same exit as a time limit.
-				last_budget_exhausted = true;
-				log.status = BLBStatus::TimeLimitReached;
-				break;
-			}
 			lbl_[d].time_limit = time_limit - rolex.Peek(); // Set time limit.
 			auto P = lbl_[d].Run(&q[d], mlb_log[d]);
 			if (correcting)
@@ -428,7 +383,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	
 	// Last-edge merge.
 	// kayros (M13.2): a memory-tripped run must not start the merge tail.
-	if (pool_size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached && !last_budget_exhausted)
+	if (pool_size() < solution_limit && rolex.Peek() < time_limit && log.status != BLBStatus::MemoryLimitReached)
 	{
 		merge_rolex.Reset().Resume();
 		LastArcMerge(q[0], lbl_[1].U);
@@ -451,9 +406,16 @@ BLBExecutionLog BidirectionalLabeling::Run(
 	// (kayros M5.2) Repricing the pool (one DP per route) is post-deadline
 	// work on a doomed run once the TL fired — cut the tail. The routes
 	// lost here would never be used: the caller terminates on the TL.
-	auto reprice_into_R = [&](const Route& r) {
+	auto reprice_into_R = [&](const Route& r, bool negative) {
+		// The pool can contain an unresolved INFTY placeholder without a path.
+		if (r.path.size() < 3) return;
 		// Compute r actual duration (nyr::RouteDuration -> goc::Route).
 		auto best = vrp_.BestDurationRoute(r.path);
+		if (best.path.empty()) {
+			if (negative) ++last_empty_negative_routes;
+			else ++last_empty_near_routes;
+			return;
+		}
 		// M13.0 trace: fate of the merge target through the pool repricing.
 		if (trace::merge_on() && r.path == trace::merge_target())
 			fprintf(stderr, "TRC POOL-EXIT path_len=%zu pool_dur=%.6f best_dur=%.6f best_empty=%d\n",
@@ -466,7 +428,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		for (auto& P_r: S_paths)
 		{
 			if (run_deadline_.Reached()) break;
-			reprice_into_R(P_r.second);
+			reprice_into_R(P_r.second, true);
 		}
 	}
 	else if (near_eff_ > 0.0)
@@ -477,7 +439,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		for (auto& V_r: S)
 		{
 			if (run_deadline_.Reached()) break;
-			if (epsilon_smaller(S_rc[V_r.first], 0.0)) reprice_into_R(V_r.second);
+			if (epsilon_smaller(S_rc[V_r.first], 0.0)) reprice_into_R(V_r.second, true);
 			else near.push_back({S_rc[V_r.first], &V_r.second});
 		}
 		last_negative_count = (int) R->size();
@@ -493,7 +455,7 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		for (auto& n: near)
 		{
 			if (run_deadline_.Reached()) break;
-			reprice_into_R(*n.second);
+			reprice_into_R(*n.second, false);
 		}
 		last_near_count = (int) R->size() - last_negative_count;
 	}
@@ -502,26 +464,10 @@ BLBExecutionLog BidirectionalLabeling::Run(
 		for (auto& V_r: S)
 		{
 			if (run_deadline_.Reached()) break;
-			reprice_into_R(V_r.second);
+			reprice_into_R(V_r.second, true);
 		}
 	}
 	if (near_eff_ <= 0.0) last_negative_count = (int) R->size();
-	last_complete = log.status == BLBStatus::Finished;
-	last_extended = (long long) *mlb_log[0]->extended_count + (long long) *mlb_log[1]->extended_count;
-	if (theta_eff_)
-	{
-		last_nonelementary_count = (int) nonelementary_count_;
-		for (auto& entry: nonelementary_best_)
-		{
-			VertexSet seen;
-			for (auto v: entry.second) { if (seen.test(v)) last_repeated.set(v); seen.set(v); }
-			last_nonelementary_paths.push_back(entry.second);
-		}
-		// A pass that saw negative non-elementary routes has not explored
-		// the elementary problem exhaustively: never report it as Finished.
-		if (nonelementary_count_ > 0 && log.status == BLBStatus::Finished) log.status = BLBStatus::SolutionLimitReached;
-	}
-	
 	return log;
 }
 
@@ -753,27 +699,6 @@ void BidirectionalLabeling::AddSolution(const goc::GraphPath& p, double min_dura
 		return;
 	}
 	VertexSet V = create_bitset<MAX_N>(p);
-	if (theta_eff_ && V.count() != p.size())
-	{
-		// Negative (or near-zero) route of the relaxed space that
-		// repeats a vertex: not a column. Remember which vertices the most
-		// negative ones repeat.
-		if (!epsilon_smaller(reduced_cost, 0.0)) return;
-		++nonelementary_count_;
-		auto worse = [](const pair<double, GraphPath>& a, const pair<double, GraphPath>& b) { return a.first < b.first; };
-		if ((int) nonelementary_best_.size() < theta_growth_routes)
-		{
-			nonelementary_best_.push_back({reduced_cost, p});
-			std::push_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
-		}
-		else if (reduced_cost < nonelementary_best_.front().first)
-		{
-			std::pop_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
-			nonelementary_best_.back() = {reduced_cost, p};
-			std::push_heap(nonelementary_best_.begin(), nonelementary_best_.end(), worse);
-		}
-		return;
-	}
 	if (near_eff_ > 0.0)
 	{
 		// Same keying and same best-duration replacement rule as the
