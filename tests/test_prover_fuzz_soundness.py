@@ -17,7 +17,7 @@ invariants S1/S2 (see ``td_fuzz``) are asserted.
   reproducers can be pinned.
 
 Run the sweep with:
-    KAYROS_FUZZ=1 KAYROS_STEP_EXACT=1 pytest tests/test_prover_fuzz_soundness.py -s
+    KAYROS_FUZZ=1 pytest tests/test_prover_fuzz_soundness.py -s
 """
 from __future__ import annotations
 

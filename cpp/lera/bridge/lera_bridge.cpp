@@ -83,7 +83,7 @@ kayros::RouteEval checker_eval(const kayros::Instance& ci, const goc::GraphPath&
 }  // namespace
 
 std::string solve_duration_json(const std::string& payload, const SolveParams& params) {
-    goc::ablation_backend_settings() = nlohmann::json::object();
+    const goc::BackendSettingsScope backend_scope;
     const goc::StepExactArithmeticScope step_mode(params.stepwise);
 
     nlohmann::json inst = nlohmann::json::parse(payload);
@@ -110,9 +110,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     // A checker-infeasible single-customer route keeps Lera's INFTY cost: it
     // stays as an artificial column guaranteeing RMP feasibility and can
     // never enter a finite-value solution.
-    // Column fingerprints (per path): duplicates must never re-enter the SPF —
-    // under smoothed duals (stabilization below) existing master columns can
-    // price negative again, and re-adding them makes no LP progress.
+    // A duplicate path cannot improve the restricted master.
     unordered_set<string> column_keys;
     auto path_key = [](const GraphPath& p) {
         string k;
@@ -136,7 +134,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     bcp.node_limit = params.node_limit;
 
     // Each native solve thread enforces its own limit against process RSS.
-    MemoryMonitor::SetLimitBytes((int64_t)(params.memory_limit_mb * 1048576.0));
+    const MemoryMonitor memory_scope((int64_t)(params.memory_limit_mb * 1048576.0));
 
     // Warm start (M5.3): reprice each heuristic route with the checker-exact
     // fold (M5.6 stage A: the master's arithmetic) and add it as an initial

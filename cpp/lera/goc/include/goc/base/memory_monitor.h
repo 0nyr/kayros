@@ -10,7 +10,7 @@
 // The guard observes only: it reads /proc/self/statm and touches no numeric
 // state, so solver arithmetic is bit-identical whether or not a (non-tripped)
 // limit is set. Polling is throttled to one statm read per kPollStride calls;
-// once tripped the state is sticky until the next SetLimitBytes, so every
+// once tripped the state is sticky for that solve, so every
 // loop level unwinds promptly even though freed labels may lower the RSS.
 
 #ifndef GOC_BASE_MEMORY_MONITOR_H
@@ -28,29 +28,25 @@ namespace goc
 class MemoryMonitor
 {
 public:
-	// limit <= 0 disables the guard. Resets the sticky tripped state and the
-	// poll countdown (call once at solve start).
-	static void SetLimitBytes(int64_t limit)
-	{
-		limit_bytes_ = limit;
-		exceeded_ = false;
-		countdown_ = 0;
-	}
+	explicit MemoryMonitor(int64_t limit) : previous_(state_) { state_ = {limit, false, 0}; }
+	~MemoryMonitor() { state_ = previous_; }
+	MemoryMonitor(const MemoryMonitor&) = delete;
+	MemoryMonitor& operator=(const MemoryMonitor&) = delete;
 
-	static int64_t LimitBytes() { return limit_bytes_; }
+	static int64_t LimitBytes() { return state_.limit; }
 
 	// Throttled watermark check: reads the RSS at most once per kPollStride
 	// calls, sticky once tripped. Safe to call in hot loops.
 	static bool Exceeded()
 	{
-		const int64_t limit = limit_bytes_;
+		const int64_t limit = state_.limit;
 		if (limit <= 0) return false;
-		if (exceeded_) return true;
-		if (countdown_-- > 0) return false;
-		countdown_ = kPollStride;
+		if (state_.exceeded) return true;
+		if (state_.countdown-- > 0) return false;
+		state_.countdown = kPollStride;
 		if (CurrentRSSBytes() >= limit)
 		{
-			exceeded_ = true;
+			state_.exceeded = true;
 			return true;
 		}
 		return false;
@@ -101,9 +97,13 @@ private:
 	// the headroom the auto limit leaves). One statm read costs ~2 us; label
 	// iterations are far heavier, so the amortized cost is negligible.
 	static constexpr int kPollStride = 64;
-	inline static thread_local int64_t limit_bytes_{0};
-	inline static thread_local bool exceeded_{false};
-	inline static thread_local int countdown_{0};
+	struct State {
+		int64_t limit;
+		bool exceeded;
+		int countdown;
+	};
+	inline static thread_local State state_{};
+	State previous_;
 };
 } // namespace goc
 

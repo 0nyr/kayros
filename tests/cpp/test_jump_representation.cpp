@@ -10,6 +10,8 @@
 #include <string>
 
 #include "goc/goc.h"
+#include "goc/base/memory_monitor.h"
+#include "goc/linear_programming/solver/ablation_settings.h"
 
 using namespace std;
 using namespace goc;
@@ -135,14 +137,24 @@ void test_compose_drops_a_jump_outside_the_outer_domain()
 int main()
 {
     {
-        StepExactArithmeticScope parent(false);
-        require(std::async(std::launch::async, [] { return step_exact_arithmetic(); }).get(),
-                "a jump-free solve does not change another thread's jump arithmetic");
+        StepExactArithmeticScope arithmetic(false);
+        MemoryMonitor memory(12345);
+        BackendSettingsScope settings;
+        ablation_backend_settings()["solver"] = "outer";
+        require(std::async(std::launch::async, [] {
+            return step_exact_arithmetic() && MemoryMonitor::LimitBytes() == 0
+                && ablation_backend_settings().empty();
+        }).get(), "another thread has independent arithmetic, memory and LP settings");
         {
-            StepExactArithmeticScope nested(true);
-            require(step_exact_arithmetic(), "a nested stepwise scope selects jump arithmetic");
+            StepExactArithmeticScope nested_arithmetic(true);
+            MemoryMonitor nested_memory(54321);
+            BackendSettingsScope nested_settings;
+            require(step_exact_arithmetic() && MemoryMonitor::LimitBytes() == 54321
+                    && ablation_backend_settings().empty(), "a nested solve selects its own settings");
+            ablation_backend_settings()["solver"] = "inner";
         }
-        require(!step_exact_arithmetic(), "the outer arithmetic is restored on return");
+        require(!step_exact_arithmetic() && MemoryMonitor::LimitBytes() == 12345
+                && ablation_backend_settings()["solver"] == "outer", "the outer solve resumes with all its settings");
     }
 	test_inverse_of_a_bare_upward_jump();
 	test_inverse_refuses_what_it_cannot_invert();
