@@ -59,3 +59,43 @@ def test_rifki_jump_witness_survives_public_warm_start(path, mode):
     assert (result.exact_route_durations[i], result.exact_route_departures[i]) == (timing.duration, timing.departure_time)
     assert result.route_departures[i] == float(timing.departure_time)
     assert result.exact_cost == Fraction(*native.solution_cost(result.routes)) == gold.evaluate(result.routes).cost
+
+
+@pytest.mark.parametrize("path", [p for p in family_instances("TDVRP", "Rifki2020", ["n=30"])
+                                  if p.name == "Rifki-11.vrp.json"])
+def test_unwindowed_stepwise_witness(path):
+    loaded = load_td_instance(path)
+    native = _core.ExactRoutePricer(to_core(loaded))
+    route = [3, 2]
+    gold = prepare_td(loaded.instance, loaded.atfs, backend="python", objective_function="Duration")
+    timing = gold.route_timing(route)
+    assert (timing.duration, timing.departure_time) == (1383, 720)
+    assert tuple(Fraction(*q) for q in native.route_timing(route)) == (timing.duration, timing.departure_time)
+
+
+def test_missing_materialized_arc_is_an_input_error():
+    instance = _core.Instance(1, 1, 1, (0, 15), None, [0, 1], [0, 0], [(0, 1, [0, 15], [1, 16])])
+    pricer = _core.ExactRoutePricer(instance)
+    with pytest.raises(ValueError, match=r"missing materialized TD arc \(1, 0\)"):
+        pricer.route_timing([1])
+
+
+@pytest.mark.parametrize("path", [p for p in family_instances("TDVRPTW", "Dabia2013", ["n=25"])
+                                  if p.name == "C101.vrp.json"])
+def test_rejected_proposal_and_independent_final_check(path, monkeypatch):
+    from kayros.solve import _Acceptance
+
+    loaded = load_td_instance(path)
+    params = kayros.Params(ils_max_iterations=1)
+    policy = _Acceptance(loaded, "Duration", params, None)
+    assert not policy.accept([[1]], True)
+    assert policy.stats["infeasible"] == policy.stats["squeeze_rejections"] == 1
+
+    proposal = _Acceptance.proposal_cost
+    monkeypatch.setattr(_Acceptance, "proposal_cost", lambda self, routes: proposal(self, routes) + 1)
+    with pytest.raises(kayros.KayrosError, match="final exact evaluation disagrees"):
+        kayros.solve(loaded, params)
+
+    monkeypatch.setattr(_Acceptance, "proposal_cost", lambda *_: pytest.fail("final-only mode priced a proposal"))
+    solution = kayros.solve(loaded, kayros.Params(acceptance_mode="final_only", ils_max_iterations=1))
+    assert solution.exact_cost == policy.prepared.evaluate(solution.routes).cost
