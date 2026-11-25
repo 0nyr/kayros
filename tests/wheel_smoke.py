@@ -10,16 +10,18 @@ above the anytime solution. The file is not named ``test_*.py``, so pytest
 does not collect it.
 """
 
+import math
 import sys
 from pathlib import Path
 
 import kayros
-from kayros.lera import solve_duration
-from mamut_routing_lib.td import load_td_instance
+from kayros.lera import routes_to_mamut, solve_duration
+from mamut_routing_lib.enums import ObjectiveFunction
+from mamut_routing_lib.td import compute_solution_cost, load_td_instance
 
 
 def main(root: str) -> int:
-    path = Path(root) / "benchmarks/TDVRPTW/Dabia2013/n=25/C101.vrp.json"
+    path = Path(root) / "benchmarks/Dabia2013/TDVRPTW/n=25/C101.vrp.json"
     solution = kayros.solve(str(path), time_limit=2.0, seed=1, verify=True)
     print(f"kayros {kayros.__version__} anytime: {solution.cost} ({solution.num_routes} routes)")
     loaded = load_td_instance(str(path))
@@ -30,7 +32,12 @@ def main(root: str) -> int:
     print(f"exact: status {status}, value {value}, checker_infeasible_columns {bad}")
     if status != "Optimum" or bad != 0 or value is None:
         return 1
-    if value > solution.cost:
+    routes = routes_to_mamut(result["routes"], loaded.instance.num_customers)
+    exact = compute_solution_cost(
+        loaded.instance, loaded.atfs, [route[1:-1] for route in routes],
+        objective_function=ObjectiveFunction.DURATION,
+    )
+    if not math.isclose(value, float(exact), rel_tol=1e-12) or exact > solution.exact_cost:
         return 1
     return 0
 

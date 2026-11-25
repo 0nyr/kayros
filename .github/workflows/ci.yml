@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "dev/*-ci"]
   pull_request:
 
 jobs:
@@ -31,39 +31,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Upgrade pip (dependency-groups support needs >= 25.1)
         run: python -m pip install --upgrade pip
-      - name: Install Boost.Graph (lera BPC dependency; HiGHS is fetched by CMake)
-        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y libboost-graph-dev
-      - name: Install (editable + dev group)
-        run: pip install -e . --group dev
-      - name: Lera BPC import gate (default install ships the exact component)
-        run: python -c "import kayros._lera; from kayros import lera; print('lera OK')"
-      - name: Fetch Dabia2013 n=25 and n=50 benchmarks (sparse)
-        # The data come from the read-only archive of the former MAMUT-routing
-        # layout (sidecar next to its instance), which the pinned
-        # mamut-routing-lib (<0.12) reads. MAMUT-routing itself now holds the
-        # family layout of mamut-routing-lib 0.13.
-        # n=50 carries RC107, the reproducer of the partial-dominance defect
-        # repaired in 1.7.0 (tests/test_lera_partial_dominance.py). Without it
-        # that regression test is collected with an empty parameter set.
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11.git "$RUNNER_TEMP/mamut-routing"
-          git -C "$RUNNER_TEMP/mamut-routing" sparse-checkout set \
-            benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25 \
-            benchmarks/TDVRPTW/Dabia2013/n=50
-      - name: Fetch Rifki2020 TDVRPTW n=10 (stepwise travel times, sparse)
-        # Rifki-30 carries the value-jump defect repaired in 1.8.0
-        # (tests/test_lera_stepwise_jumps.py). The family is a submodule of
-        # the store, so it is cloned on its own at the path the store gives it.
-        run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/ANR-MAMUT/MAMUT-routing-TDVRPTW-Rifki2020.git \
-            "$RUNNER_TEMP/mamut-routing/benchmarks/TDVRPTW/Rifki2020"
-          git -C "$RUNNER_TEMP/mamut-routing/benchmarks/TDVRPTW/Rifki2020" sparse-checkout set n=10
-      - name: Run tests (incl. checker-equivalence gate on Dabia n=25)
+      - name: Install Boost.Graph and GMP
+        run: sudo apt-get -o Acquire::Retries=3 update && sudo apt-get -o Acquire::Retries=3 install -y libboost-graph-dev libgmp-dev
+      - name: Fetch the pinned MAMUT library and test families
+        run: bash .github/checkout-test-data.sh "$RUNNER_TEMP/mamut-routing"
+      - name: Install Kayros and the native MAMUT library
+        run: python -m pip install "$RUNNER_TEMP/mamut-routing/MAMUT-routing-lib" -e . --group dev
+      - name: Check the solver and exact library extensions
+        run: python -c "import kayros._core, kayros._lera, mamut_routing_lib._td_exact"
+      - name: Run tests against the pinned family collections
         env:
           MAMUT_ROUTING_ROOT: ${{ runner.temp }}/mamut-routing
-        run: pytest
+          KAYROS_REQUIRE_BENCHMARKS: "1"
+        run: python -m pytest -o empty_parameter_set_mark=fail_at_collect
       - name: C++ unit tests of the exact component (tests/cpp, HiGHS backend)
         # Separate CMake configuration, outside the package build. The
         # kayros_cpp_tests target builds and runs every test of tests/cpp.
@@ -97,23 +77,15 @@ jobs:
           CIBW_SKIP: "*-musllinux*"
           CIBW_ARCHS_LINUX: "x86_64"
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-          CIBW_BEFORE_ALL_LINUX: dnf -y install boost-devel git
+          CIBW_BEFORE_ALL_LINUX: >
+            dnf -y install boost-devel gmp-devel git &&
+            bash {project}/.github/checkout-test-data.sh /tmp/mamut-routing
+          CIBW_BEFORE_TEST: python -m pip install /tmp/mamut-routing/MAMUT-routing-lib
           CIBW_TEST_REQUIRES: "pytest>=8"
-          # Same benchmark subset as the test job above.
-          CIBW_BEFORE_TEST: >
-            test -d /tmp/mamut-routing ||
-            (git clone --depth 1 --filter=blob:none --sparse
-            https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11.git /tmp/mamut-routing &&
-            git -C /tmp/mamut-routing sparse-checkout set
-            benchmarks/TDVRPTW/Dabia2013/n=25 benchmarks/TDVRP/Dabia2013/n=25
-            benchmarks/TDVRPTW/Dabia2013/n=50 &&
-            git clone --depth 1 --filter=blob:none --sparse
-            https://github.com/ANR-MAMUT/MAMUT-routing-TDVRPTW-Rifki2020.git
-            /tmp/mamut-routing/benchmarks/TDVRPTW/Rifki2020 &&
-            git -C /tmp/mamut-routing/benchmarks/TDVRPTW/Rifki2020 sparse-checkout set n=10)
+          CIBW_TEST_ENVIRONMENT: MAMUT_ROUTING_ROOT=/tmp/mamut-routing KAYROS_REQUIRE_BENCHMARKS=1
           CIBW_TEST_COMMAND: >
-            python -c "import kayros._core, kayros._lera; from kayros import lera" &&
-            MAMUT_ROUTING_ROOT=/tmp/mamut-routing pytest {project}/tests &&
+            python -c "import kayros._core, kayros._lera, mamut_routing_lib._td_exact" &&
+            python -m pytest -o empty_parameter_set_mark=fail_at_collect {project}/tests &&
             python {project}/tests/wheel_smoke.py /tmp/mamut-routing
       - uses: actions/upload-artifact@v7
         with:
