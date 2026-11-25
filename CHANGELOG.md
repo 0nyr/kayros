@@ -4,11 +4,20 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
-The heuristic solver uses iterated local search. The `aco` and `aco+ils` strategies and the ant-colony parameters have been removed. Historical runs can be replayed with Kayros 1.7.1.
+### Migrating to 2.0
 
-Fleet descent draws its victim route uniformly and processes ejected customers in reverse insertion order. Use `fd_period_work` for periodic triggers. The experimental `fd_period`, `fd_route_choice` and `fd_pop_order` parameters have been removed.
+| In 1.7.1 | In 2.0 development |
+|---|---|
+| `Solution.duration` | `Solution.cost` gives the display of the full objective. `Solution.exact_cost` holds the exact rational. |
+| `kayros.lera.solve_duration` and depot-delimited result paths | `kayros.exact.solve_exact` takes a path or loaded instance, accepts `time_limit` in seconds and returns a typed result with customer-only routes. |
+| Archive layout `benchmarks/<problem_type>/<family>/` | Family layout `benchmarks/<family>/<problem_type>/`, with library 0.13. |
+| `strategy="aco"` or `"aco+ils"` and ant-colony parameters | Use the iterated local search. Replay the ant-colony strategies with 1.7.1. |
+| `fd_period` in iterations | Set `fd_period_work` in evaluated moves. The numerical budgets use different units. |
+| `fd_route_choice` and `fd_pop_order` | Fleet descent samples victim routes uniformly and processes ejected customers in reverse insertion order. |
 
-Development towards 2.0.0. Version 1.8.0 was prepared and not released. Its entry is kept below as written and becomes part of the 2.0.0 entry. Its figures are to be checked again before the release.
+The default heuristic checks each candidate new best for feasibility and compares exact rational costs before accepting it. With `acceptance_mode="final_only"`, provisional incumbents are checked at return. If the last one fails, the solver can recover from its retained history (`incumbent_history_size`, default 6). Both modes accept complete customer-only warm starts through `kayros.solve(initial_routes=...)`.
+
+The following stepwise repair was developed for 1.8.0 and first enters the 2.0 development line. The historical comparisons use the arithmetic and dataset revisions of those experiments.
 
 ### Stepwise repair (prepared as 1.8.0)
 
@@ -28,7 +37,7 @@ This release repairs the exact component on instances whose travel times are ste
 
 ### Added
 
-- **`pricing_integrity` in the result of `solve_duration`.** For every route that a pricing pass returns as negative, the checker reduced cost is recomputed at the duals of the pass. The record counts the new columns and the master columns whose checker reduced cost is positive (`phantom_columns`, `phantom_duplicates`, with `max_phantom_reduced_cost`), the columns whose labeling duration is below the checker duration, the columns on which the solver's route evaluation and the checker disagree, the columns of a verification pass that the verified pass really missed (`verify_final_negative_columns`) and the master columns of negative checker reduced cost (`negative_duplicates`). A sound pricing leaves every counter at 0. On 1.7.1 arithmetic the phantom counters are non-zero on stepwise instances. The counters are observations and no decision of the solver reads them.
+- **`pricing_integrity` in the result of `solve_duration`.** For every route that a pricing pass returns as negative, the checker reduced cost is recomputed at the duals of the pass. The record counts the new columns and the master columns whose checker reduced cost is positive (`phantom_columns`, `phantom_duplicates`, with `max_phantom_reduced_cost`), the columns whose labeling duration is below the checker duration, the columns on which the solver's route evaluation and the checker disagree, the columns of a verification pass that the verified pass really missed (`verify_final_negative_columns`) and the master columns of negative checker reduced cost (`negative_duplicates`). A phantom column signals disagreement on the sign of the reduced cost. The route-duration mismatch count also records numerical differences in the solver's internal route evaluator. On 1.7.1 arithmetic, phantom columns appeared on stepwise instances.
 - **`closure_conditions` in the result of `solve_duration`.** Four booleans with stable names state whether every node closure was backed by a finished Exact pricing pass that found no new column: `status_optimum`, `all_closures_certified`, `no_unpriced_closure` and `no_checker_infeasible_column`, with their conjunction `all_hold`. They restate the `closure_census` counters, which stay in place. The docstring of `solve_duration` documents both records.
 - **A loud failure instead of a bridged jump.** The inverse of an arrival function raises an error that names the arc and the abscissa when, on a stepwise instance, it meets a discontinuity it cannot invert exactly: a downward jump, a gap in the domain or a decreasing function. Instances without value jumps never raise it.
 
@@ -38,15 +47,11 @@ This release repairs the exact component on instances whose travel times are ste
 - **The comment and the documentation of `KAYROS_BPC_VERIFY_FINAL`** no longer present the verification pass as a safety net. `verify_final_runs` counts the passes that were started, is global to the solve and is no guarantee. `closure_conditions` is the record to read.
 - **JSON form of a vertical piece** inside the solver: both ends of the span, and the string `"choice"` as a third element for a departure-choice vertical. No file written by KAYROS contains such pieces.
 
-### Compatibility
-
-No function signature, parameter or default value changes, and no key of the result dictionaries is removed or renamed. Two keys are added (`pricing_integrity`, `closure_conditions`). A solve that used to succeed can now raise only on a stepwise instance, in the cases listed under "A loud failure instead of a bridged jump". The version number is 1.8.0 rather than 1.7.2 because results can change on stepwise instances and because earlier certificates on these instances are to be derived again.
-
 ### Known issues
 
-- **A route that becomes ready at a customer exactly on a step of the next arc can be priced below the checker.** When this happens for a whole interval of departures from the depot, the exact duration uses the travel time before the step, which the labeling returns. The checker composes the functions in floating point, lands about 4e-13 above the step and uses the travel time after it. The labeling is then below the checker by the height of the step on that route. It was seen on 3 of the 60 Rifki2020 instances with 10 customers and on 3 of the 16 larger ones, on 1 column per run (6 on one instance for the route evaluation), with gaps of 1 to 12, and no column of these runs has a positive checker reduced cost. `pricing_integrity["labeling_below_checker_columns"]` and `["route_duration_below_checker"]` count these routes. Which of the two values is the intended one is a question for the checker contract and is not settled by this release.
-- **On Poryos2026 road-graph instances the solver's arithmetic differs from the checker by up to a few 1e-2.** These instances have no value jump and take the unchanged path. Travel-time pieces whose slope is below 1e-6 are flattened when they are built, which opens gaps of about 1e-3 between consecutive pieces. On tokyo with 25 customers (hyb, bpr-moderate) the labeling duration is below the checker by up to 1.2e-3 on 81 priced columns and the route evaluation differs by up to 4e-2. No column with a positive checker reduced cost was seen on the 4 Poryos2026 instances run. This predates 1.8.0 and is reported by the new counters.
-- **The refusals of the inverse were not exercised.** No instance of the store raises them. A stepwise instance whose pieces are steep enough for rounding to produce a downward gap above 1e-6 would now fail instead of being approximated.
+- **A route that becomes ready at a customer exactly on a step of the next arc can be priced below the checker.** When this happens for a whole interval of departures from the depot, the exact duration uses the travel time before the step, which the labeling returns. The checker composes the functions in floating point, lands about 4e-13 above the step and uses the travel time after it. The labeling is then below the checker by the height of the step on that route. It was seen on 3 of the 60 Rifki2020 instances with 10 customers and on 3 of the 16 larger ones, on 1 column per run (6 on one instance for the route evaluation), with gaps of 1 to 12, and no column of these runs has a positive checker reduced cost. `pricing_integrity["labeling_below_checker_columns"]` and `["route_duration_below_checker"]` count these routes. These observations used the historical 0.11 checker. The 2.0 target profile specifies the attained value at the step and evaluates the materialized inputs exactly.
+- **Flattening nearly constant travel-time pieces affects pricing on Poryos2026.** The constructor sets slopes with absolute value below 1e-6 to zero. For a piece of width $w$ and slope $s$, this can shift its endpoint by $|s|w$. The largest displacement found in the scanned materializations was 0.053. On Tokyo with 25 customers (hyb, bpr-moderate), labeling gave a duration below the historical checker on 81 priced columns in the measured run. In the symmetric runs, route evaluation differences reached 0.077. Whether this can change a node closure under the new profile remains open.
+- **Inverting a downward jump.** The historical validation cases exercised no refusal. On a step-carrying input, flattening a nearly horizontal decreasing piece can leave a downward jump at its boundary. The stepwise inverse raises an error if the discontinuity exceeds its tolerance.
 
 ### Validation
 
