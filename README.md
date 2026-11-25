@@ -53,6 +53,8 @@ Pass `verify=True` on the first load of unfamiliar data to check the sidecar and
 
 To polish a known solution, pass `initial_routes=previous.routes` to `kayros.solve`. Each route contains customer IDs and omits the depot. Kayros validates the seed under the selected objective, then starts the local search from the supplied route order. For Blauth2024 record polishing, set `objective="FleetCostDuration"` and `k_cap=len(previous.routes)` in `Params`.
 
+If the binary64 search cannot represent a validated seed, Kayros retries cold construction with the remaining time. A seed within the fleet cap enters the callback immediately with its rational cost and `search_value=None` in either acceptance mode. Kayros retains that seed until it verifies a strictly better result.
+
 The ILS uses granular candidate lists. Set `Params(num_neighbours=0)` to enumerate the whole neighborhood.
 
 Blauth2024 instances carry a fixed cost per vehicle. With `FleetCostDuration`, the checked objective is the sum of route durations plus the fixed cost times the number of routes. The search can dissolve routes and polish their durations under this objective.
@@ -68,7 +70,7 @@ print(fleet_solution.cost, fleet_solution.num_routes)
 
 With the default `Params(acceptance_mode="each_incumbent")`, Kayros checks each candidate new best for feasibility and strict improvement of the rational objective before installing it as the incumbent. The callback exposes the rational `incumbent.exact_cost`, its binary64 display `incumbent.value` and the approximate `incumbent.search_value`. Two strictly improving rational costs can have the same display. The native search prepares exact arc data on demand and retains up to 65,536 input breakpoints across proposals. It can prepare evicted arcs again. The returned routes also pass through the library evaluator.
 
-With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callback reports provisional search improvements with `incumbent.exact_cost=None`. If the final candidate fails the exact check, Kayros tries the last 6 distinct prior route sets in increasing order of approximate cost. Set the history size to 0 to check only the final candidate. The solver logs final rejections and recovery and raises `InfeasibleError` if all retained candidates fail. `solution.acceptance_stats` gives counts of infeasible proposals, nonimproving proposals, squeeze rejections, final rejections and fallback attempts.
+With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callback reports provisional search improvements with `incumbent.exact_cost=None`. If the final candidate fails the exact check, Kayros tries the last 6 distinct prior route sets in increasing order of approximate cost. Set the history size to 0 to keep only the latest search candidate. An eligible checked seed that the search could not represent remains available regardless of history size. The solver logs final rejections and recovery and raises `InfeasibleError` if all retained candidates fail. `solution.acceptance_stats` gives counts of infeasible proposals, nonimproving proposals, squeeze rejections, final rejections and fallback attempts.
 
 ## Branch-price-and-cut
 

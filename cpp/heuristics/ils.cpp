@@ -65,7 +65,9 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit,
                       const IncumbentCallback& on_incumbent,
                       std::vector<std::vector<std::int32_t>> initial_routes,
-                      const IncumbentGate& accept_incumbent) {
+                      const IncumbentGate& accept_incumbent,
+                      const std::function<void(double, bool)>& on_unusable_warm_start,
+                      bool fleet_cost_objective) {
     using Clock = std::chrono::steady_clock;
     const auto start = Clock::now();
     const auto elapsed = [&start]() {
@@ -88,32 +90,28 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     // Count candidate pricings across descents and record work at the first in-cap publication.
     LsStats ls_stats;
 
-    // Constrain the fleet only when the objective prices routes.
-    const bool cap_active = inst.fixed_route_cost > 0.0 && params.k_cap > 0;
+    // Low-level callers can also identify a fleet objective through its positive charge.
+    const bool cap_active = params.k_cap > 0 && (fleet_cost_objective || inst.fixed_route_cost > 0.0);
 
-    // Single publication point for the anytime stream: records the incumbent,
-    // fires the hook, and keeps the stream strictly decreasing.
+    const auto record_publication = [&](std::int64_t k) {
+        auto& ks = result.k_stats;
+        if (ks.k_best_min == 0 || k < ks.k_best_min) ks.k_best_min = k;
+        ks.k_best_max = std::max(ks.k_best_max, k);
+        if (cap_active && result.k_cap_stats.reached_cap == 0) {
+            result.k_cap_stats.reached_cap = 1;
+            result.k_cap_stats.first_capped_work = ls_stats.evaluated;
+        }
+    };
     double published = std::numeric_limits<double>::infinity();
     const auto publish =
         [&](double value, std::uint64_t iteration, std::int32_t origin,
             const std::vector<std::vector<std::int32_t>>& routes, bool from_squeeze) {
-            const std::int64_t k = static_cast<std::int64_t>(routes.size());
-            // Above-cap solutions can guide the search but cannot enter the incumbent stream.
+            const auto k = static_cast<std::int64_t>(routes.size());
             if (cap_active && k > params.k_cap) return;
             if (!(value < published)) return;
             published = value;
-            if (result.incumbents.empty()) {
-                result.k_stats.k_best_min = k;
-                result.k_stats.k_best_max = k;
-            } else {
-                if (k < result.k_stats.k_best_min) result.k_stats.k_best_min = k;
-                if (k > result.k_stats.k_best_max) result.k_stats.k_best_max = k;
-            }
+            record_publication(k);
             result.incumbents.push_back({value, elapsed(), iteration, origin, from_squeeze});
-            if (cap_active && result.k_cap_stats.reached_cap == 0) {
-                result.k_cap_stats.reached_cap = 1;
-                result.k_cap_stats.first_capped_work = ls_stats.evaluated;
-            }
             if (on_incumbent) on_incumbent(result.incumbents.back(), routes);
         };
 
@@ -139,17 +137,43 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     };
 
     // Seed (warm-start routes when provided, greedy otherwise) + descent.
-    const bool warm_start = !initial_routes.empty();
-    std::vector<std::vector<std::int32_t>> seed_routes =
-        std::move(initial_routes);
-    if (seed_routes.empty()) {
-        if (!greedy_construct(inst, seed_routes)) {
-            result.status = SolveStatus::Infeasible;
+    bool warm_start = !initial_routes.empty();
+    auto seed_routes = std::move(initial_routes);
+    SearchState ss;
+    bool checked_fallback = false;
+    const Clock::time_point* retry_deadline = nullptr;
+    if (warm_start) {
+        const bool initialized = init_search_state(inst, seed_routes, ss);
+        const double value = initialized && (accept_incumbent || on_unusable_warm_start)
+                                 ? solution_cost(inst, seed_routes) : 0.0;
+        if (!initialized || (on_unusable_warm_start && !std::isfinite(value))) {
+            if (!on_unusable_warm_start) return result;
+            const auto k = static_cast<std::int64_t>(seed_routes.size());
+            checked_fallback = !cap_active || k <= params.k_cap;
+            on_unusable_warm_start(elapsed(), checked_fallback);
+            if (checked_fallback) {
+                record_publication(k);
+                result.status = SolveStatus::Finished;
+            }
+            // The checked seed may be returned by the caller. Only representable routes can initialize or restart local search.
+            if (past()) {
+                result.status = SolveStatus::TimeLimit;
+                return result;
+            }
+            retry_deadline = deadline;
+            warm_start = false;
+            seed_routes.clear();
+        } else if (accept_incumbent) {
+            consider(value, 0, 3, seed_routes);
+        }
+    }
+    if (!warm_start) {
+        if (!greedy_construct(inst, seed_routes, retry_deadline)) {
+            if (retry_deadline && past()) result.status = SolveStatus::TimeLimit;
             return result;
         }
         const double seed_value = solution_cost(inst, seed_routes);
         if (seed_value == kInfeasible) {
-            result.status = SolveStatus::Infeasible;
             return result;
         }
         // Submit the raw greedy seed before the first descent. The warm-start path submits its validated seed separately.
@@ -160,7 +184,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             const std::int32_t target = static_cast<std::int32_t>(
                 params.seed_k_factor * static_cast<double>(seed_routes.size()));
             std::vector<std::vector<std::int32_t>> split_routes = seed_routes;
-            if (split_to_k(inst, split_routes, target)) {
+            if (split_to_k(inst, split_routes, target, retry_deadline)) {
                 const double split_value = solution_cost(inst, split_routes);
                 if (split_value != kInfeasible) {
                     seed_routes = std::move(split_routes);
@@ -171,18 +195,15 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 }
             }
         }
+        if (retry_deadline && past()) {
+            result.status = SolveStatus::TimeLimit;
+            return result;
+        }
+        if (!init_search_state(inst, seed_routes, ss)) return result;
     }
     const NeighbourLists nb =
         build_neighbour_lists(inst, params.num_neighbours, params.weight_wait);
     const NeighbourLists exhaustive;  // k == 0 sentinel
-
-    SearchState ss;
-    if (!init_search_state(inst, seed_routes, ss)) {
-        result.status = SolveStatus::Infeasible;
-        return result;
-    }
-    if (warm_start && accept_incumbent)
-        consider(solution_cost(inst, seed_routes), 0, 3, seed_routes);
     result.k_stats.k_seed = static_cast<std::int64_t>(seed_routes.size());
     double curr = ls_descend(inst, nb, ss, &ls_stats, deadline);
 
@@ -481,7 +502,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         result.value = kInfeasible;
     }
     result.k_stats.k_final = static_cast<std::int64_t>(result.routes.size());
-    result.status = result.routes.empty() ? SolveStatus::Infeasible : status;
+    result.status = result.routes.empty() && !checked_fallback ? SolveStatus::Infeasible : status;
     return result;
 }
 

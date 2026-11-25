@@ -112,7 +112,7 @@ class Params:
 
 @dataclass
 class Incumbent:
-    value: float
+    value: float | None
     seconds: float
     iteration: int | None  # ILS iteration when available
     origin: str
@@ -143,6 +143,7 @@ class _Acceptance:
         self.hook = hook
         self.best_exact = None
         self.verified_seed = None
+        self.checked_fallback = None
         self.events = []
         self.history = OrderedDict()
         self.stats = dict(proposals=0, infeasible=0, nonimproving=0, squeeze_rejections=0,
@@ -174,15 +175,28 @@ class _Acceptance:
             raise ValueError(f"invalid initial_routes ({error.status.value}): {error}") from error
         # Preserve the caller's route enumeration, which affects the order of local search.
         seed = [list(route) for route in routes]
-        if self.mode == "each_incumbent":
-            self.verified_seed = (seed, evaluation.cost)
+        self.verified_seed = (seed, evaluation.cost, evaluation.display_cost)
         return seed
+
+    def unusable_warm_start(self, seconds, eligible):
+        routes, cost, display = self.verified_seed
+        self.verified_seed = None
+        if not eligible:
+            return
+        self.stats["proposals"] += 1
+        self.checked_fallback = (tuple(tuple(route) for route in routes), cost)
+        if self.mode == "each_incumbent":
+            self.best_exact = cost
+        event = Incumbent(display, seconds, 0, "warm_start", cost, None)
+        self.events.append(event)
+        if self.hook:
+            self.hook(event, [list(route) for route in routes])
 
     def accept(self, routes, from_squeeze):
         self.stats["proposals"] += 1
+        seed, self.verified_seed = self.verified_seed, None
         if self.mode == "final_only":
             return True
-        seed, self.verified_seed = self.verified_seed, None
         try:
             cost = seed[1] if seed is not None and routes == seed[0] else self.proposal_cost(routes)
         except ExactRouteError:
@@ -213,7 +227,7 @@ class _Acceptance:
             self.hook(event, routes)
 
     def finish(self, result):
-        candidates = [(result.value, result.routes, result.incumbents[-1].from_squeeze)]
+        candidates = [(result.value, result.routes, result.incumbents[-1].from_squeeze)] if result.routes else []
         if self.history:
             # The current candidate is also the latest publication.
             self.history.popitem(last=True)
@@ -233,8 +247,24 @@ class _Acceptance:
             if index:
                 self.stats["recovered"] = 1
                 logging.getLogger(__name__).warning("Recovered a checked incumbent on fallback attempt %d", index)
-            return [list(route) for route in routes], value, evaluation
-        raise InfeasibleError(f"exact final check rejected all {len(candidates)} retained candidates")
+            if self.checked_fallback is None or evaluation.cost < self.checked_fallback[1]:
+                return [list(route) for route in routes], value, evaluation
+            break
+        else:
+            if self.checked_fallback is None:
+                raise InfeasibleError(f"exact final check rejected all {len(candidates)} retained candidates")
+            if candidates:
+                self.stats["fallback_attempts"] += 1
+                self.stats["recovered"] = 1
+                logging.getLogger(__name__).warning("Recovered the checked warm start after %d final rejections", len(candidates))
+        routes, cost = self.checked_fallback
+        try:
+            evaluation = self.prepared.evaluate(routes)
+        except ExactRouteError as error:
+            raise KayrosError("final exact evaluation rejected the checked warm start") from error
+        if evaluation.cost != cost or (self.best_exact is not None and cost != self.best_exact):
+            raise KayrosError("final exact evaluation disagrees with the checked warm start")
+        return [list(route) for route in routes], None, evaluation
 
 
 @dataclass
@@ -243,12 +273,12 @@ class Solution:
 
     exact_cost is the rational objective and cost is its nearest binary64 display. FleetCostDuration includes the fixed charge for each used route. exact_route_durations and exact_route_departures give the rational duration and earliest minimizing departure for each route, in the order of routes. route_durations and route_departures contain their binary64 displays.
 
-    search_value is the approximate objective of the selected routes under the binary64 search fold. exact_evaluation contains the library record, including the profile, backend and authoritative cost."""
+    search_value is the approximate objective of the selected routes under the binary64 search fold, or None when that fold cannot represent the checked warm start. exact_evaluation contains the library record, including the profile, backend and authoritative cost."""
 
     instance_name: str
     routes: list[list[int]]
     # Binary64 display of the checked objective, including the per-route charge under FleetCostDuration.
-    cost: float
+    cost: float | None
     route_durations: list[float]
     route_departures: list[float]
     status: str  # "finished" | "time_limit"
@@ -379,9 +409,11 @@ def solve(
 
     initial_routes accepts a complete, feasible solution expressed as customer-only routes. The library checks the seed under the requested objective in both acceptance modes. Fleet descent can start above k_cap, but only solutions meeting the target enter the incumbent stream.
 
+    If binary64 initialization cannot represent a validated in-cap seed, the callback immediately receives its exact cost and search_value=None in either mode. The search tries cold construction with the remaining time. The seed is retained on an exact tie.
+
     By default, each candidate new best must pass exact feasibility and strictly improve the rational objective before publication. The synchronous callback receives its exact_cost, its binary64 display as value and its approximate search_value. Distinct rational costs can have the same display.
 
-    With acceptance_mode="final_only", publications are provisional and carry exact_cost=None. If final verification rejects the last candidate, the solver tries up to incumbent_history_size earlier distinct candidates in increasing approximate cost order. Solution.routes and Solution.exact_cost describe the checked result."""
+    With acceptance_mode="final_only", subsequent search publications are provisional and carry exact_cost=None. If final verification rejects the last candidate, the solver tries up to incumbent_history_size earlier distinct candidates in increasing approximate cost order. Solution.routes and Solution.exact_cost describe the checked result."""
     if isinstance(instance, LoadedTDInstance):
         if verify:
             raise ValueError(
@@ -417,8 +449,10 @@ def solve(
     result = _core.solve_ils(
         core, ils_core, seed, tl, acceptance.publish,
         initial_routes=seed_routes, accept_incumbent=acceptance.accept,
+        on_unusable_warm_start=acceptance.unusable_warm_start if seed_routes else None,
+        fleet_cost_objective=objective == "FleetCostDuration",
     )
-    if result.status == _core.SolveStatus.Infeasible or not result.routes:
+    if (result.status == _core.SolveStatus.Infeasible or not result.routes) and acceptance.checked_fallback is None:
         if acceptance.stats["infeasible"]:
             raise InfeasibleError(f"no exact-feasible incumbent in {acceptance.stats['proposals']} proposals")
         if params.k_cap > 0 and objective != "Duration":
