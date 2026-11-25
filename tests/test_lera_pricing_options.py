@@ -1,8 +1,6 @@
-"""Pricing options of the exact component (1.7.0): defaults, switches and overrides.
+"""The production pricing configuration and exact-closure diagnostic."""
 
-The options change how fast a node is solved, never what is proven: every setting
-must certify the same optimum, and the result must record what was in force.
-"""
+import os
 
 import pytest
 from mamut_routing_lib.td import load_td_instance
@@ -20,52 +18,21 @@ def _solve(instance_path, **kwargs):
 
 
 @pytest.mark.parametrize("instance_path", R201_25, ids=lambda p: "R201-n25")
-def test_default_pricing_options_are_recorded(instance_path) -> None:
+def test_production_pricing_ignores_historical_environment(instance_path, monkeypatch) -> None:
+    monkeypatch.setenv("KAYROS_BPC_NEAR_REL", "0")
+    monkeypatch.setenv("KAYROS_BPC_PACKED", "2")
+    monkeypatch.setenv("KAYROS_STEP_EXACT", "external")
     result = _solve(instance_path)
+    assert not result["stepwise_atfs"]
+    assert os.environ["KAYROS_STEP_EXACT"] == "external"
     options = result["effective_algorithm_settings"]["pricing_options"]
     assert options["near_rel"] == pytest.approx(0.10)
     assert options["near_limit"] == 3000
-    assert options["he_cutblind"] == 1
-    assert options["packed_filter"] == 1
-    assert options["merge_prefilter"] is True
-    assert options["lam_iterate"] is True
-    # Experimental levers stay off.
-    assert options["dropback_level"] == -1
-    assert options["early_cuts"] == 0
-    assert options["dssr"] == 0
-    assert options["verify_final"] is False
+    assert options["heuristic_cut_blind"]
+    assert options["packed_filter"]
+    assert options["merge_prefilter"]
+    assert options["last_arc_merge_iterate"]
+    assert options["verify_final_mask"] == 0
     assert result["exact_log"]["status"] == "Optimum"
     assert result["value"] == pytest.approx(R201_25_OPTIMUM, rel=1e-9)
     assert result["closure_census"]["cg_unresolved_final_pricing"] == 0
-
-
-@pytest.mark.parametrize("instance_path", R201_25, ids=lambda p: "R201-n25")
-def test_options_do_not_change_the_optimum(instance_path) -> None:
-    plain = _solve(instance_path, near_rel=0.0, heuristic_cut_blind=False)
-    options = plain["effective_algorithm_settings"]["pricing_options"]
-    assert options["near_rel"] == 0.0
-    assert options["he_cutblind"] == 0
-    assert plain["pricing_counters"]["near_columns_added"] == 0
-    wide = _solve(instance_path, near_rel=0.5)
-    for result in (plain, wide):
-        assert result["exact_log"]["status"] == "Optimum"
-        assert result["value"] == pytest.approx(R201_25_OPTIMUM, rel=1e-9)
-        assert result["closure_census"]["cg_unresolved_final_pricing"] == 0
-
-
-@pytest.mark.parametrize("instance_path", R201_25, ids=lambda p: "R201-n25")
-def test_environment_overrides_the_parameter(instance_path, monkeypatch) -> None:
-    monkeypatch.setenv("KAYROS_BPC_NEAR_REL", "0")
-    monkeypatch.setenv("KAYROS_BPC_PACKED", "2")  # packed filter with its self-check
-    result = _solve(instance_path, near_rel=0.3)
-    options = result["effective_algorithm_settings"]["pricing_options"]
-    assert options["near_rel"] == 0.0
-    assert options["packed_filter"] == 2
-    assert result["value"] == pytest.approx(R201_25_OPTIMUM, rel=1e-9)
-
-
-def test_negative_near_rel_is_rejected() -> None:
-    if not R201_25:
-        pytest.skip("benchmarks not available")
-    with pytest.raises(Exception):
-        _solve(R201_25[0], near_rel=-1.0)

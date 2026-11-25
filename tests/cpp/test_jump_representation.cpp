@@ -5,6 +5,7 @@
 // CMake target kayros_test_jump_representation, part of kayros_cpp_tests.
 
 #include <cmath>
+#include <future>
 #include <iostream>
 #include <string>
 
@@ -133,6 +134,16 @@ void test_compose_drops_a_jump_outside_the_outer_domain()
 
 int main()
 {
+    {
+        StepExactArithmeticScope parent(false);
+        require(std::async(std::launch::async, [] { return step_exact_arithmetic(); }).get(),
+                "a jump-free solve does not change another thread's jump arithmetic");
+        {
+            StepExactArithmeticScope nested(true);
+            require(step_exact_arithmetic(), "a nested stepwise scope selects jump arithmetic");
+        }
+        require(!step_exact_arithmetic(), "the outer arithmetic is restored on return");
+    }
 	test_inverse_of_a_bare_upward_jump();
 	test_inverse_refuses_what_it_cannot_invert();
 	test_json_round_trip_keeps_verticals();

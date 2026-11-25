@@ -1,6 +1,6 @@
 // kayros (M13.2): graceful OOM self-rejection guard. NOT upstream goc code.
 //
-// Process-global RSS watermark: the prover polls it at the same loop heads as
+// Per-thread watermark of process RSS: the prover polls it at the same loop heads as
 // the M5.2 deadline and unwinds with MemoryLimitReached instead of being
 // OS-OOM-killed with no verdict (the Vu2020 full-horizon TDVRP pathology:
 // trivial-TW pruning is weak, label accumulation exceeds any node's RAM).
@@ -16,7 +16,6 @@
 #ifndef GOC_BASE_MEMORY_MONITOR_H
 #define GOC_BASE_MEMORY_MONITOR_H
 
-#include <atomic>
 #include <cstdint>
 #include <cstdio>
 
@@ -33,25 +32,25 @@ public:
 	// poll countdown (call once at solve start).
 	static void SetLimitBytes(int64_t limit)
 	{
-		limit_bytes_.store(limit, std::memory_order_relaxed);
-		exceeded_.store(false, std::memory_order_relaxed);
-		countdown_.store(0, std::memory_order_relaxed);
+		limit_bytes_ = limit;
+		exceeded_ = false;
+		countdown_ = 0;
 	}
 
-	static int64_t LimitBytes() { return limit_bytes_.load(std::memory_order_relaxed); }
+	static int64_t LimitBytes() { return limit_bytes_; }
 
 	// Throttled watermark check: reads the RSS at most once per kPollStride
 	// calls, sticky once tripped. Safe to call in hot loops.
 	static bool Exceeded()
 	{
-		const int64_t limit = limit_bytes_.load(std::memory_order_relaxed);
+		const int64_t limit = limit_bytes_;
 		if (limit <= 0) return false;
-		if (exceeded_.load(std::memory_order_relaxed)) return true;
-		if (countdown_.fetch_sub(1, std::memory_order_relaxed) > 0) return false;
-		countdown_.store(kPollStride, std::memory_order_relaxed);
+		if (exceeded_) return true;
+		if (countdown_-- > 0) return false;
+		countdown_ = kPollStride;
 		if (CurrentRSSBytes() >= limit)
 		{
-			exceeded_.store(true, std::memory_order_relaxed);
+			exceeded_ = true;
 			return true;
 		}
 		return false;
@@ -102,9 +101,9 @@ private:
 	// the headroom the auto limit leaves). One statm read costs ~2 us; label
 	// iterations are far heavier, so the amortized cost is negligible.
 	static constexpr int kPollStride = 64;
-	inline static std::atomic<int64_t> limit_bytes_{0};
-	inline static std::atomic<bool> exceeded_{false};
-	inline static std::atomic<int> countdown_{0};
+	inline static thread_local int64_t limit_bytes_{0};
+	inline static thread_local bool exceeded_{false};
+	inline static thread_local int countdown_{0};
 };
 } // namespace goc
 

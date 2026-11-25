@@ -204,10 +204,8 @@ def solve_duration(
     on_incumbent: Callable[[dict[str, Any]], None] | None = None,
     on_event: Callable[[dict[str, Any]], None] | None = None,
     initial_routes: list[list[int]] | None = None,
-    stab_alpha: float = 0.0,
     memory_limit_mb: float | None = None,
-    near_rel: float = 0.10,
-    heuristic_cut_blind: bool = True,
+    verify_final_mask: int = 0,
 ) -> dict[str, Any]:
     """Return the bridge's numerical search record, using its native vertex numbering.
 
@@ -223,32 +221,14 @@ def solve_duration(
             "(HiGHS backend by default; see cpp/lera/NOTICE.md)."
         ) from exc
 
-    # M13.0 promotion: the exact value-jump labeling is the production path on
-    # step-carrying instances. The KAYROS_STEP_EXACT flag (formerly a dev
-    # toggle) is now set per solve from the instance data, BEFORE the payload
-    # is built and before the solver constructs its instance (both consult
-    # it): stepwise ATFs get true tagged verticals end to end; jump-free
-    # instances take the unchanged v1.0.0 arithmetic bit-identically. M13.3
-    # made this flag the decisive gate for the exact vertical arithmetic inside
-    # the solver too (goc::step_exact_arithmetic). It also gates the
-    # reverse-side normalizer, which the jump-free path genuinely needs: it is
-    # not a step mollifier but the pass that keeps the reflected reverse
-    # arrival vertical-free for the legacy arithmetic.
-    import os as _os
-
-    if _has_stepwise_atfs(loaded):
-        _os.environ["KAYROS_STEP_EXACT"] = "1"
-    else:
-        _os.environ.pop("KAYROS_STEP_EXACT", None)
-
+    stepwise = _has_stepwise_atfs(loaded)
     payload = to_lera_payload(loaded)
     kwargs: dict[str, Any] = {
         "time_limit_s": time_limit_s,
         "cut_limit": cut_limit,
         "solution_limit": solution_limit,
-        "stab_alpha": float(stab_alpha),
-        "near_rel": float(near_rel),
-        "heuristic_cut_blind": bool(heuristic_cut_blind),
+        "stepwise": stepwise,
+        "verify_final_mask": verify_final_mask,
         "memory_limit_mb": (
             _auto_memory_limit_mb() if memory_limit_mb is None else float(memory_limit_mb)
         ),
@@ -265,11 +245,7 @@ def solve_duration(
     if initial_routes is not None:
         kwargs["initial_routes"] = [[int(c) for c in route] for route in initial_routes]
     result = json.loads(_lera.solve_duration_json(json.dumps(payload), **kwargs))
-    result["stepwise_atfs"] = any(
-        xs[k + 1] == xs[k]
-        for _, _, xs, _ in payload["mamut_raw"]["atfs"]
-        for k in range(len(xs) - 1)
-    )
+    result["stepwise_atfs"] = stepwise
     return result
 
 

@@ -24,37 +24,13 @@ from exact_reference import assert_value_close, exact_duration_cost
 RC107_50 = [p for p in family_instances("TDVRPTW", "Dabia2013", ["n=50"]) if p.name == "RC107.vrp.json"]
 RC107_50_OPTIMUM = 10614.011179781175
 
-# The pricing ladder of releases before 1.7.0, on which the defect was found.
-LEGACY = {
-    "KAYROS_BPC_NEAR_REL": "0",
-    "KAYROS_BPC_HE_CUTBLIND": "0",
-    "KAYROS_BPC_PACKED": "0",
-    "KAYROS_BPC_MERGE_PREFILTER": "0",
-    "KAYROS_BPC_LAM_ITERATE": "0",
-}
-
-SETTINGS = {
-    "default": {},
-    "legacy": dict(LEGACY),
-    # The two trajectories that closed above the optimum before the fix.
-    "legacy-dropback": {**LEGACY, "KAYROS_BPC_DROPBACK_LEVEL": "0"},
-    "legacy-dropback-cutblind": {**LEGACY, "KAYROS_BPC_DROPBACK_LEVEL": "0", "KAYROS_BPC_HE_CUTBLIND": "1"},
-    # Re-runs every empty final Exact pass without partial dominance: a column
-    # found there is a column partial dominance lost.
-    "legacy-dropback-verified": {**LEGACY, "KAYROS_BPC_DROPBACK_LEVEL": "0", "KAYROS_BPC_VERIFY_FINAL": "16"},
-    "default-verified": {"KAYROS_BPC_VERIFY_FINAL": "16"},
-}
-
-
 @pytest.mark.parametrize("instance_path", RC107_50, ids=lambda p: "RC107-n50")
-@pytest.mark.parametrize("setting", sorted(SETTINGS))
-def test_rc107_n50_closes_at_the_optimum_under_every_ladder(instance_path, setting, monkeypatch) -> None:
+@pytest.mark.parametrize("verify_final_mask", [0, 16], ids=["production", "verify-partial-dominance"])
+def test_rc107_n50_closes_at_the_optimum(instance_path, verify_final_mask) -> None:
     from kayros._bpc import routes_to_mamut, solve_duration
 
-    for name, value in SETTINGS[setting].items():
-        monkeypatch.setenv(name, value)
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=300.0, cut_limit=500)
+    result = solve_duration(loaded, time_limit_s=300.0, cut_limit=500, verify_final_mask=verify_final_mask)
     assert result["exact_log"]["status"] == "Optimum"
     assert result["closure_census"]["cg_unresolved_final_pricing"] == 0
     assert result["value"] == pytest.approx(RC107_50_OPTIMUM, rel=1e-9)
