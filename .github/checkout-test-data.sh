@@ -4,7 +4,7 @@ set -euo pipefail
 
 root=${1:?usage: checkout-test-data.sh DESTINATION [full|smoke|library]}
 mode=${2:-full}
-umbrella=128ed9a985979b594d956b0192227937a7eeac79
+umbrella=a45046926459e97dc06d8c84f7c9fd56b9e894db
 org=https://github.com/ANR-MAMUT
 
 fetch_tree() {

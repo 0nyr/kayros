@@ -19,7 +19,7 @@ For the 2.0 development version, build a wheel of the pinned MAMUT library with 
 ```sh
 export PIP_FIND_LINKS="$PWD/kayros-build-wheels"
 mkdir -p "$PIP_FIND_LINKS"
-python -m pip wheel --no-deps --wheel-dir "$PIP_FIND_LINKS" "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@6089c48f4ffa9323ab8aeaa0b13209410b5efbe4"
+python -m pip wheel --no-deps --wheel-dir "$PIP_FIND_LINKS" "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@83b2c5b95d859f1bd8c14ec2594c307a5cf0d6a8"
 git clone https://github.com/0nyr/kayros.git
 cd kayros
 python -m pip install --group dev -e .
