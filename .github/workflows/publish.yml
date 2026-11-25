@@ -40,8 +40,9 @@ jobs:
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           # Test against the released library resolved by the wheel metadata.
           CIBW_BEFORE_ALL_LINUX: >
-            dnf -y install boost-devel gmp-devel git &&
+            dnf -y install boost-devel boost1.78-devel gmp-devel git &&
             bash {project}/.github/checkout-test-data.sh /tmp/mamut-routing smoke
+          CIBW_TEST_ENVIRONMENT: CPLUS_INCLUDE_PATH=/usr/include/boost1.78
           CIBW_TEST_COMMAND: >
             python -c "import kayros._core, kayros._lera; from kayros import lera" &&
             python {project}/tests/wheel_smoke.py /tmp/mamut-routing
