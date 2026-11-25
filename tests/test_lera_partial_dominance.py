@@ -30,7 +30,7 @@ def test_rc107_n50_closes_at_the_optimum(instance_path, verify_final_mask) -> No
     from kayros._bpc import routes_to_mamut, solve_duration
 
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=300.0, cut_limit=500, verify_final_mask=verify_final_mask)
+    result = solve_duration(loaded, time_limit=300.0, cut_limit=500, verify_final_mask=verify_final_mask)
     assert result["exact_log"]["status"] == "Optimum"
     assert result["closure_census"]["cg_unresolved_final_pricing"] == 0
     assert result["value"] == pytest.approx(RC107_50_OPTIMUM, rel=1e-9)

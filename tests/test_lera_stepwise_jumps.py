@@ -73,7 +73,7 @@ def test_rifki30_n10_root_lp_equals_the_enumerated_value(instance_path) -> None:
     from kayros._bpc import solve_duration
 
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=120.0, cut_limit=0, node_limit=0)
+    result = solve_duration(loaded, time_limit=120.0, cut_limit=0, node_limit=0)
     assert result["stepwise_atfs"] is True
     assert result["exact_log"]["root_lp_value"] == pytest.approx(ENUMERATED_ROOT_LP, abs=1e-6)
     # Under true duals an existing column never prices negative again.
@@ -89,7 +89,7 @@ def test_stepwise_closures_leave_no_column_behind(instance_path, optimum) -> Non
     # without label correction. On 1.7.1 that pass added columns on each of
     # these instances, improving ones on the three symmetric cases.
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=300.0, verify_final_mask=16)
+    result = solve_duration(loaded, time_limit=300.0, verify_final_mask=16)
     assert result["exact_log"]["status"] == "Optimum"
     assert result["value"] == pytest.approx(optimum, abs=1e-6)
     routes = [r[1:-1] for r in routes_to_mamut(result["routes"], loaded.instance.num_customers)]
@@ -108,7 +108,7 @@ def test_jump_free_solve_reports_clean_pricing_and_covered_closures(instance_pat
     from kayros._bpc import solve_duration
 
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=120.0)
+    result = solve_duration(loaded, time_limit=120.0)
     stored = json.loads(instance_path.with_name("C205.bks.Duration.json").read_text())
     assert result["stepwise_atfs"] is False
     assert result["exact_log"]["status"] == "Optimum"

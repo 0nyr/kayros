@@ -197,7 +197,7 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
 def solve_duration(
     loaded: LoadedTDInstance,
     *,
-    time_limit_s: float = 7200.0,
+    time_limit: float = 7200.0,
     cut_limit: int = 100,
     node_limit: int | None = None,
     solution_limit: int = 3000,
@@ -224,7 +224,7 @@ def solve_duration(
     stepwise = _has_stepwise_atfs(loaded)
     payload = to_lera_payload(loaded)
     kwargs: dict[str, Any] = {
-        "time_limit_s": time_limit_s,
+        "time_limit": time_limit,
         "cut_limit": cut_limit,
         "solution_limit": solution_limit,
         "stepwise": stepwise,
@@ -244,7 +244,7 @@ def solve_duration(
         kwargs["on_event"] = lambda payload: on_event(json.loads(payload))
     if initial_routes is not None:
         kwargs["initial_routes"] = [[int(c) for c in route] for route in initial_routes]
-    result = json.loads(_lera.solve_duration_json(json.dumps(payload), **kwargs))
+    result = json.loads(_lera.solve_exact_json(json.dumps(payload), **kwargs))
     result["stepwise_atfs"] = stepwise
     return result
 

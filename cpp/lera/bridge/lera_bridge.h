@@ -11,7 +11,7 @@
 namespace kayros::lera {
 
 struct SolveParams {
-    double time_limit_s = 7200.0;
+    double time_limit = 7200.0;
     int cut_limit = 100;
     int node_limit = INT_MAX;
     int solution_limit = 3000;  // labeling negative-reduced-cost pool size
@@ -45,6 +45,6 @@ struct SolveParams {
 // present). Runs Lera's shared preprocessing (capacity, service+waiting
 // folding, TW tightening, depot triangle arc removal), then the duration-
 // objective BCP. Returns a result JSON string.
-std::string solve_duration_json(const std::string& payload, const SolveParams& params);
+std::string solve_exact_json(const std::string& payload, const SolveParams& params);
 
 }  // namespace kayros::lera
