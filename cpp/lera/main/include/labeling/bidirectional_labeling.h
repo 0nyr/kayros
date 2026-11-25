@@ -96,6 +96,7 @@ public:
 	
 private:
 	friend struct CorrectionInvariantTest;
+	friend struct PricingPoolTest;
 	void RefreshCorrectedMergeLabels(int direction);
 
 	// Sets the labeling level flags based on the given level.
