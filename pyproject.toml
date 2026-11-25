@@ -1,5 +1,5 @@
 [build-system]
-requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13", "mamut-routing-lib>=0.13.0.dev0,<0.14"]
 build-backend = "scikit_build_core.build"
 
 [project]
