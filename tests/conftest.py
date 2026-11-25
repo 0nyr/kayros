@@ -24,6 +24,8 @@ def benchmarks_root() -> Path | None:
                 root = root / "benchmarks"
             if root.is_dir():
                 return root
+    if os.environ.get("KAYROS_REQUIRE_BENCHMARKS") == "1":
+        raise pytest.UsageError("CI requires a MAMUT-routing benchmarks tree")
     return None
 
 
@@ -44,8 +46,10 @@ def family_instances(problem_type: str, family: str, size_dirs: list[str]) -> li
     for size_dir in size_dirs:
         # Family-first layout of the MAMUT-routing collections (library 0.13).
         directory = root / family / problem_type / size_dir
-        if directory.is_dir():
-            paths.extend(sorted(directory.glob("*.vrp.json")))
+        instances = sorted(directory.glob("*.vrp.json"))
+        if not instances and os.environ.get("KAYROS_REQUIRE_BENCHMARKS") == "1":
+            raise pytest.UsageError(f"CI benchmark directory has no instances: {directory}")
+        paths.extend(instances)
     return paths
 
 
@@ -72,6 +76,19 @@ def require_benchmarks() -> None:
             "MAMUT-routing benchmarks not found: set MAMUT_ROUTING_BENCHMARKS_ROOT "
             "(or MAMUT_ROUTING_ROOT) to a MAMUT-routing checkout with its family collections"
         )
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    if (
+        os.environ.get("KAYROS_REQUIRE_BENCHMARKS") == "1"
+        and report.skipped
+        and item.get_closest_marker("skipif") is None
+    ):
+        report.outcome = "failed"
+        report.longrepr = f"Unexpected skip in the required CI corpus: {report.longrepr}"
+    return report
 
 
 def pytest_terminal_summary(terminalreporter) -> None:

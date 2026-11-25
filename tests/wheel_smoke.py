@@ -11,6 +11,8 @@ from mamut_routing_lib.td import compute_solution_cost, load_td_instance
 
 def main(root: str) -> int:
     path = Path(root) / "benchmarks/Dabia2013/TDVRPTW/n=25/C101.vrp.json"
+    if not path.is_file():
+        sys.exit(f"missing wheel smoke fixture: {path}")
     loaded = load_td_instance(str(path))
     heuristic = kayros.solve(str(path), time_limit=2.0, seed=1, verify=True)
     result = solve_exact(loaded, time_limit=300.0)
