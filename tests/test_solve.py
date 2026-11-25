@@ -9,7 +9,7 @@ import kayros
 
 from conftest import family_instances
 
-SMALL_BUDGET = kayros.Params(strategy="aco", max_iterations=80, max_no_improvement=40)
+SMALL_BUDGET = kayros.Params(ils_max_iterations=80)
 
 
 def pick(paths, names):

@@ -23,7 +23,6 @@ pybind11_add_module(_core
     cpp/core/route_eval.cpp
     cpp/core/warp_eval.cpp
     cpp/heuristics/greedy_makespan.cpp
-    cpp/heuristics/aco.cpp
     cpp/heuristics/ils.cpp
     cpp/ls/lca_tree.cpp
     cpp/ls/leaves.cpp

@@ -1,10 +1,4 @@
-"""M7.3 strategy-API gates: Params.strategy dispatch through kayros.solve().
-
-solve() itself re-prices every returned solution through the reference
-checker and raises on disagreement, so these gates focus on the dispatch
-contract: validation, determinism per strategy, incumbent stream shape
-(strictly improving, correct origins) and the aco+ils merge.
-"""
+"""Iterated local search budgets, determinism and incumbent reporting."""
 
 import pytest
 
@@ -50,12 +44,6 @@ def test_ils_without_budget_falls_back_to_restart_windows() -> None:
     assert solution.cost > 0.0
 
 
-def test_split_requires_time_limit() -> None:
-    path = dabia("R101")
-    with pytest.raises(ValueError, match="needs a time_limit"):
-        kayros.solve(path, kayros.Params(strategy="aco+ils"))
-
-
 def test_ils_strategy_end_to_end_deterministic() -> None:
     path = dabia("C101")
     params = kayros.Params(strategy="ils", ils_max_iterations=150)
@@ -86,40 +74,3 @@ def test_ils_strategy_hook_monotone() -> None:
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values)
     assert values[-1] == result.search_value
-
-
-def test_split_strategy_runs_both_phases() -> None:
-    path = dabia("R205", size_dir="n=50")
-    events = []
-    result = kayros.solve(
-        path,
-        kayros.Params(strategy="aco+ils", max_iterations=100_000,
-                      max_no_improvement=100_000),
-        time_limit=8,
-        seed=5,
-        on_incumbent=lambda inc, routes: events.append(inc),
-    )
-    values = [i.value for i in result.incumbents]
-    assert values == sorted(values, reverse=True)
-    assert len(set(values)) == len(values), "the merged stream must be strict"
-    assert result.incumbents[0].origin == "greedy"
-    assert result.search_value == values[-1]
-    # The hook stream must match the merged record stream in values.
-    assert [e.value for e in events] == values
-    # Both phases fired their seed/greedy event; the ILS phase ran (its
-    # incumbents, if any beat the ACO best, carry the "ils" origin).
-    assert {i.origin for i in result.incumbents} <= {"greedy", "aco", "ils"}
-
-
-def test_ils_strategy_beats_construction_only() -> None:
-    path = dabia("R101")
-    ils = kayros.solve(
-        path, kayros.Params(strategy="ils", ils_max_iterations=300), seed=3
-    )
-    no_ls = kayros.solve(
-        path,
-        kayros.Params(strategy="aco", max_iterations=40, max_no_improvement=40,
-                      local_search=False),
-        seed=3,
-    )
-    assert ils.cost < no_ls.cost

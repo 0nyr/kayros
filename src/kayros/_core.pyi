@@ -36,22 +36,6 @@ class Instance:
         self, route: list[int]
     ) -> tuple[list[float], list[float]]: ...
 
-class AcoParams:
-    max_iterations: int
-    max_no_improvement: int
-    nb_ants: int
-    alpha: int
-    beta: int
-    rho: float
-    tau_min: float
-    tau_0: float
-    tau_max: float
-    delta_pheromone_threshold: float
-    use_local_search: bool
-    ls_all_ants: bool
-    num_neighbours: int
-    weight_wait: float
-
 class IlsParams:
     max_iterations: int
     num_neighbours: int
@@ -70,7 +54,6 @@ class Incumbent:
 
 class SolveStatus(enum.Enum):
     Finished = 0
-    Converged = 1
     TimeLimit = 2
     Infeasible = 3
 
@@ -117,13 +100,6 @@ def ls_evaluate_intra_relocate(
     instance: Instance, route: list[int], i: int, p: int
 ) -> tuple[bool, float, float]: ...
 def solution_duration(instance: Instance, routes: list[list[int]]) -> float: ...
-def solve_aco(
-    instance: Instance,
-    params: AcoParams,
-    seed: int,
-    time_limit_seconds: float,
-    on_incumbent: Callable[[Incumbent, list[list[int]]], None] | None = None,
-) -> SolveResult: ...
 def solve_ils(
     instance: Instance,
     params: IlsParams,

@@ -153,7 +153,7 @@ def test_solve_granular_default_deterministic() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=25", "C101")
     if path is None:
         pytest.skip("instance not present")
-    budget = kayros.Params(strategy="aco", max_iterations=30, max_no_improvement=30)
+    budget = kayros.Params(ils_max_iterations=30)
     assert budget.num_neighbours == 50
     a = kayros.solve(path, budget, seed=11)
     b = kayros.solve(path, budget, seed=11)
@@ -169,9 +169,9 @@ def test_solve_granular_quality_close_to_exhaustive() -> None:
     path = pick_one("TDVRPTW", "Dabia2013", "n=25", "R101")
     if path is None:
         pytest.skip("instance not present")
-    budget = kayros.Params(strategy="aco", max_iterations=40, max_no_improvement=40)
+    budget = kayros.Params(ils_max_iterations=40)
     exhaustive = kayros.Params(
-        strategy="aco", max_iterations=40, max_no_improvement=40, num_neighbours=0
+        ils_max_iterations=40, num_neighbours=0
     )
     gr = kayros.solve(path, budget, seed=3)
     ex = kayros.solve(path, exhaustive, seed=3)

@@ -10,32 +10,6 @@
 
 namespace kayros {
 
-// MMAS-style TD-ACO parameters. Defaults are the tuned values from the
-// original TDVRPTW-solver experiments (bp_heur.json); a re-tuning sweep on
-// MAMUT-format instances is scheduled (milestone M3.5).
-struct AcoParams {
-    std::uint64_t max_iterations = 3000;
-    std::uint64_t max_no_improvement = 20;  // cumulative quiet iterations (see solve_aco)
-    std::uint32_t nb_ants = 8;
-    std::uint32_t alpha = 15;  // pheromone importance (integer exponent)
-    std::uint32_t beta = 10;   // heuristic importance (integer exponent)
-    double rho = 0.02;         // evaporation rate
-    double tau_min = 1e-6;
-    double tau_0 = 2.0;
-    double tau_max = 10.0;
-    double delta_pheromone_threshold = 1e-4;
-    // M3.7 TD-LS: descend on the greedy seed and on each iteration's best ant
-    // (LCA-BST ranked moves, checker-fold repriced commits).
-    bool use_local_search = true;
-    bool ls_all_ants = false;  // apply TD-LS to every feasible ant instead of the iteration-best only
-    // M7.0 granular candidate lists (TD-Vidal proximity; see
-    // tdvrptw-workspace reports/design/td-ils-design.md). Default-on for every
-    // strategy since 0.4.0 (deliberate behavior change vs 0.3.0's exhaustive
-    // scans); 0 restores the exhaustive enumeration.
-    std::int32_t num_neighbours = 50;
-    double weight_wait = 0.2;  // inevitable-wait weight in the proximity
-};
-
 // M7.2 TD-ILS parameters (Stream 7, tdvrptw-workspace
 // reports/design/td-ils-design.md; loop shape and defaults per PyVRP v0.14's
 // IteratedLocalSearch + LAHC, adapted to feasible-only checker-exact search).
@@ -156,18 +130,16 @@ struct Incumbent {
     double value = 0.0;            // solution_duration (canonical-order, checker-exact)
     double seconds = 0.0;          // wall time since solve start
     std::uint64_t iteration = 0;   // 0 = greedy seed
-    std::int32_t origin = 0;       // 0 = greedy, 1 = aco, 2 = ils
+    std::int32_t origin = 0;       // 0 = greedy, 2 = ils
 };
 
 enum class SolveStatus : std::int32_t {
     Finished = 0,    // iteration budget exhausted
-    Converged = 1,   // pheromone mass stagnated
     TimeLimit = 2,
     Infeasible = 3,  // no feasible solution constructed
 };
 
-// Dissolve-kick lifecycle counters (Plan 12 M1; ILS only, ACO leaves them
-// zero). Captured in solve_ils with integer increments and route-count reads
+// Dissolve-kick lifecycle counters. Captured in solve_ils with integer increments and route-count reads
 // only (no rng draw, no double fed back into the search), so Duration runs
 // stay bitwise pre-M1. Under Duration the dissolve is never armed, so every
 // dissolved_* counter is structurally zero there.
@@ -306,8 +278,7 @@ bool split_to_k(const Instance& inst,
 // customer), checker-exact per-route pricing, plus the FleetCostDuration term
 // fixed_route_cost * K (K = non-empty routes; exact no-op at the default 0 =
 // Duration); +inf when any route is time-infeasible or the fleet bound is
-// exceeded. Every heuristic value in kayros flows through this fold, so ACO
-// and ILS inherit the objective unchanged.
+// exceeded.
 double solution_duration(const Instance& inst,
                          const std::vector<std::vector<std::int32_t>>& routes);
 
@@ -317,13 +288,6 @@ double solution_duration(const Instance& inst,
 using IncumbentCallback = std::function<void(
     const Incumbent&, const std::vector<std::vector<std::int32_t>>&)>;
 
-// TD-ACO driver (faithful rewrite of the TDVRPTW-solver heuristic: greedy
-// seed, Ant-System deposits with MMAS bounds, pheromone-mass convergence).
-// time_limit_seconds <= 0 disables the wall-clock limit.
-SolveResult solve_aco(const Instance& inst, const AcoParams& params,
-                      std::uint64_t seed, double time_limit_seconds,
-                      const IncumbentCallback& on_incumbent = {});
-
 // TD-ILS driver (M7.2): greedy seed -> granular descent (+ exhaustive polish)
 // -> {perturb, granular descent, LAHC accept, restart-to-best} until the
 // budget ends. Feasible-only; every value is the canonical checker Duration;
@@ -331,7 +295,7 @@ SolveResult solve_aco(const Instance& inst, const AcoParams& params,
 // time limit is checked per iteration and threaded into the descent's pass
 // boundaries, so the overshoot is bounded by one operator pass.
 // A non-empty initial_routes warm-starts the loop from that solution instead
-// of the greedy seed (M7.3 "aco+ils" split; must be feasible).
+// of the greedy seed. The supplied routes must be feasible.
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit_seconds,
                       const IncumbentCallback& on_incumbent = {},

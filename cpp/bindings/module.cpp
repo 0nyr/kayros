@@ -381,24 +381,6 @@ PYBIND11_MODULE(_core, m) {
 
 
     // --- heuristics ---
-    py::class_<kayros::AcoParams>(m, "AcoParams")
-        .def(py::init<>())
-        .def_readwrite("max_iterations", &kayros::AcoParams::max_iterations)
-        .def_readwrite("max_no_improvement", &kayros::AcoParams::max_no_improvement)
-        .def_readwrite("nb_ants", &kayros::AcoParams::nb_ants)
-        .def_readwrite("alpha", &kayros::AcoParams::alpha)
-        .def_readwrite("beta", &kayros::AcoParams::beta)
-        .def_readwrite("rho", &kayros::AcoParams::rho)
-        .def_readwrite("tau_min", &kayros::AcoParams::tau_min)
-        .def_readwrite("tau_0", &kayros::AcoParams::tau_0)
-        .def_readwrite("tau_max", &kayros::AcoParams::tau_max)
-        .def_readwrite("delta_pheromone_threshold",
-                       &kayros::AcoParams::delta_pheromone_threshold)
-        .def_readwrite("use_local_search", &kayros::AcoParams::use_local_search)
-        .def_readwrite("ls_all_ants", &kayros::AcoParams::ls_all_ants)
-        .def_readwrite("num_neighbours", &kayros::AcoParams::num_neighbours)
-        .def_readwrite("weight_wait", &kayros::AcoParams::weight_wait);
-
     py::class_<kayros::IlsParams>(m, "IlsParams")
         .def(py::init<>())
         .def_readwrite("max_iterations", &kayros::IlsParams::max_iterations)
@@ -439,7 +421,6 @@ PYBIND11_MODULE(_core, m) {
 
     py::enum_<kayros::SolveStatus>(m, "SolveStatus")
         .value("Finished", kayros::SolveStatus::Finished)
-        .value("Converged", kayros::SolveStatus::Converged)
         .value("TimeLimit", kayros::SolveStatus::TimeLimit)
         .value("Infeasible", kayros::SolveStatus::Infeasible);
 
@@ -555,10 +536,6 @@ PYBIND11_MODULE(_core, m) {
     });
     // The callback caster re-acquires the GIL for each invocation, so the
     // solve loop itself can keep running with the GIL released.
-    m.def("solve_aco", &kayros::solve_aco, py::arg("instance"),
-          py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
-          py::arg("on_incumbent") = kayros::IncumbentCallback{},
-          py::call_guard<py::gil_scoped_release>());
     m.def("solve_ils", &kayros::solve_ils, py::arg("instance"),
           py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
           py::arg("on_incumbent") = kayros::IncumbentCallback{},
