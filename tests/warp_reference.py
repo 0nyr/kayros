@@ -9,7 +9,7 @@ doubles, no epsilons — checker discipline.
 
 from __future__ import annotations
 
-from mamut_routing_lib.td.pwlf import NDCPWLF
+from mamut_routing_lib.td.pwlf import NDCPWLF, make_theta
 
 
 def _push_dedup(xs: list[float], ys: list[float], x: float, y: float) -> None:
@@ -189,6 +189,24 @@ def warp_horizon(instance, atfs) -> float:
             if done > t_end:
                 t_end = done
     return t_end
+
+
+def sequential_windowed_route(instance, atfs, route: list[int]) -> NDCPWLF:
+    """Compute the unwarped prefix in the same arc-then-window order as the squeeze."""
+    windows = instance.time_windows
+    depot = instance.depot
+    low = max(atfs.horizon[0], windows[depot][0])
+    high = min(atfs.horizon[1], windows[depot][1])
+    if low > high:
+        return NDCPWLF.empty()
+    ready = NDCPWLF.identity(low, high)
+    tail = depot
+    for head in route:
+        arrival = atfs.arcs[tail, head].compose(ready)
+        ready = make_theta(*windows[head], instance.service_times[head]).compose(arrival)
+        tail = head
+    arrival = atfs.arcs[tail, depot].compose(ready)
+    return NDCPWLF.identity(0.0, windows[depot][1]).compose(arrival)
 
 
 def warp_route_functions(
