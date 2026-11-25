@@ -62,9 +62,14 @@ PwlfView Instance::packed_leaf(std::int32_t from, std::int32_t to) const {
 }
 
 PwlfView Instance::move_leaf(std::int32_t from, std::int32_t to, Pwlf& scratch) const {
-    if (has_time_windows) return packed_leaf(from, to);
+    if (!leaf_offset.empty()) return packed_leaf(from, to);
     const PwlfView alpha = arc(from, to);
-    if (to == 0) return alpha;
+    if (to == 0) {
+        if (!has_time_windows) return alpha;
+        const Pwlf clamp = identity(0.0, tw_latest[0]);
+        compose_into(view(clamp), alpha, scratch);
+        return view(scratch);
+    }
     apply_service(to, alpha, scratch);
     return view(scratch);
 }
@@ -77,22 +82,28 @@ Pwlf route_ready_time_function(const Instance& inst, const std::int32_t* route,
     std::int32_t prev = 0;
     for (std::int64_t k = 0; k < len; ++k) {
         const std::int32_t v = route[k];
-        if (inst.has_time_windows) {
+        if (!inst.leaf_offset.empty()) {
             // The cache already composes the arc with the window and service at its head.
             const PwlfView leaf = inst.packed_leaf(prev, v);
             compose_into(leaf, view(acc), next);
             std::swap(acc, next);
         } else {
-            // The no-window fold forms the service shift over the image of this route prefix.
+            // The exact-component bridge supplies uncached raw arcs. Preserve its sequential composition order, including for windowed customers.
             compose_into(inst.arc(prev, v), view(acc), next);
             inst.apply_service(v, view(next), acc);
         }
         if (acc.xs.empty()) return acc;
         prev = v;
     }
-    const PwlfView ret = inst.has_time_windows ? inst.packed_leaf(prev, 0) : inst.arc(prev, 0);
-    compose_into(ret, view(acc), next);
-    return next;
+    if (!inst.leaf_offset.empty()) {
+        compose_into(inst.packed_leaf(prev, 0), view(acc), next);
+        return next;
+    }
+    compose_into(inst.arc(prev, 0), view(acc), next);
+    if (!inst.has_time_windows) return next;
+    const Pwlf clamp = identity(0.0, inst.tw_latest[0]);
+    compose_into(view(clamp), view(next), acc);
+    return acc;
 }
 
 RouteEval evaluate_route(const Instance& inst, const std::int32_t* route,

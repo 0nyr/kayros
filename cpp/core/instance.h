@@ -34,7 +34,7 @@ struct Instance {
     std::vector<double> atf_xs;
     std::vector<double> atf_ys;
 
-    // Windowed instances store the ready-time function of each arc. The return arc uses only the depot due date.
+    // Windowed heuristic instances store the ready-time function of each arc. The exact-component bridge leaves the pool empty to retain its sequential fold. The return arc uses only the depot due date.
     // Entry a holds its xs followed by its ys in leaf_data[leaf_offset[a], leaf_offset[a+1]).
     std::vector<std::size_t> leaf_offset;
     std::vector<double> leaf_data;
