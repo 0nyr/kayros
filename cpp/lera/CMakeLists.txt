@@ -27,20 +27,72 @@ endif()
 set(Boost_USE_STATIC_LIBS OFF)
 find_package(Boost REQUIRED COMPONENTS graph)
 
-file(GLOB_RECURSE LERA_GOC_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/goc/src/*.cpp)
-file(GLOB_RECURSE LERA_NYR_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/nyr/src/*.cpp)
-file(GLOB_RECURSE LERA_MAIN_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/main/src/*.cpp)
-
-# Backend-specific sources: exactly one backend is compiled in.
-file(GLOB_RECURSE LERA_CPLEX_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/goc/src/linear_programming/cplex/*.cpp)
-file(GLOB_RECURSE LERA_HIGHS_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/goc/src/linear_programming/highs/*.cpp)
+add_library(lera STATIC
+    goc/src/collection/collection_utils.cpp
+    goc/src/graph/arc.cpp
+    goc/src/graph/digraph.cpp
+    goc/src/graph/graph_path.cpp
+    goc/src/graph/path_finding.cpp
+    goc/src/json/json_utils.cpp
+    goc/src/linear_programming/colgen/colgen.cpp
+    goc/src/linear_programming/cuts/separation_algorithm.cpp
+    goc/src/linear_programming/cuts/separation_strategy.cpp
+    goc/src/linear_programming/model/constraint.cpp
+    goc/src/linear_programming/model/expression.cpp
+    goc/src/linear_programming/model/valuation.cpp
+    goc/src/linear_programming/model/variable.cpp
+    goc/src/linear_programming/solver/bc_solver.cpp
+    goc/src/linear_programming/solver/cg_solver.cpp
+    goc/src/linear_programming/solver/lp_solver.cpp
+    goc/src/log/bc_execution_log.cpp
+    goc/src/log/bcp_execution_log.cpp
+    goc/src/log/blb_execution_log.cpp
+    goc/src/log/cg_execution_log.cpp
+    goc/src/log/log.cpp
+    goc/src/log/lp_execution_log.cpp
+    goc/src/log/mlb_execution_log.cpp
+    goc/src/math/interval.cpp
+    goc/src/math/linear_function.cpp
+    goc/src/math/partitioned_interval.cpp
+    goc/src/math/point_2d.cpp
+    goc/src/math/pwl_function.cpp
+    goc/src/print/printable.cpp
+    goc/src/print/string_utils.cpp
+    goc/src/print/table_stream.cpp
+    goc/src/time/duration.cpp
+    goc/src/time/stopwatch.cpp
+    goc/src/vrp/route.cpp
+    goc/src/vrp/vrp_solution.cpp
+    main/src/bcp/bcp.cpp
+    main/src/bcp/pricing_problem.cpp
+    main/src/bcp/spf.cpp
+    main/src/labeling/bidirectional_labeling.cpp
+    main/src/labeling/label.cpp
+    main/src/labeling/lazy_label.cpp
+    main/src/labeling/monodirectional_labeling.cpp
+    main/src/labeling/ng_neighborhoods.cpp
+    main/src/labeling/pwl_domination_function.cpp
+    main/src/preprocess/preprocess_capacity.cpp
+    main/src/preprocess/preprocess_service_waiting.cpp
+    main/src/preprocess/preprocess_time_windows.cpp
+    main/src/preprocess/preprocess_triangle_depot.cpp
+    main/src/preprocess/preprocess_utils.cpp
+    nyr/src/math/ndcpwlf.cpp
+    nyr/src/solutions/route.cpp
+    nyr/src/vrp/instance.cpp
+)
 if(LERA_LP_BACKEND STREQUAL "highs")
-    list(REMOVE_ITEM LERA_GOC_SOURCES ${LERA_CPLEX_SOURCES})
+    target_sources(lera PRIVATE
+        goc/src/linear_programming/highs/highs_solver.cpp
+        goc/src/linear_programming/highs/matrix_formulation.cpp
+    )
 else()
-    list(REMOVE_ITEM LERA_GOC_SOURCES ${LERA_HIGHS_SOURCES})
+    target_sources(lera PRIVATE
+        goc/src/linear_programming/cplex/cplex_formulation.cpp
+        goc/src/linear_programming/cplex/cplex_solver.cpp
+        goc/src/linear_programming/cplex/cplex_wrapper.cpp
+    )
 endif()
-
-add_library(lera STATIC ${LERA_GOC_SOURCES} ${LERA_NYR_SOURCES} ${LERA_MAIN_SOURCES})
 
 # kayros' C++23 baseline; the vendored code predates it (upstream used C++26
 # permissively, but nothing needs it — 23 keeps GCC 13 toolchains buildable).
