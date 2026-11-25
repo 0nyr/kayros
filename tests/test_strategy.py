@@ -27,11 +27,12 @@ def dabia(name, size_dir="n=25"):
 def test_default_strategy_is_ils() -> None:
     # ILS is the default strategy.
     assert kayros.Params().strategy == "ils"
+    assert kayros.Params().search_mode == "binary64"
 
 
 def test_ils_parameter_names_and_mapping() -> None:
     defaults = kayros.Params()
-    public_only = {"strategy", "objective", "acceptance_mode", "incumbent_history_size"}
+    public_only = {"strategy", "objective", "acceptance_mode", "incumbent_history_size", "search_mode"}
     names = {f.name for f in fields(defaults)} - public_only
     native_defaults = kayros._core.IlsParams()
     assert {n for n in dir(native_defaults) if not n.startswith("_")} == names

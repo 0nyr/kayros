@@ -72,6 +72,12 @@ With the default `Params(acceptance_mode="each_incumbent")`, Kayros checks each 
 
 With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callback reports provisional search improvements with `incumbent.exact_cost=None`. If the final candidate fails the exact check, Kayros tries the last 6 distinct prior route sets in increasing order of approximate cost. Set the history size to 0 to keep only the latest search candidate. An eligible checked seed that the search could not represent remains available regardless of history size. The solver logs final rejections and recovery and raises `InfeasibleError` if all retained candidates fail. `solution.acceptance_stats` gives counts of infeasible proposals, nonimproving proposals, squeeze rejections, final rejections and fallback attempts.
 
+### Exact heuristic reference mode
+
+For small-instance reference runs, set `Params(search_mode="exact")`. The heuristic evaluates feasibility and duration with the shared rational evaluator while constructing routes, ranking insertions, comparing local moves and choosing incumbents. For example, `kayros.solve(instance_path, kayros.Params(search_mode="exact"), time_limit=10, seed=42)` runs the reference search for up to 10 seconds. The result and each incumbent carry an `exact_cost` and its display. The approximate `search_value` is `None`. Both acceptance modes publish exact improvements. The library independently checks the returned routes and their exact cost.
+
+The reference search exhaustively examines feasible local moves and keeps routes feasible through perturbation and fleet reduction. It supports checked warm starts and a fleet cap. Leave `sq_work_cap=0` and `sq_ladder=False`, since the penalized squeeze passes through temporarily infeasible routes. Granular neighbour settings, seed splitting and ejection-ladder settings apply to the binary64 search. Work counts in the reference mode measure exact candidate evaluations. A fixed seed and iteration budget allow a repeatable comparison within the mode.
+
 ## Branch-price-and-cut
 
 The Duration solver uses the implementation of Lera-Romero, Miranda Bront and Soulignac (2020). It can start from customer-only incumbent routes. A time limit and a configurable resident-memory limit allow it to return when pricing exhausts its budget. Its search log records pricing and node closure diagnostics. Under the 2.0 evaluation profile, verifying an incumbent establishes its objective value. An optimality claim also requires a verified lower bound.
@@ -88,7 +94,7 @@ print(result.reported_best_bound, result.certified_dual_bound)
 
 ## Implementation
 
-The C++ local search represents arc arrival times as piecewise-linear functions and evaluates moves in binary64 arithmetic. On instances with time windows, it caches the composed arc functions used by the move evaluator. It uses greedy construction, ruin-and-recreate perturbations, late acceptance and restarts from the incumbent. The MAMUT library prices the reported route set and computes exact minimizing departure times.
+The default C++ local search represents arc arrival times as piecewise-linear functions and evaluates moves in binary64 arithmetic. On instances with time windows, it caches the composed arc functions used by the move evaluator. It uses greedy construction, ruin-and-recreate perturbations, late acceptance and restarts from the incumbent. The MAMUT library prices the reported route set and computes exact minimizing departure times.
 
 The branch-price-and-cut solver lives in `cpp/lera/`. Its default LP backend is HiGHS. Source builds can select CPLEX with `-DLERA_LP_BACKEND=cplex`. Each solver run uses one thread. [Solver provenance and modifications](https://github.com/0nyr/kayros/blob/main/cpp/lera/NOTICE.md)
 

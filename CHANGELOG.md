@@ -17,6 +17,8 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 
 The default heuristic checks each candidate new best for feasibility and compares exact rational costs before accepting it. With `acceptance_mode="final_only"`, provisional incumbents are checked at return. If the last one fails, the solver can recover from its retained history (`incumbent_history_size`, default 6). Both modes accept complete customer-only warm starts through `kayros.solve(initial_routes=...)`.
 
+The opt-in heuristic reference mode (`Params(search_mode="exact")`) uses the shared rational evaluator for construction, feasible moves and incumbent comparisons. Its checked warm starts, fleet cap and callbacks use the same objective as the final library evaluation.
+
 The following stepwise repair was developed for 1.8.0 and first enters the 2.0 development line. The historical comparisons use the arithmetic and dataset revisions of those experiments.
 
 ### Stepwise repair (prepared as 1.8.0)
