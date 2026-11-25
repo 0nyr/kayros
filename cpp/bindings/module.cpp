@@ -23,6 +23,8 @@
 
 namespace py = pybind11;
 
+void bind_exact_routes(py::module_& m);
+
 #ifndef KAYROS_VERSION
 #define KAYROS_VERSION "0.0.0"
 #endif
@@ -701,4 +703,5 @@ PYBIND11_MODULE(_core, m) {
             return py::make_tuple(e.feasible, e.duration, e.departure);
         },
         py::arg("instance"), py::arg("route"), py::arg("i"), py::arg("p"));
+    bind_exact_routes(m);
 }
