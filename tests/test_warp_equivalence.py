@@ -1,10 +1,10 @@
 """P8.1 hard gates: the warp-augmented fold must reduce to the exact evaluation.
 
-Since library 0.13 the checker is exact and the solver's binary64 fold is an internal approximation. The gates against the library are feasibility agreement plus a distance bound (`exact_reference.TOL`), not bit identity. The bitwise comparisons between solver kernels (dedup'd versus full fold, C++ versus the Python twin, warp prefix versus the solver's own ready-time function) are unchanged.
+Since library 0.13 the checker is exact and the solver's binary64 fold is an internal approximation. The gates against the library are feasibility agreement plus a distance bound (`exact_reference.TOL`), not bit identity. The bitwise comparisons between solver kernels (dedup'd versus full fold, C++ versus the Python twin, warp prefix versus the sequential unwarped fold) are unchanged.
 
 Stream 8 (TD time-warp) exact-reduction gates, per the accepted P8.0 design memo (workspace `reports/design/p8.0-td-time-warp-design.md` section 4):
 
-- G1: on every exactly-feasible route, the zero-warp duration is within TOL of the exact duration, the minimal warp is exactly 0.0, and the clamped ready-time function's breakpoint grid extends the solver's own base ready-time function (bitwise prefix). Durations are asserted, argmins never (association-fragile).
+- G1: on every exactly-feasible route, the zero-warp duration is within TOL of the exact duration, the minimal warp is exactly 0.0, and the clamped ready-time function's breakpoint grid extends the sequential unwarped ready-time function (bitwise prefix). Durations are asserted, argmins never (association-fragile).
 - G2: the feasibility predicates agree exactly. Exact route evaluation feasible if and only if the zero-warp set is non-empty (exactly-zero warp, never a tolerance).
 - G3: hand-built late routes get controlled warp values.
 
@@ -100,6 +100,8 @@ def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str
     assert ev["feasible"] == (ev["total"] and ev["min_warp"] == 0.0), (ctx, route)
     assert ev["feasible"] == (reference is not None), (ctx, route)
 
+    base_feasible, base_duration, _ = core.evaluate_route(route)
+    assert base_feasible == (reference is not None), (ctx, route)
     if reference is None:
         if ev["total"]:
             assert ev["min_warp"] > 0.0, (ctx, route)
@@ -111,12 +113,17 @@ def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str
 
     # G1: zero-warp duration is within TOL of the exact duration.
     assert ev["min_warp"] == 0.0, (ctx, route)
+    assert_close(loaded, base_duration, reference.duration, (ctx, route, "heuristic fold"))
     assert_close(loaded, ev["duration"], reference.duration, (ctx, route))
     # Phi* can only improve on Delta* (larger candidate set, exact at the argmin breakpoint since W there is exactly 0.0). Solver-internal, bitwise.
     assert ev["penalised"] <= ev["duration"], (ctx, route)
 
-    # G1 grid form: the solver's own base ready-time function is a bitwise prefix of rho's grid.
-    base_xs, base_ys = core.route_ready_time_function(route)
+    # The squeeze applies each arc before its window. The heuristic fold pre-composes them on windowed instances, so the bitwise prefix belongs to the sequential reference.
+    if core.has_time_windows:
+        base = ref.sequential_windowed_route(loaded.instance, loaded.atfs, route)
+        base_xs, base_ys = base.xs, base.ys
+    else:
+        base_xs, base_ys = core.route_ready_time_function(route)
     n = len(base_xs)
     assert rho_xs[:n] == base_xs, (ctx, route)
     assert rho_ys[:n] == base_ys, (ctx, route)
