@@ -14,7 +14,7 @@ R201_25_OPTIMUM = 7932.168490728329
 def _solve(instance_path, **kwargs):
     from kayros._bpc import solve_duration
 
-    return solve_duration(load_td_instance(instance_path), time_limit_s=120.0, cut_limit=500, **kwargs)
+    return solve_duration(load_td_instance(instance_path), time_limit=120.0, cut_limit=500, **kwargs)
 
 
 @pytest.mark.parametrize("instance_path", R201_25, ids=lambda p: "R201-n25")

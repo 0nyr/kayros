@@ -82,7 +82,7 @@ kayros::RouteEval checker_eval(const kayros::Instance& ci, const goc::GraphPath&
 
 }  // namespace
 
-std::string solve_duration_json(const std::string& payload, const SolveParams& params) {
+std::string solve_exact_json(const std::string& payload, const SolveParams& params) {
     const goc::BackendSettingsScope backend_scope;
     const goc::StepExactArithmeticScope step_mode(params.stepwise);
 
@@ -129,7 +129,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     }
 
     BCP bcp(vrp.D, &spf);
-    bcp.time_limit = Duration(params.time_limit_s, DurationUnit::Seconds);
+    bcp.time_limit = Duration(params.time_limit, DurationUnit::Seconds);
     bcp.cut_limit = params.cut_limit;
     bcp.node_limit = params.node_limit;
 

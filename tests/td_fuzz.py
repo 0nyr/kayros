@@ -115,7 +115,7 @@ def run_ils(loaded: LoadedTDInstance, seed: int, tl: float):
 def run_exact(loaded: LoadedTDInstance, tl: float, warm=None):
     from kayros._bpc import solve_duration
 
-    return solve_duration(loaded, time_limit_s=tl, initial_routes=warm)
+    return solve_duration(loaded, time_limit=tl, initial_routes=warm)
 
 
 def soundness(loaded: LoadedTDInstance, *, tl_ils: float = 5.0, tl_exact: float = 30.0,

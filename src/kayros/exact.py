@@ -145,7 +145,7 @@ def solve_exact(
         consider(last_native_routes, event["time"], event["origin"], event["value"])
 
     raw = _bpc.solve_duration(
-        loaded, time_limit_s=time_limit, initial_routes=seed, on_incumbent=native_incumbent,
+        loaded, time_limit=time_limit, initial_routes=seed, on_incumbent=native_incumbent,
         node_limit=node_limit, memory_limit_mb=memory_limit_mb,
     )
     log = raw["exact_log"]

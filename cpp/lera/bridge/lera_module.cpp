@@ -26,13 +26,13 @@ PYBIND11_MODULE(_lera, m) {
 #endif
 
     m.def(
-        "solve_duration_json",
-        [](const std::string& payload, double time_limit_s, int cut_limit, int node_limit,
+        "solve_exact_json",
+        [](const std::string& payload, double time_limit, int cut_limit, int node_limit,
            int solution_limit, py::object on_incumbent,
            std::vector<std::vector<int>> initial_routes, double memory_limit_mb,
            py::object on_event, bool stepwise, int verify_final_mask) {
             kayros::lera::SolveParams params;
-            params.time_limit_s = time_limit_s;
+            params.time_limit = time_limit;
             params.cut_limit = cut_limit;
             params.node_limit = node_limit;
             params.solution_limit = solution_limit;
@@ -55,9 +55,9 @@ PYBIND11_MODULE(_lera, m) {
                 };
             }
             py::gil_scoped_release release;
-            return kayros::lera::solve_duration_json(payload, params);
+            return kayros::lera::solve_exact_json(payload, params);
         },
-        py::arg("payload"), py::arg("time_limit_s") = 7200.0, py::arg("cut_limit") = 100,
+        py::arg("payload"), py::arg("time_limit") = 7200.0, py::arg("cut_limit") = 100,
         py::arg("node_limit") = INT_MAX, py::arg("solution_limit") = 3000,
         py::arg("on_incumbent") = py::none(),
         py::arg("initial_routes") = std::vector<std::vector<int>>{},

@@ -83,13 +83,13 @@ C101_N25 = _pick(family_instances("TDVRPTW", "Dabia2013", ["n=25"]), "C101")
 def _cold(loaded, tl=60.0):
     from kayros._bpc import solve_duration
 
-    return solve_duration(loaded, time_limit_s=tl)
+    return solve_duration(loaded, time_limit=tl)
 
 
 def _warm(loaded, routes, tl=60.0):
     from kayros._bpc import solve_duration
 
-    return solve_duration(loaded, time_limit_s=tl, initial_routes=routes)
+    return solve_duration(loaded, time_limit=tl, initial_routes=routes)
 
 
 def test_reproducer_counterexample_is_checker_valid():

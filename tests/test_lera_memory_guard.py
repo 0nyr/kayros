@@ -30,7 +30,7 @@ def test_memory_guard_trips_cleanly(instance_path) -> None:
     from kayros._bpc import solve_duration
 
     loaded = load_td_instance(instance_path)
-    result = solve_duration(loaded, time_limit_s=60.0, memory_limit_mb=50)
+    result = solve_duration(loaded, time_limit=60.0, memory_limit_mb=50)
     assert result["exact_log"]["status"] == "MemoryLimitReached"
     assert result["memory"]["limit_reached"] is True
     assert result["memory"]["limit_mb"] == 50.0
@@ -43,8 +43,8 @@ def test_memory_guard_default_is_bit_identical(instance_path) -> None:
     from kayros._bpc import solve_duration
 
     loaded = load_td_instance(instance_path)
-    off = solve_duration(loaded, time_limit_s=120.0, memory_limit_mb=0)
-    default = solve_duration(loaded, time_limit_s=120.0)
+    off = solve_duration(loaded, time_limit=120.0, memory_limit_mb=0)
+    default = solve_duration(loaded, time_limit=120.0)
     assert off["exact_log"]["status"] == "Optimum"
     assert default["exact_log"]["status"] == "Optimum"
     assert default["value"] == off["value"]
@@ -65,7 +65,7 @@ def test_memory_guard_trips_in_labeling(instance_path) -> None:
 
     loaded = load_td_instance(instance_path)
     rss_mb = _read_own_rss_bytes() / 1048576.0
-    result = solve_duration(loaded, time_limit_s=600.0, memory_limit_mb=rss_mb + 512)
+    result = solve_duration(loaded, time_limit=600.0, memory_limit_mb=rss_mb + 512)
     assert result["exact_log"]["status"] == "MemoryLimitReached"
     assert result["memory"]["limit_reached"] is True
     # The stride-bounded overshoot stays well under the auto limit's headroom.
