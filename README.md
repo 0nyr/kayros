@@ -19,7 +19,7 @@ For the 2.0 development version, build a wheel of the pinned MAMUT library with 
 ```sh
 export PIP_FIND_LINKS="$PWD/kayros-build-wheels"
 mkdir -p "$PIP_FIND_LINKS"
-python -m pip wheel --no-deps --wheel-dir "$PIP_FIND_LINKS" "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@9ebdcff2e49c184e04c5630a3dae5a7c2daffc6d"
+python -m pip wheel --no-deps --wheel-dir "$PIP_FIND_LINKS" "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@64105fa3f8453eb05780d8c3c4a01e21399808c8"
 git clone https://github.com/0nyr/kayros.git
 cd kayros
 python -m pip install --group dev -e .
@@ -76,7 +76,7 @@ With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callb
 
 For small-instance reference runs, set `Params(search_mode="exact")`. The heuristic evaluates feasibility and duration with the shared rational evaluator while constructing routes, ranking insertions, comparing local moves and choosing incumbents. For example, `kayros.solve(instance_path, kayros.Params(search_mode="exact"), time_limit=10, seed=42)` runs the reference search for up to 10 seconds. The result and each incumbent carry an `exact_cost` and its display. The approximate `search_value` is `None`. Both acceptance modes publish exact improvements. The library independently checks the returned routes and their exact cost.
 
-The reference search exhaustively examines feasible local moves and keeps routes feasible through perturbation and fleet reduction. It supports checked warm starts and a fleet cap. Leave `sq_work_cap=0` and `sq_ladder=False`, since the penalized squeeze passes through temporarily infeasible routes. Granular neighbour settings, seed splitting and ejection-ladder settings apply to the binary64 search. Work counts in the reference mode measure exact candidate evaluations. A fixed seed and iteration budget allow a repeatable comparison within the mode.
+During local descent, the reference search examines single-customer relocations, customer swaps, segment reversals and exchanges of route tails. It takes the best feasible improvement within its search budget. Perturbation and fleet reduction also keep routes feasible. It supports checked warm starts and a fleet cap. Leave `sq_work_cap=0` and `sq_ladder=False`, since the penalized squeeze passes through temporarily infeasible routes. Granular neighbour settings, seed splitting and ejection-ladder settings apply to the binary64 search. Work counts in the reference mode measure exact candidate evaluations. A fixed seed and iteration budget allow a repeatable comparison within the mode.
 
 ## Branch-price-and-cut
 

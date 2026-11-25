@@ -1,5 +1,6 @@
 """Public warm starts whose exact departure interval is lost by the binary64 search fold."""
 
+import json
 from dataclasses import replace
 from fractions import Fraction
 from importlib import import_module
@@ -13,16 +14,18 @@ from mamut_routing_lib.td.bks import save_td_solution_as_bks_if_improved
 from mamut_routing_lib.checker import SolutionCheckStatus
 from mamut_routing_lib.exact_types import ExactRouteError
 from mamut_routing_lib.exact_td import prepare_td
-from mamut_routing_lib.td import InstanceATFs, LoadedTDInstance, NDCPWLF
+from mamut_routing_lib.td import (
+    InstanceATFs, LoadedTDInstance, NDCPWLF, compute_atf_sha256, save_instance_atfs,
+)
 from mamut_routing_lib.td.models import BenchmarkInstanceTDVRPTW
 
 import kayros
-from kayros.io import to_core
+from kayros.io import load_instance, to_core
 
 
 def tight_instance(*, direct_has_knot=False, return_from_one=1, fixed_charge=1, capacity=2):
     # Inverting arrival 16 on the direct outbound arc rounds 15 down by one ULP.
-    length, start = 22, 15
+    length, start = 22.0, 15.0
     name = "tight-depot-opening"
     instance = BenchmarkInstanceTDVRPTW(
         instance_name=name, instance_origin="Blauth2024", benchmark_name="Blauth2024",
@@ -36,10 +39,10 @@ def tight_instance(*, direct_has_knot=False, return_from_one=1, fixed_charge=1, 
             if head == tail:
                 continue
             omit_start = (tail, head) == (0, 1) and not direct_has_knot
-            xs = [0, length] if omit_start else [0, start, length]
+            xs = [0.0, length] if omit_start else [0.0, start, length]
             travel = {(0, 2): 0, (1, 0): return_from_one}.get((tail, head), 1)
             arcs[tail, head] = NDCPWLF(xs, [x + travel for x in xs])
-    atfs = InstanceATFs(name, "Blauth2024", (0, length), 2, arcs)
+    atfs = InstanceATFs(name, "Blauth2024", (0.0, length), 2, arcs)
     return LoadedTDInstance(instance, atfs, Path("synthetic.vrp.json"), None)
 
 
@@ -82,7 +85,13 @@ def test_retry_finds_a_better_checked_route(mode, cap):
 
 @pytest.mark.parametrize("mode", ["each_incumbent", "final_only"])
 def test_cold_failure_retains_only_an_eligible_checked_seed(mode, tmp_path):
-    loaded = replace(tight_instance(capacity=1), instance_path=tmp_path / "toy.vrp.json")
+    fixture = tight_instance(capacity=1)
+    descriptor = fixture.instance.model_dump(mode="json", exclude_none=True)
+    descriptor["td"]["atf_sha256"] = compute_atf_sha256(fixture.atfs)
+    save_instance_atfs(fixture.atfs, tmp_path / descriptor["td"]["atf_path"])
+    instance_path = tmp_path / "toy.vrp.json"
+    instance_path.write_text(json.dumps(descriptor), encoding="utf-8")
+    loaded = load_instance(instance_path, verify=True)
     seed = [[1], [2]]
     events = []
 
