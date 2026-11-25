@@ -518,6 +518,7 @@ std::string solve_duration_json(const std::string& payload, const SolveParams& p
     //    cg_infeasible_unverified, selected_rmp_infeasible_unverified and
     //    unbranched_fractional_unverified are all 0.
     //  - no_checker_infeasible_column: checker_infeasible_columns == 0.
+    //  - no_empty_negative_priced_route: all negative-priced paths were reconstructed.
     // all_hold is their conjunction. It says that the closures were covered,
     // not that the pricing arithmetic is right: pricing_integrity is the
     // separate signal for that.
