@@ -93,7 +93,7 @@ def test_stepwise_closures_leave_no_column_behind(instance_path, optimum) -> Non
     assert result["exact_log"]["status"] == "Optimum"
     assert result["value"] == pytest.approx(optimum, abs=1e-6)
     routes = [r[1:-1] for r in routes_to_mamut(result["routes"], loaded.instance.num_customers)]
-    # M2: becomes exact equality once priced columns are evaluated exactly
+    # The master currently sums binary64 column costs.
     assert_value_close(result["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
     counters = result["pricing_counters"]
     assert counters["verify_final_runs"] > 0

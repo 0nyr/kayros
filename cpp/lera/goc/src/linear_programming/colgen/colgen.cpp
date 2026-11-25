@@ -92,7 +92,7 @@ CGExecutionLog solve_colgen(
 	// If the column generation was solved to optimality, take the solution from
 	// the last in-loop LP solve: the loop exits when pricing added nothing, so
 	// that solve was on the final formulation and is the CG optimum. (kayros
-	// M5.2: this replaces an unconditional re-solve with time_limit reset to
+	// This replaces an unconditional re-solve with time_limit reset to
 	// Duration::Max(), which both wasted a solve and escaped the caller's
 	// budget — the reset also leaked into later BCP strong-branching LPs.)
 	if (*execution_log.status == CGStatus::Optimum)

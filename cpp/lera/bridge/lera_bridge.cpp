@@ -34,11 +34,7 @@ namespace kayros::lera {
 
 namespace {
 
-// Checker-exact certification instance (M5.6 stage A) built from the payload's
-// mamut_raw section: untouched MAMUT ATF breakpoints, TWs and service times
-// (Lera's preprocessing folds service/waiting into travel times and shifts
-// TWs, and the tau pieces store y-x whose re-addition is not bit-exact — the
-// certification arithmetic must run on the verbatim data).
+// Build the binary64 reference instance for column pricing from the original MAMUT arrival functions, windows and service times. Preprocessing shifts the windows and folds service into the travel times.
 kayros::Instance build_checker_instance(const nlohmann::json& raw) {
     kayros::Instance ci;
     ci.num_customers = raw.at("num_customers").get<int32_t>();
@@ -88,8 +84,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
 
     nlohmann::json inst = nlohmann::json::parse(payload);
 
-    // Checker-exact certification instance (M5.6 stage A), grabbed before
-    // Lera's preprocessing mutates the payload.
+    // Preserve the original binary64 data before preprocessing mutates the payload.
     const kayros::Instance checker_inst = build_checker_instance(inst.at("mamut_raw"));
     inst.erase("mamut_raw");
 
@@ -104,12 +99,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
 
     nyr::VRPInstance vrp = inst.get<nyr::VRPInstance>();
 
-    // Create SPF and add initial routes (o, i, d) with checker-exact costs
-    // (M5.6 stage A: every master objective coefficient is the checker value
-    // of its route, so LP bounds and incumbents live in checker arithmetic).
-    // A checker-infeasible single-customer route keeps Lera's INFTY cost: it
-    // stays as an artificial column guaranteeing RMP feasibility and can
-    // never enter a finite-value solution.
+    // Initialize the set-partitioning formulation with one singleton column per customer. The binary64 reference fold supplies its cost. If the fold rejects a singleton, the bridge uses the path, departure and value returned by BestDurationRoute.
     // A duplicate path cannot improve the restricted master.
     unordered_set<string> column_keys;
     auto path_key = [](const GraphPath& p) {
@@ -136,10 +126,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     // Each native solve thread enforces its own limit against process RSS.
     const MemoryMonitor memory_scope((int64_t)(params.memory_limit_mb * 1048576.0));
 
-    // Warm start (M5.3): reprice each heuristic route with the checker-exact
-    // fold (M5.6 stage A: the master's arithmetic) and add it as an initial
-    // column. Checker-infeasible routes are skipped; the UB is only set when
-    // the added routes still partition the customers exactly.
+    // Reprice each warm-start path with the same binary64 fold used for every master column. Set the numerical upper bound only if the feasible paths still partition the customers.
     nlohmann::json warm_log;
     if (!params.initial_routes.empty()) {
         vector<int> cover(vrp.D.NbVertices(), 0);
@@ -222,30 +209,8 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         LabelingLevel::HeuristicCost, LabelingLevel::HeuristicElementarity, LabelingLevel::Exact};
     const vector<string> level_names = {"Heuristic Cost", "Heuristic Elementarity", "Exact"};
 
-    // (1.8.0) Pricing integrity counters. They only observe: no decision reads
-    // them. A pricing pass returns routes that the labeling prices as negative
-    // at the duals of the pass. The checker-exact reduced cost of each of them
-    // is recomputed here at the same duals (vertex duals of the customers, and
-    // the dual of every subset-row cut that the route crosses at least twice).
-    //  - phantom: the labeling says negative, the checker says > +epsilon. The
-    //    labeling arithmetic is optimistic on that route. A new phantom column
-    //    is still added (it cannot hurt the master), an existing one is the
-    //    duplicate that the 1.7 census already counted without explaining it.
-    //  - labeling below checker: the merge-time duration is below the checker
-    //    duration by more than epsilon (the cause of a phantom).
-    //  - route duration mismatch: Lera's BestDurationRoute and the checker
-    //    disagree by more than epsilon (route_duration_below_checker counts
-    //    those where BestDurationRoute is the smaller one). The bridge takes the
-    //    cost of a column from the checker, so this value is not used. It is
-    //    non-zero, by up to a few 1e-2, on Poryos2026 road-graph instances,
-    //    whose arrival functions carry gaps of about 1e-3 at period boundaries.
-    //  - verify negative columns: columns added by a VERIFY_FINAL pass whose
-    //    checker reduced cost is below -epsilon, i.e. columns the pass under
-    //    verification really missed. verify_final_columns counts every column
-    //    such a pass adds, phantoms included.
-    //  - negative duplicates: routes already in the master that a pass returns
-    //    and whose checker reduced cost at the duals of the pass is below
-    //    -epsilon. With the true duals an optimal LP has none.
+    // Compare the labeling and reference-fold reduced costs at the same customer and subset-row duals. A phantom has negative labeling reduced cost and positive reference reduced cost above tolerance. Count it even when its path is already in the master.
+    // The duration counters compare merge-time labeling and BestDurationRoute with the reference fold. The separate duplicate and verification counters count reference reduced costs below minus the integrity tolerance.
     const double integrity_eps = 1e-6;
     const PricingProblem* integrity_pp = nullptr;
     const std::vector<double>* integrity_pool = nullptr;
@@ -269,7 +234,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     int last_negative = 0; // leading negative routes in the last R.
     auto run_one_level = [&](const PricingProblem& pp, CGExecutionLog* cg_execution_log) {
         vector<Route> R;
-        // (M5.2) Residual budget from the BCP's single absolute deadline,
+        // Residual budget from the BCP's single absolute deadline,
         // not from a per-call stopwatch chain.
         lbl.time_limit = bcp.deadline.Remaining();
         if (heuristic_level == levels.size() - 1) ++exact_calls;
@@ -313,24 +278,16 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         return R;
     };
 
-    int checker_infeasible_count = 0; // M5.9 (19/n): poisons the certificate.
+    int checker_infeasible_count = 0; // Rejected by the binary64 column fold.
 
 
-    // Column adds, shared by both pricing passes below. Checker-exact costs
-    // (M5.6 stage A): a route the labeling prices but the checker rejects
-    // would break certification integrity — fail loudly, never drop silently
-    // (dropping could let CG claim optimality with improving columns
-    // outstanding). Pricing emits only reduced costs < -1e-6 while the
-    // Lera-vs-checker cost dust is ~1e-11, so every priced column is still
-    // strictly improving under checker costs. The column pool deduplicates paths. The
-    // adds are deadline-checked per route: a full pool is thousands of ~1 ms
-    // formulation inserts, the dominant non-interruptible tail otherwise.
+    // Both pricing passes deduplicate paths and reprice each new column with the binary64 reference fold. Poll time and memory per route so a large pool can be interrupted during insertion.
     auto add_columns = [&](const vector<Route>& R, size_t begin, size_t end, bool priced_negative) {
         int added = 0;
         for (size_t route_index = begin; route_index < end && route_index < R.size(); ++route_index) {
             const auto& r = R[route_index];
             if (bcp.deadline.Reached()) break;
-            if (MemoryMonitor::Exceeded()) break; // kayros (M13.2)
+            if (MemoryMonitor::Exceeded()) break;
             if (!column_keys.insert(path_key(r.path)).second) {
                 ++duplicate_columns;
                 if (priced_negative && integrity_pp) {
@@ -346,19 +303,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
             auto ev = checker_eval(checker_inst, r.path);
             if (!ev.feasible)
             {
-                // M5.9 (19/n): the labeling CAN price a checker-infeasible
-                // route (first materialized on Rifki-10 n=60 once the Exact
-                // level actually ran, on the retired mollified stepwise path,
-                // where dep on bridged arrivals believed slightly-later
-                // departures feasible; retained as a general integrity net,
-                // since the reverse-side normalizer still bridges). Crashing
-                // loses the whole
-                // solve and silently dropping could let CG close with
-                // improving columns outstanding — so the column is skipped,
-                // COUNTED, and the count poisons the certificate: the caller
-                // exposes it and the analyzer refuses instances with a
-                // nonzero count. Sound outcome: no certificate, not a wrong
-                // one, and the campaign run survives.
+                // Skip the column and count it in pricing_integrity. A rejected negative-priced route leaves the closure diagnostic incomplete.
                 ++checker_infeasible_count;
                 clog << "M5.9: skipped checker-infeasible priced route (path "
                      << STR(r.path) << "), certificate poisoned" << endl;
@@ -382,10 +327,10 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         return added;
     };
 
-    // M5.9 (17/n): ladder escalation is driven by NEW columns, not by a
+    // Ladder escalation is driven by NEW columns, not by a
     // non-empty pricing pool. A heuristic level can keep re-pricing an
     // EXISTING column (its labeling-arithmetic reduced cost slightly negative
-    // while the checker-exact master cost is not), the fingerprint dedup then
+    // while the binary64 reference master cost is not), the fingerprint dedup then
     // adds 0, and the old ladder broke without escalating — so the BCP read
     // "no new columns" as node-optimal WITHOUT the Exact level ever running:
     // unsound termination (the Rifki-14 k=15 reproducer certified 5606 with
@@ -395,7 +340,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         int added = 0;
         ladder_certified = false;
         while (!bcp.deadline.Reached()) {
-            if (MemoryMonitor::Exceeded()) break; // kayros (M13.2): don't climb levels on a doomed run
+            if (MemoryMonitor::Exceeded()) break;
             const bool at_exact = heuristic_level + 1 >= levels.size();
             const vector<Route> R = run_one_level(pp, lg);
             const size_t negative = std::min<size_t>(R.size(), (size_t) std::max(last_negative, 0));
@@ -442,10 +387,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
                 }
             }
             if (at_exact) {
-                // The Exact level contributed nothing new: pricing exhausted.
-                // (If it still REPORTED a negative-reduced-cost duplicate, the
-                // discrepancy is labeling-vs-checker dust within the documented
-                // certificate tolerance; the Exact level did run.)
+                // The final labeling level added no column. Record whether search limits allowed the pass to finish. Numerical pricing discrepancies are retained in pricing_integrity.
                 ladder_certified = covered && !bcp.deadline.Reached() && !MemoryMonitor::Exceeded();
                 heuristic_level = 0;
                 lbl.closing_state = false;
@@ -460,11 +402,11 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     bcp.pricing_solver = [&](const PricingProblem& pricing_problem, int /*node_number*/,
                              Duration /*tlimit*/, CGExecutionLog* cg_execution_log) {
         run_ladder_and_add(pricing_problem, cg_execution_log);
-        // (M5.2) A deadline hit must never masquerade as "no new columns =
+        // A deadline hit must never masquerade as "no new columns =
         // node optimal".
         if (bcp.deadline.Reached())
             cg_execution_log->status = CGStatus::TimeLimitReached;
-        // kayros (M13.2): same argument for the memory watermark: a
+        // A
         // memory-truncated pricing pass must never read as node-optimal.
         // Set last so memory takes precedence; colgen exits with this status
         // when no new columns landed, and ProcessNode maps it to
@@ -497,7 +439,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     result["closure_census"] = closure_census();
     result["exact_pricing"] = {{"calls", exact_calls}, {"finished", exact_finished}};
     result["checker_infeasible_columns"] = checker_infeasible_count;
-    // (1.8.0) See the comment at the declaration of the counters.
+    // See the comment at the declaration of the counters.
     result["pricing_integrity"] = {
         {"epsilon", integrity_eps},
         {"empty_negative_priced_routes", empty_negative_routes}, {"empty_near_priced_routes", empty_near_routes},
@@ -508,7 +450,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         {"max_route_duration_gap", max_route_duration_gap},
         {"verify_final_negative_columns", verify_negative_columns},
         {"negative_duplicates", negative_duplicates}};
-    // (1.8.0) The conditions under which every node closure of this solve was
+    // The conditions under which every node closure of this solve was
     // backed by a finished Exact pricing pass (and, with a VERIFY_FINAL mask,
     // by a finished verification pass) that found no new column. They restate
     // closure_census as booleans with stable names:
@@ -519,9 +461,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     //    unbranched_fractional_unverified are all 0.
     //  - no_checker_infeasible_column: checker_infeasible_columns == 0.
     //  - no_empty_negative_priced_route: all negative-priced paths were reconstructed.
-    // all_hold is their conjunction. It says that the closures were covered,
-    // not that the pricing arithmetic is right: pricing_integrity is the
-    // separate signal for that.
+    // all_hold records coverage of the native closure checks. A certified lower bound under the exact evaluation profile also needs a verified pricing argument.
     {
         const bool status_optimum = log.status == BCStatus::Optimum;
         const bool all_certified = bcp.cg_unresolved_count == 0;
@@ -535,7 +475,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
             {"all_hold", status_optimum && all_certified && no_unpriced && no_infeasible && empty_negative_routes == 0},
             {"verify_final_mask", verify_mask}};
     }
-    // kayros (M13.2): guard observability, never used in control flow.
+    // Record the memory guard diagnostics.
     result["memory"] = {
         {"limit_mb", params.memory_limit_mb},
         {"peak_rss_mb", (double)MemoryMonitor::PeakRSSBytes() / 1048576.0},
@@ -544,11 +484,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     result["incumbents"] = incumbents;
     if (!warm_log.is_null()) result["warm_start"] = warm_log;
     if (solution.value != INFTY) {
-        // (M5.6 stage A) Column costs are checker-exact, but the LP solver's
-        // reported objective sums them in its own order: re-sum the route
-        // costs in the checker's canonical route order (sorted by first
-        // customer, compute_solution_cost convention, left fold) so the
-        // reported value is bit-identical to the checker sum.
+        // Sum reference-fold durations in first-customer order to reproduce the binary64 objective used by this bridge. The public API independently checks the routes under the exact profile.
         if (!solution.routes.empty()) {
             vector<const Route*> ordered;
             for (const auto& r : solution.routes) ordered.push_back(&r);

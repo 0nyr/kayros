@@ -112,8 +112,7 @@ target_link_libraries(lera PUBLIC ${Boost_LIBRARIES} dl m)
 
 if(LERA_LP_BACKEND STREQUAL "highs")
     # Prefer an installed HiGHS (nix shell, -Dhighs_DIR=...); otherwise fetch
-    # and build it statically so wheels are self-contained (M5.8). Pinned to
-    # the release validated by the M5.7 certification campaign.
+    # and link it statically into the wheel.
     find_package(highs CONFIG QUIET)
     if(NOT highs_FOUND)
         message(STATUS "Lera BPC: no installed HiGHS found — fetching v1.14.0 (static)")
@@ -144,8 +143,7 @@ endif()
 
 # kayros-owned bridge (bridge/ is not vendored code): MAMUT instance payload
 # -> Lera preprocessing -> VRPInstance -> duration-objective BCP. Links the
-# kayros checker-exact engine (cpp/pwlf + cpp/core route eval) for M5.6
-# checker-exact column costs.
+# Link the binary64 reference fold used to reprice master columns.
 pybind11_add_module(_lera
     bridge/lera_module.cpp
     bridge/lera_bridge.cpp

@@ -1,4 +1,4 @@
-"""goc::PWLFunction step-capable retrofit gates (M5.9).
+"""Stepwise operations on goc::PWLFunction.
 
 The labeling's general, non-monotone duration/cost functions live on
 goc::PWLFunction. Today it cannot represent a genuine value jump: LinearFunction
@@ -145,7 +145,7 @@ def test_compose_g_step_makes_fog_jump():
     assert fog.value(11.0) == pytest.approx(31.0)
 
 
-# --- Exact graph reflections (M5.9 section 12-13): flip_time / flip_value ----
+# --- Graph reflections with flip_time and flip_value ----
 # These replace the labeling's only decreasing-inner compositions
 # (reverse_instance and Merge use T - Id). Each breakpoint moves by ONE IEEE
 # subtraction: platform-stable, no epsilon logic, and attainment (the pointwise
@@ -239,7 +239,7 @@ def test_compose_f_jump_through_increasing_g_keeps_span():
     """f jumps at y=10; g = 2x reaches it at x=5. fog jumps at 5, span kept.
 
     Implemented by the tagged-vertical Compose (13.2): JUMP verticals of f
-    emit their span. Since M13.0, CHOICE verticals are preserved too (span +
+    emit their span. CHOICE verticals are preserved too (span +
     kind + representative; see test_compose_increasing_inner_preserves_choice_vertical).
     """
     f = PWL([0.0, 10.0, 10.0, 20.0], [0.0, 10.0, 30.0, 40.0])
@@ -354,11 +354,11 @@ def test_scalar_ops_preserve_tags():
     assert len(verts2) == 1 and verts2[0][5] == "jump"
 
 
-# --- M13.0 exact value-jump completeness fixes (1.1.0) ----------------------
+# --- Value jumps and stacked departure choices ----------------------
 # Root cause of the 3 exact-arm incompleteness reproducers: the labeling's
 # composed/added functions lost attained values and choice spans in three
 # spots, letting backward-label durations under-estimate mandatory waiting
-# (Rifki-2 dominator 21,4,2,10,3 claimed ~1959 where the checker-exact suffix
+# (Rifki-2 dominator 21,4,2,10,3 claimed ~1959 where the reference suffix
 # duration is ~12703; the witness column's label was then erased at the EXACT
 # level and the certificate closed 73 units above the optimum).
 
@@ -397,7 +397,7 @@ def test_compose_plateau_inner_at_choice_vertical_takes_span_min():
 def test_compose_increasing_inner_preserves_choice_vertical():
     """A CHOICE vertical of f survives composition with an increasing g.
 
-    Collapsing it to the representative (the pre-M13.0 behavior) loses the
+    Collapsing it to the representative loses the
     span minimum: downstream MinValueAt/domination then over-estimate the
     label's duration and price columns out — the incompleteness class.
     """
@@ -418,7 +418,7 @@ def test_add_pairs_attained_endpoints_on_down_jump():
     """operator+ must pair attained-with-attained (13.1), like operator*.
 
     A down-jump attains its HIGH endpoint (9); adding a constant 1 must keep
-    the attained value 9+1=10. The lo/hi image pairing (pre-M13.0) mistagged
+    the attained value 9+1=10. The lo/hi image pairing mistagged
     the sum's attained value as 3+1=4.
     """
     f = PWL([0.0, 3.0, 3.0, 6.0], [12.0, 9.0, 3.0, 0.0])

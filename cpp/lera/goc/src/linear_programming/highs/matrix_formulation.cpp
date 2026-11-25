@@ -1,5 +1,5 @@
 //
-// kayros addition (plan 2, Stream 5 M5.1) — NOT part of Lera-Romero's goc.
+// Kayros addition to Lera-Romero's goc library.
 //
 
 #include "goc/linear_programming/highs/matrix_formulation.h"

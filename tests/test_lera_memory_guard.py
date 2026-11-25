@@ -1,4 +1,4 @@
-"""M13.2 memory self-guard gates: the prover always returns an honest verdict.
+"""Memory-limit termination of the native branch-price-and-cut search.
 
 The guard is an RSS watermark polled at the same loop heads as the time-limit
 deadline. Contract under test: (1) a crossed watermark yields a clean
@@ -55,7 +55,7 @@ def test_memory_guard_default_is_bit_identical(instance_path) -> None:
 
 @pytest.mark.parametrize("instance_path", VU_TDVRP_59, ids=lambda p: p.name.removesuffix(".vrp.json"))
 def test_memory_guard_trips_in_labeling(instance_path) -> None:
-    # The real M13.2 pathology: full-horizon (trivial-TW) label accumulation.
+    # Full-horizon windows can accumulate a large number of labels.
     # A headroom watermark (current RSS + 512 MB) trips inside the labeling
     # within seconds on Vu2020 TDVRP n=59, the class whose unguarded runs
     # exceeded 96 GB and were OS-killed with no verdict in the 2026-07

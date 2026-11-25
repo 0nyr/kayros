@@ -35,7 +35,7 @@ def test_rc107_n50_closes_at_the_optimum(instance_path, verify_final_mask) -> No
     assert result["closure_census"]["cg_unresolved_final_pricing"] == 0
     assert result["value"] == pytest.approx(RC107_50_OPTIMUM, rel=1e-9)
     routes = [r[1:-1] for r in routes_to_mamut(result["routes"], loaded.instance.num_customers)]
-    # M2: becomes exact equality once priced columns are evaluated exactly
+    # The master currently sums binary64 column costs.
     assert_value_close(result["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
     counters = result.get("pricing_counters", {})
     assert counters.get("verify_final_catches", 0) == 0

@@ -22,7 +22,7 @@ LinearFunction::LinearFunction(const Point2D& p1, const Point2D& p2)
 {
     if (epsilon_equal(p2.x, p1.x))
     {
-        // Zero-width piece (M5.9): a genuine value jump (vertical) when the
+        // Zero-width piece: a genuine value jump (vertical) when the
         // endpoints differ, else a single point. A vertical is marked
         // slope = INFTY so it is distinguishable from a plateau (slope 0) — goc
         // used to collapse both to slope 0, which destroyed step structure
@@ -75,7 +75,7 @@ double LinearFunction::PreValue(double y) const
 
 bool LinearFunction::Intersects(const LinearFunction& f) const
 {
-    // M5.9: a vertical (value jump at x0) crosses f iff x0 is in f's domain and
+    // A vertical (value jump at x0) crosses f iff x0 is in f's domain and
     // f(x0) lies within the jump's image span. Intersection() below returns x0.
     if (is_vertical() || f.is_vertical())
     {
@@ -93,7 +93,7 @@ bool LinearFunction::Intersects(const LinearFunction& f) const
 
 double LinearFunction::Intersection(const LinearFunction& l) const
 {
-    // M5.9: a vertical (slope INFTY) crosses at its own abscissa x0; the generic
+    // A vertical (slope INFTY) crosses at its own abscissa x0; the generic
     // (l.intercept - intercept)/(slope - l.slope) divides by INFTY -> ~0, wrong.
     if (is_vertical()) return domain.left;
     if (l.is_vertical()) return l.domain.left;
@@ -113,7 +113,7 @@ LinearFunction LinearFunction::Inverse() const
 
 LinearFunction LinearFunction::RestrictDomain(const Interval& domain) const
 {
-    // M5.9: a vertical is a zero-width piece; if its abscissa is inside the
+    // A vertical is a zero-width piece; if its abscissa is inside the
     // restriction it survives verbatim (the two-point reconstruction below
     // would collapse it to its attained value). Callers skip non-intersecting
     // pieces beforehand.
@@ -125,7 +125,7 @@ LinearFunction LinearFunction::RestrictDomain(const Interval& domain) const
 
 LinearFunction LinearFunction::RestrictImage(const Interval& image) const
 {
-    // M5.9: clip a vertical's span to the image restriction; the attained
+    // Clip a vertical's span to the image restriction; the attained
     // value clamps into the surviving span; the kind is preserved. The generic
     // PreValue path below would collapse the piece.
     if (is_vertical())
@@ -165,7 +165,7 @@ bool LinearFunction::operator!=(const LinearFunction& f) const
     return !(*this == f);
 }
 
-// A piece is written as its two endpoints. A vertical piece (1.8.0) is written
+// A piece is written as its two endpoints. A vertical piece is written
 // with both ends of its span, the attained (incoming) one first, so that
 // reading it back rebuilds the same vertical: the two-point constructor makes a
 // JUMP vertical whose attained value is the first point. A CHOICE vertical
@@ -196,7 +196,7 @@ void to_json(json& j, const LinearFunction& f)
 
 // The (incoming, outgoing) endpoints of a piece over the overlap [l, r]. For a
 // vertical (value jump, l == r) both image endpoints are returned; for an
-// ordinary piece the restriction Value(l), Value(r). M5.9: pairing incoming with
+// ordinary piece the restriction Value(l), Value(r). Pairing incoming with
 // incoming and outgoing with outgoing preserves jumps under pointwise arithmetic
 // that would otherwise collapse to a single Value().
 static inline std::pair<double, double> sweep_over(const LinearFunction& f, double l, double r)
@@ -205,7 +205,7 @@ static inline std::pair<double, double> sweep_over(const LinearFunction& f, doub
     return {f.Value(l), f.Value(r)};
 }
 
-// M5.9 (13.2): the kind of a vertical produced by combining pieces. If either
+// The kind of a vertical produced by combining pieces. If either
 // operand is a JUMP the result is a jump (conservative: attained-only
 // domination, no min-strengthening); a choice combined with continuous stays a
 // choice. Applied only when the RESULT is itself a vertical.

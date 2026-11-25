@@ -73,7 +73,7 @@ public:
 	int near_limit;
 	int near_pool_cap; // hard cap on kept near entries (memory guard).
 	int last_negative_count;
-	// (1.8.0) Merge-time (labeling) duration of each route of the R of the last
+	// Merge-time (labeling) duration of each route of the R of the last
 	// Run, in the same order. Read by the bridge integrity counters only.
 	std::vector<double> last_pool_durations;
 	int last_near_count;
@@ -116,7 +116,7 @@ private:
 	// Adds a solution to the pool S if it is the best yet found with those visited vertices.
 	void AddSolution(const goc::GraphPath& p, double min_duration, double reduced_cost);
 
-	// (kayros M5.2) Deadline of the current Run(), derived from time_limit at
+	// Deadline of the current Run(), derived from time_limit at
 	// entry; consulted inside IterativeMerge/LastArcMerge so merge loops are
 	// interruptible (they had no time checks and could overshoot unboundedly).
 	goc::Deadline run_deadline_;
@@ -133,7 +133,7 @@ private:
 	// Pool of negative reduced cost solutions found (indexed by their visited vertices).
 	// We only keep the best solution for each set of visited vertices.
 	std::unordered_map<nyr::VertexSet, goc::Route> S;
-	// M13.0: on step-carrying instances (any vertical in a forward tau, i.e.
+	// On step-carrying instances (any vertical in a forward tau, i.e.
 	// the exact value-jump path) the pool is instead keyed by PATH. The
 	// set-key kept one ordering per set ranked by the merge-time duration
 	// BOUND, but exact-path bounds carry search dust, so a truly-cheaper
@@ -141,8 +141,8 @@ private:
 	// n=50: witness ordering checker-duration 2957 shadowed by a 2975
 	// ordering with a lower bound; the pool exit reprices only the stored
 	// path and the master never saw the witness column: certified
-	// 21331 > 21319). Path-keying lets every ordering reach the checker-exact
-	// repricing; the bridge dedups by path fingerprint anyway. M13.3: the gate
+	// 21331 > 21319). Path-keying lets every ordering reach the binary64 reference
+	// repricing. The bridge deduplicates by path fingerprint. The gate
 	// is the SOLVE being step-carrying, not per-operand vertical detection.
 	// Jump-free instances DO carry CHOICE verticals. Jump-free solves keep the
 	// legacy pool (container, order and size semantics bit-identical).

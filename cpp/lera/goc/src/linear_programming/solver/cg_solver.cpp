@@ -7,7 +7,7 @@
 #include "goc/linear_programming/solver/cg_solver.h"
 
 #include "goc/linear_programming/colgen/colgen.h"
-// kayros (M5.1): unused cplex includes removed (backend selection lives in
+// Kayros: unused cplex includes removed (backend selection lives in
 // lp_solver.cpp / bc_solver.cpp; this file only delegates to LPSolver).
 #include "goc/time/duration.h"
 

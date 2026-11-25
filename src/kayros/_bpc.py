@@ -8,7 +8,7 @@ from typing import Any, Callable
 from mamut_routing_lib.td import LoadedTDInstance
 
 
-_AUTO_MEMORY_FRACTION = 0.8  # M13.2: fraction of available memory the auto guard may use
+_AUTO_MEMORY_FRACTION = 0.8  # fraction of available memory the auto guard may use
 
 
 def _read_meminfo_kb(field: str) -> int | None:
@@ -53,7 +53,7 @@ def _read_cgroup_limit_bytes() -> int | None:
 
 
 def _auto_memory_limit_mb() -> float:
-    """Resolve the default RSS watermark for the M13.2 memory self-guard.
+    """Resolve the default RSS watermark for the native memory guard.
 
     Rule: own current RSS + a fraction of the memory available right now,
     capped by the cgroup limit when one is set. On a quiet dedicated machine
@@ -76,24 +76,7 @@ def _atf_to_travel_time_pieces(xs, ys) -> list[list[list[float]]]:
     """ATF breakpoints -> Lera PWL travel-time pieces tau(t) = f(t) - t.
 
     Each piece is ``[[x1, y1], [x2, y2]]`` (goc ``LinearFunction`` JSON).
-    Breakpoints are emitted verbatim: duplicate-x pairs (value jumps of
-    stepwise ATFs) become zero-width vertical pieces (M13.0; the exact
-    value-jump path is the production default on step-carrying instances; see
-    :func:`_has_stepwise_atfs` in :func:`solve_duration`). From 1.1.0 to 1.7.1
-    these verticals did not survive the solver's preprocessing, and the
-    departure functions built from the resulting bare jumps were wrong (see
-    ``cpp/lera/NOTICE.md`` item 18). Since 1.8.0 they reach the labeling. The M5.7 forward
-    mollifier (``_continuize_breakpoints``, a 1e-3 steep-bridge
-    under-approximation) was retired with M13.0: its sliver admitted
-    checker-infeasible priced columns (the 23 integrity-guard refusals) and
-    its bridges amplified epsilon comparisons into O(step) mispricing. For
-    jump-free ATFs this emission is bit-identical to what the mollifier
-    produced (it was a no-op without duplicate-x pairs). Its reverse-side
-    counterpart in the labeling (``continuize_value_jumps``) is a different
-    animal and is RETAINED: it flattens the choice verticals that the
-    reflection leaves in the reverse arrival, which the legacy jump-free
-    arithmetic depends on (2026-08-05 removal attempt refused; see
-    ``cpp/lera/NOTICE.md`` item 9, amendment 7).
+    Duplicate abscissae encode value jumps as zero-width vertical pieces. Step-carrying instances keep these jumps through preprocessing. The reverse labeling of jump-free instances separately normalizes departure-choice verticals. See item 9 in cpp/lera/NOTICE.md.
     """
     xs = [float(x) for x in xs]
     ys = [float(y) for y in ys]
@@ -154,10 +137,10 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
         arcs[i2][j2] = 1
         travel_times[i2][j2] = pieces
 
-    # Raw MAMUT data for the bridge's checker-exact route pricing.
+    # Raw MAMUT data for the bridge's binary64 reference fold.
     # Lera's preprocessing mutates travel_times/time_windows in place and
     # the tau pieces store y-x (whose re-addition is not bit-exact), so the
-    # certification arithmetic gets the untouched ATF breakpoints verbatim.
+    # reference fold gets the untouched ATF breakpoints verbatim.
     mamut_raw = {
         "num_customers": n,
         "num_vehicles": int(getattr(instance, "num_vehicles", -1) or -1),

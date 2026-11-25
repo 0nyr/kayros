@@ -1,5 +1,5 @@
 //
-// kayros addition (plan 2, Stream 5 M5.1) — NOT part of Lera-Romero's goc.
+// Kayros addition to Lera-Romero's goc library.
 //
 
 #include "goc/linear_programming/highs/highs_solver.h"
@@ -138,7 +138,7 @@ Valuation values_to_valuation(MatrixFormulation* formulation, const vector<doubl
 	return valuation;
 }
 
-// Persistent LP session (M5.1b): one Highs instance per formulation, kept in
+// Persistent LP session: one Highs instance per formulation, kept in
 // the formulation's opaque lp_session slot. Between solves only the journal
 // ops not yet consumed are replayed (addCol/addRow/changeCoeff/...), so the
 // warm simplex basis survives across CG iterations.

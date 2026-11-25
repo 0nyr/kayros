@@ -29,7 +29,7 @@ public:
 	int cg_optimum_count = 0, cg_certified_count = 0, cg_unresolved_count = 0;
     int cg_infeasible_count = 0, strong_rmp_infeasible_count = 0, unbranched_fractional_count = 0, selected_rmp_infeasible_count = 0;
 	goc::Duration time_limit;
-	// (M5.2) Absolute deadline derived from time_limit at Run(). All internal
+	// Absolute deadline derived from time_limit at Run(). All internal
 	// components and the external pricing_solver take their residual budgets
 	// from here (single source, no per-level stopwatch re-derivation).
 	goc::Deadline deadline;
@@ -44,7 +44,7 @@ public:
 	//	spf: set-partitioning formulation to use (it must include an initial solution).
 	BCP(const goc::Digraph& D, SPF* spf);
 	
-	// (kayros M5.3) Sets an initial upper bound known by the caller (e.g. the
+	// Sets an initial upper bound known by the caller (e.g. the
 	// value of warm-start columns added to the SPF), used for pruning from the
 	// start. Must be the value under *this* solver's arithmetic (never an
 	// externally-repriced value — a tighter-by-dust bound could prune the true

@@ -22,45 +22,31 @@ namespace solver
 extern bool trace_domination_detail; // pwl_domination_function.cpp
 namespace
 {
-// kayros (M5.7): a label's rw and dom(duration) are maintained separately and
+// Kayros: a label's rw and dom(duration) are maintained separately and
 // can disagree by epsilon (goc's piece arithmetic is epsilon-tolerant, and the
 // reverse-side normalizer can nudge reverse-arrival domain boundaries), and
 // Value() throws outside the domain. Clamp boundary evaluations into the
-// domain. This is Lera's epsilon search arithmetic (bounds/filters), never
-// certification arithmetic (stage A reprices every column checker-exactly).
-// Kept as a guard: instrumentation on 2026-08-05 never saw it fire, but
-// nothing enforces rw within dom(duration) and the alternative to clamping is
-// a thrown exception, not a better value.
+// domain. Column pricing separately uses the binary64 reference fold.
 double duration_at(const Label* l, double t)
 {
 	t = std::max(min(dom(l->duration)), std::min(t, max(dom(l->duration))));
-	// M5.9 (21/n): durations are set-valued where departure-choice sets exist
+	// Durations are set-valued where departure-choice sets exist
 	// (stacked pieces at one abscissa); the label semantics is the MINIMUM.
 	// Value returns an arbitrary representative there, which over-priced
 	// merges and discarded optimal columns (the Ari-B10 trace).
 	return l->duration.MinValueAt(t);
 }
 
-// kayros (M5.7): when an entire label duration function lives inside a
+// Kayros: when an entire label duration function lives inside a
 // bridged sliver of the reverse-side normalizer (TW-tight labels on stepwise
 // ATFs), goc's epsilon piece iteration can emit pieces with slightly
 // out-of-order boundaries, leaving an inverted incremental domain_ (left >
 // right by ~1e-3) that later evaluations reject. Rebuild with monotone
 // non-overlapping boundaries; dust-inverted fragments are dropped. Search
 // arithmetic only, and a no-op on well-formed functions (fast path below).
-// M5.9 label tracing (dev tool, zero cost when unset): KAYROS_TRACE_PATH is a
-// comma-separated vertex sequence (e.g. "0,8,9,7,13,3,1,16"); every label whose
-// path is a PREFIX of it gets its fate printed to stderr (extension, domination
-// verdict incl. the dominator, enumeration filters, queue events). Used to find
-// where cold pricing kills a witness column's label chain. M13.0: the trace
-// namespace moved to labeling/trace.h so the bidirectional merge shares it.
+// KAYROS_TRACE_PATH selects a comma-separated vertex sequence. The tracer prints extensions, domination, filters and queue events for prefixes of this path.
 
-// M13.0: does the function carry any vertical (value-jump or choice) piece?
-// Cheap linear scan; one of the conditions selecting the exact step-arc
-// extension arithmetic. M13.3: NOT a sufficient one. Jump-free FORWARD
-// functions carry CHOICE verticals routinely (Inverse of a departure plateau),
-// so the decisive gate is the solve being step-carrying
-// (goc::step_exact_arithmetic()); see the M13.3 note at the extension below.
+// A vertical operand can be a value jump or a departure choice. Extension also checks the solve's arithmetic because continuous inputs can generate choice verticals.
 static bool has_vertical(const PWLFunction& f)
 {
 	for (int k = 0; k < f.PieceCount(); ++k)
@@ -174,7 +160,7 @@ vector<Label*> MonodirectionalLabeling::Run(
 	{
 		if (P.size() >= process_limit) { log->status = MLBStatus::ProcessLimitReached; break; }
 		if (rolex.Peek() >= time_limit) { log->status = MLBStatus::TimeLimitReached; break; }
-		// kayros (M13.2): the label containers are where the full-horizon
+		// Kayros: the label containers are where the full-horizon
 		// memory pathology accumulates: unwind with an honest verdict
 		// instead of being OOM-killed. Sticky: outer loops see it too.
 		if (MemoryMonitor::Exceeded()) { log->status = MLBStatus::MemoryLimitReached; break; }
@@ -296,7 +282,7 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 		return nullptr;
 	}
 	
-	// M5.9 trace: does the extension complete a prefix of the target?
+	// Trace: does the extension complete a prefix of the target?
 	int tr_parent = trace::prefix_len(l);
 	bool tr = tr_parent > 0 && tr_parent < (int) trace::target().size() && trace::target()[tr_parent] == v;
 
@@ -320,33 +306,8 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	lv->length = l->length + 1;
 	// If max(rw(l)) < min(img(dep_uv)) then no matter when we depart we reach v before its time window.
 	// Otherwise, we can do the classic extension D_lv(t) = D_l(\dep_uv(t)) + \tau_uv(\dep_uv(t)).
-	// M13.0: on step-carrying arcs (any vertical in dep, tau or the label's own
-	// duration, believed at the time to be true only on the exact value-jump
-	// path, jump-free arcs carrying none; the M13.3 note below refutes that
-	// premise and supplies the real gate) the composite (D + tau) o dep is
-	// UNSOUND: a reversed waiting span appears
-	// as a plateau of dep at value tau0 while D + tau carries the same-arc
-	// vertical at tau0, and the plateau rule fills the whole span with one
-	// constant read from the vertical, erasing position-dependent mandatory
-	// waiting (Rifki-2 dominator 21,4,2,10,3 claimed ~1959 where the
-	// checker-exact suffix duration is ~12703: under-estimated dominators then
-	// erase witness labels at the Exact level). The elapsed-time identity
-	// D_lv(t) = D_l(dep(t)) + t - dep(t) = ((D - Id) o dep)(t) + t is
-	// algebraically equal wherever arr(dep(t)) = t, charges waiting spans
-	// exactly (slope-1 fill resolves the plateau/vertical correspondence for
-	// BOTH vertical kinds, which invert to indistinguishable dep plateaus) and
-	// over-estimates only unattained jump-gap abscissae (sound side). It also
-	// keeps tau out of the composed outer entirely.
-	// M13.3: gated on the solve being step-carrying. The M13.0 premise that
-	// only step-carrying arcs carry verticals is FALSE. CHOICE verticals
-	// (Inverse of a departure plateau) and set-valued label durations are
-	// ubiquitous on jump-free instances too, so on those the predicate fired
-	// on most extensions and replaced the audited v1.0.0 extension arithmetic
-	// with the elapsed-time identity, whose jump-gap over-estimation is sound
-	// only against the exact-path semantics: cold solves certified optima
-	// strictly above checker-valid solutions (Vu2020 n=59 Vu-A5-pA-d90-w40,
-	// 2764.380 against the true 2760.110). Jump-free solves keep the legacy
-	// composite; step-carrying solves keep M13.0 unchanged.
+	// A plateau of dep can map a whole waiting span onto one vertical in D + tau. Applying (D + tau) o dep then charges every position the same duration. For step-carrying solves, use D_lv(t) = D_l(dep(t)) + t - dep(t) to charge elapsed waiting along the span.
+	// Select this identity using the original instance and the presence of a vertical operand. Jump-free solves retain the ordinary composite even when the inverse of a departure plateau contains a CHOICE vertical.
 	const bool step_arc = goc::step_exact_arithmetic()
 		&& (has_vertical(vrp_.dep[u][v]) || has_vertical(vrp_.tau[u][v])
 			|| has_vertical(l->duration));
@@ -370,7 +331,7 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	// for limited extension without crossing. RestrictDomain is const and its
 	// result was discarded, so the call only built and freed a copy of the
 	// function on every extension. Removed, behaviour unchanged.
-	lv->duration = normalize_pwl(lv->duration); // kayros (M5.7): heal epsilon-dust piece misorder.
+	lv->duration = normalize_pwl(lv->duration); // Kayros: heal epsilon-dust piece misorder.
 	if (lv->duration.Empty())
 	{
 		if (tr) fprintf(stderr, "TRC EXT-FAIL path=%s+%d reason=empty-duration\n", trace::path_str(l).c_str(), v);
@@ -406,7 +367,7 @@ Label* MonodirectionalLabeling::ExtensionStep(const LazyLabel& ll) const
 	if (tr) fprintf(stderr, "TRC EXT path=%s rw=[%.3f,%.3f] dur_img=[%.3f,%.3f] min_cost=%.6f q=%.1f\n",
 		trace::path_str(lv).c_str(), lv->rw.left, lv->rw.right,
 		min(img(lv->duration)), max(img(lv->duration)), lv->min_cost, lv->q);
-	// M13.0: full piece dump of the witness label's duration function AND of
+	// Full piece dump of the witness label's duration function AND of
 	// its parent's CURRENT (possibly domination-shrunk) duration at extension
 	// time (dev tool; KAYROS_TRACE_DUMP=1 with the path trace on).
 	if (tr && std::getenv("KAYROS_TRACE_DUMP"))
@@ -500,7 +461,7 @@ bool MonodirectionalLabeling::DominationStep(Label* l) const
 			trace::path_str(l).c_str(), min(dom((PWLFunction) Delta)), max(dom((PWLFunction) Delta)),
 			min(img((PWLFunction) Delta)), max(img((PWLFunction) Delta)),
 			min(img((PWLFunction) Delta)) - l->p - l->cut_cost);
-	l->duration = normalize_pwl((PWLFunction) Delta); // kayros (M5.7)
+	l->duration = normalize_pwl((PWLFunction) Delta);
 	l->rw = l->duration.Domain();
 	l->min_cost = min(img(l->duration)) - l->p - l->cut_cost;
 	return false;
@@ -541,7 +502,7 @@ int MonodirectionalLabeling::CorrectionStep(Label* m)
 				{
 					const double previous_cost = l->min_cost;
 					Delta.DominatePieces(m->duration, theta);
-					l->duration = normalize_pwl((PWLFunction) Delta); // kayros (M5.7)
+					l->duration = normalize_pwl((PWLFunction) Delta);
 					l->rw = l->duration.Domain();
 					l->min_cost = min(img(l->duration)) - l->p - l->cut_cost;
 					changed_cost |= l->min_cost != previous_cost;
@@ -604,7 +565,7 @@ void MonodirectionalLabeling::ProcessStep(Label* l)
 vector<LazyLabel> MonodirectionalLabeling::EnumerationStep(Label* l) const
 {
 	vector<LazyLabel> E;
-	// M5.9 trace: which vertex must extend this prefix, if any.
+	// Trace: which vertex must extend this prefix, if any.
 	int tl = trace::prefix_len(l);
 	Vertex trace_next = (tl > 0 && tl < (int) trace::target().size()) ? trace::target()[tl] : -1;
 	if (l->v == vrp_.d) return E; // End depot has no extensions.

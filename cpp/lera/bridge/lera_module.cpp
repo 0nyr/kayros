@@ -14,7 +14,7 @@
 namespace py = pybind11;
 
 PYBIND11_MODULE(_lera, m) {
-    m.doc() = "Lera-Romero BPC for the TDVRPTW (KAYROS_WITH_LERA builds only; "
+    m.doc() = "Lera-Romero BPC for the TDVRPTW ("
               "HiGHS LP backend by default, CPLEX optional at build time)";
 
     // Compile-time LP backend, surfaced for provenance (e.g. optimality
@@ -64,12 +64,9 @@ PYBIND11_MODULE(_lera, m) {
         py::arg("memory_limit_mb") = 0.0, py::arg("on_event") = py::none(),
         py::kw_only(), py::arg("stepwise"), py::arg("verify_final_mask") = 0);
 
-    // --- nyr NDCPWLF test surface (M5.9 exact stepwise labeling) -----------
-    // Direct pytest access to the step-capable PWL primitives while they are
-    // built and hardened against the checker's left-continuous semantics,
-    // before they replace goc::PWLFunction inside the labeling.
+    // Expose the monotone NDCPWLF primitives for direct tests of jump semantics.
     auto nyr_mod = m.def_submodule(
-        "nyr", "nyr NDCPWLF step-capable PWL primitives (M5.9 test surface)");
+        "nyr", "nyr NDCPWLF step-capable PWL primitives");
     py::class_<nyr::NDCPWLF>(nyr_mod, "NDCPWLF")
         .def(py::init<std::vector<double>, std::vector<double>>(), py::arg("xs"),
              py::arg("ys"))
@@ -89,13 +86,13 @@ PYBIND11_MODULE(_lera, m) {
         .def_property_readonly("max_image", &nyr::NDCPWLF::get_max_image)
         .def("__eq__", &nyr::NDCPWLF::operator==, py::arg("other"));
 
-    // --- goc::PWLFunction test surface (M5.9 step-capable retrofit) ---------
+    // Expose the general PWL functions used in labeling.
     // The labeling's general (non-monotone) duration/cost functions live on
     // goc::PWLFunction; the retrofit teaches it genuine value jumps (verticals)
     // + left-continuous evaluation + step-aware Compose/Inverse/Min/Max. This
     // surface pins the behavior at each step of that work.
     auto goc_mod = m.def_submodule(
-        "goc", "goc::PWLFunction general step-capable PWL (M5.9 test surface)");
+        "goc", "goc::PWLFunction general step-capable PWL");
     py::class_<goc::PWLFunction>(goc_mod, "PWLFunction")
         .def(py::init<const std::vector<double>&, const std::vector<double>&>(),
              py::arg("breakpoints"), py::arg("values"))
@@ -116,7 +113,7 @@ PYBIND11_MODULE(_lera, m) {
             "min_image", [](const goc::PWLFunction& f) { return f.Image().left; })
         .def_property_readonly(
             "max_image", [](const goc::PWLFunction& f) { return f.Image().right; })
-        // M5.9 step-op test surface: the labeling's value-jump-critical ops.
+        // Test hooks for the labeling operations that handle value jumps.
         .def("max", [](const goc::PWLFunction& f, const goc::PWLFunction& g) {
             return goc::Max(f, g); }, py::arg("g"))
         .def("min", [](const goc::PWLFunction& f, const goc::PWLFunction& g) {
@@ -127,7 +124,7 @@ PYBIND11_MODULE(_lera, m) {
             return f - g; })
         .def("__mul__", [](const goc::PWLFunction& f, double a) { return f * a; })
         // Per-piece dump: (dom_left, dom_right, img_left, img_right, is_vertical,
-        // kind) with kind in {"", "jump", "choice"} (M5.9 memo 13.2). A vertical
+        // kind) with kind in {"", "jump", "choice"}. A vertical
         // spans [img_left, img_right]; Value returns its attained/representative
         // endpoint (the intercept).
         .def("pieces", [](const goc::PWLFunction& f) {

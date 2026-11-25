@@ -24,8 +24,7 @@ using namespace nlohmann;
 namespace goc
 {
 
-// M13.3 (kayros-added): see the contract in pwl_function.h. Defaults to the
-// M13.0 exact tagged-vertical rules; the lera bridge scopes it per solve.
+// Each solver thread scopes its own vertical-piece rules. Standalone primitives default to tagged-vertical semantics.
 namespace
 {
 thread_local bool g_step_exact_arithmetic = true;
@@ -108,7 +107,7 @@ void PWLFunction::AddPiece(const LinearFunction& piece)
     // If this piece is a continuation of the last piece, then we need to merge them into one piece to have the
     // function normalized.
     bool is_continuation_of_last_piece = false;
-    // M5.9: never merge across a value jump. A vertical is a zero-width piece,
+    // Never merge across a value jump. A vertical is a zero-width piece,
     // so the old IsPoint() clause let the FOLLOWING piece absorb it whenever
     // their values touched (true for reflected jumps, where the attained
     // endpoint is the one adjacent to the next piece), silently destroying the
@@ -225,7 +224,7 @@ double PWLFunction::Value(double x) const
         return -1;
     }
 
-    // Attained-value evaluation (M5.9, design memo 13.1): at a jump abscissa the
+    // Attained-value evaluation: at a jump abscissa the
     // value is the jump's ATTAINED endpoint, stored in the vertical's intercept.
     // Checker-loaded forward functions are left-continuous (attained = incoming,
     // so this matches the checker exactly); reflected functions (flip_time) are
@@ -321,7 +320,7 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
         // Put i inside bounds.
         i = max(0, min(f.PieceCount()-1, i));
 
-        // M5.9 (design memo 13.2): verticals in g dispatch on their kind.
+        // Verticals in g dispatch on their kind.
         if (g[j].is_vertical())
         {
             double x0 = g[j].domain.left;
@@ -342,7 +341,7 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
                 }
                 continue;
             }
-            // JUMP vertical (12.3): pointwise semantics; the interior of the
+            // JUMP vertical: pointwise semantics; the interior of the
             // span is unattained and DISCARDED (sweeping it would add
             // unattainable values to the image, corrupting minima and bounds).
             // The span is clamped into dom(f): emitting nothing while any part
@@ -350,7 +349,7 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
             double y_att = g[j].intercept;
             double y_other = (y_att == g[j].image.left) ? g[j].image.right : g[j].image.left;
             double flo = f.Domain().left, fhi = f.Domain().right;
-            // (1.8.0) Clamping is only meaningful when the span meets dom(f).
+            // Clamping is only meaningful when the span meets dom(f).
             // A jump that lies entirely outside it has no image under f: the
             // clamp used to emit a point at an end of dom(f) there, which made
             // fog defined at abscissae where it is not (a route evaluated as
@@ -358,7 +357,7 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
             if (epsilon_bigger(std::min(y_att, y_other), fhi) || epsilon_smaller(std::max(y_att, y_other), flo)) continue;
             double y1 = min(fhi, max(flo, y_att));
             double y2 = min(fhi, max(flo, y_other));
-            // Hole-tolerant (M5.9): f may carry interior domain holes
+            // Hole-tolerant: f may carry interior domain holes
             // (post-domination durations); an endpoint landing in a hole
             // contributes nothing at x0 rather than failing.
             double v1, v2;
@@ -381,9 +380,9 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
             while (i < f.PieceCount()-1 && epsilon_smaller(max(dom(f[i])), y)) ++i;
             while (i > 0 && epsilon_bigger(min(dom(f[i])), y)) --i;
 
-            // M13.0: if a VERTICAL of f sits exactly at y, the first covering
+            // If a VERTICAL of f sits exactly at y, the first covering
             // piece (the one ENDING at y) carries a one-sided limit, not the
-            // pointwise value: a jump attains only its intercept (13.1) and a
+            // pointwise value: a jump attains only its intercept and a
             // choice vertical is set-valued with min semantics (21/n). Scan
             // every piece at y and prefer the vertical's contribution. Only
             // verticals divert from the legacy first-piece evaluation, so
@@ -413,17 +412,7 @@ PWLFunction PWLFunction::Compose(const PWLFunction& g) const
             // For each piece f[i] such that dom(f[i]) \cap img(g[j]) \neq \emptyset
             for (; i < f.PieceCount() && dom(f[i]).Intersects(img(g[j])); ++i)
             {
-                // M5.9 (13.2) / M13.0: a vertical of f at y0 = g(x0), reached by
-                // a strictly increasing g, becomes the SAME vertical of fog at
-                // x0: span and kind preserved, attained/representative endpoint
-                // first so the intercept carries over. The generic path would
-                // collapse it to a point at one value; for a CHOICE vertical
-                // that loses the span minimum, and downstream MinValueAt and
-                // candidate-side domination then over-estimate the label's
-                // duration and price columns out (the M13.0 incompleteness
-                // class; the pre-M13.0 code preserved only JUMP verticals).
-                // M13.3: extending the rule to CHOICE verticals is exact-path
-                // arithmetic. On jump-free instances it departs from the audited
+                // Compose an increasing inner function with a vertical at its image. Preserve the attained endpoint and span for JUMP verticals. Step-carrying solves also need the full span of CHOICE verticals for MinValueAt and dominance.
                 // v1.0.0 collapse and over-certifies, so it is gated.
                 if (f[i].is_jump_vertical() || (step_exact_arithmetic() && f[i].is_vertical()))
                 {
@@ -485,7 +474,7 @@ PWLFunction PWLFunction::Inverse() const
         if (xs.empty()) { xs.push_back(xl); ys.push_back(yl); }
         else if (xl == xs.back() && yl != ys.back())
         {
-            // (1.8.0) Bare value jump: this piece starts, at the abscissa where
+            // Bare value jump: this piece starts, at the abscissa where
             // the previous one ends, at a different value, and no vertical
             // piece sits in between. The comment above does not hold then, and
             // appending the right endpoint only would join (x, y_before) to the
@@ -525,7 +514,7 @@ PWLFunction PWLFunction::Inverse() const
 
     if (!non_decreasing)
     {
-        // (1.8.0) On a step-carrying solve the callers only invert arrival
+        // On a step-carrying solve the callers only invert arrival
         // functions, which are non-decreasing. The fallback below is not exact
         // on value jumps, so a decreasing function is refused there.
         if (step_exact_arithmetic())
@@ -542,7 +531,7 @@ PWLFunction PWLFunction::Inverse() const
     PWLFunction inv;
     for (size_t i = 0; i + 1 < ys.size(); ++i)
     {
-        // M5.9 (13.2): a plateau of f (duplicate y over distinct x) inverts into
+        // A plateau of f (duplicate y over distinct x) inverts into
         // a CHOICE vertical: every x in [xs[i], xs[i+1]] genuinely attains ys[i],
         // so the inverse is set-valued there. Its representative (intercept,
         // listed first) is the LATEST x: goc's historical max{x : f(x) = y}
@@ -561,7 +550,7 @@ PWLFunction PWLFunction::Inverse() const
 
 namespace
 {
-// The endpoint values of a piece for exact graph transforms (M5.9). For a
+// The endpoint values of a piece for exact graph transforms. For a
 // vertical: (attained, other) per the 13.1 convention (attained == intercept).
 // For an ordinary piece: the sweep endpoint values.
 inline std::pair<double, double> piece_values(const LinearFunction& p)
@@ -580,7 +569,7 @@ PWLFunction PWLFunction::FlipTime(double t_max) const
 {
     // g(x) = f(t_max - x): traverse pieces back-to-front, each abscissa moves by
     // ONE IEEE subtraction (platform-stable, no epsilon logic). A vertical keeps
-    // its attained endpoint first (13.1), so g's pointwise value at the reflected
+    // its attained endpoint first, so g's pointwise value at the reflected
     // jump abscissa equals f's at the original one.
     PWLFunction g;
     for (int i = (int) pieces_.size() - 1; i >= 0; --i)
@@ -601,7 +590,7 @@ PWLFunction PWLFunction::FlipTime(double t_max) const
 PWLFunction PWLFunction::FlipValue(double t_max) const
 {
     // h(x) = t_max - f(x): values move by one IEEE subtraction each; attained
-    // endpoints stay attained (13.1).
+    // endpoints stay attained.
     PWLFunction h;
     for (const LinearFunction& p : pieces_)
     {
@@ -864,18 +853,7 @@ string to_string(const PWLFunction& f)
 
 namespace
 {
-// M5.9/M13.0/M13.3: when both operands of a piecewise sweep end at the same
-// abscissa but one of them still has a piece STACKED there, advancing both
-// would drop that piece; hold the other operand so it still meets it.
-//
-//   step-exact (M13.0): hold for any stacked piece, i.e. a vertical OR a
-//     zero-width point starting exactly at the boundary. The pre-M13.0 rule
-//     held only when the CURRENT piece was non-vertical, so a stack of
-//     verticals lost its tail at operand exhaustion (the Rifki-17 witness
-//     label kept one of eight swept departure choices and over-estimated its
-//     duration).
-//   legacy (v1.0.0, in force on jump-free solves): hold only for a boundary
-//     VERTICAL following a non-vertical current piece.
+// When two operands end at the same abscissa, holding one operand lets it meet a stacked piece in the other. In stepwise arithmetic every stacked vertical or point qualifies. In jump-free arithmetic only a vertical following a nonvertical piece qualifies.
 bool hold_back_for_stacked_piece(const PWLFunction& f, int i, const LinearFunction& current)
 {
     if (i + 1 >= f.PieceCount()) return false;
@@ -907,17 +885,7 @@ PWLFunction operator+(const PWLFunction& f, const PWLFunction& g)
             double left = max(pf.domain.left, pg.domain.left), right = min(pf.domain.right, pg.domain.right);
             if (pf.is_vertical() || pg.is_vertical())
             {
-                // M5.9: a value jump in either operand -> a value jump in the sum
-                // at the same abscissa x0 (== left == right). The sum's image is
-                // the jump's image shifted by the other (continuous) function's
-                // value there; if both jump, the two images add. M13.0: pair
-                // attained-with-attained and limit-with-limit via sweep_endpoints
-                // (13.1), exactly as operator* does — the previous image-sorted
-                // lo/hi pairing mistagged the sum's attained value on verticals
-                // whose attained endpoint is the high one (down-jumps, flip
-                // products), corrupting Value/MinValueAt/domination downstream.
-                // M13.3: gated. The image-sorted pairing is the audited v1.0.0
-                // arithmetic and stays in force on jump-free solves.
+                // On step-carrying inputs, pair attained endpoints with attained endpoints and limits with limits, so the sum evaluates correctly at a jump. Jump-free inputs use image order.
                 double f_in, f_out, g_in, g_out;
                 if (step_exact_arithmetic())
                 {
@@ -979,7 +947,7 @@ PWLFunction operator*(const PWLFunction& f, const PWLFunction& g)
             double left = max(pf.domain.left, pg.domain.left), right = min(pf.domain.right, pg.domain.right);
             if (pf.is_vertical() || pg.is_vertical())
             {
-                // M5.9: a value jump in either operand -> a value jump in the
+                // A value jump in either operand -> a value jump in the
                 // product at the same abscissa x0 (== left == right, since a
                 // zero-width operand pins the overlap to a point). Pair incoming
                 // with incoming and outgoing with outgoing; a vertical contributes
@@ -1055,7 +1023,7 @@ PWLFunction Max(const PWLFunction& f_orig, const PWLFunction& g_orig)
         // If pf has a part before pg.
         if (epsilon_smaller(pf.domain.left, pg.domain.left))
         {
-            // M5.9: a vertical with no counterpart passes through verbatim (the
+            // A vertical with no counterpart passes through verbatim (the
             // two-point reconstruction below collapses it to its attained value
             // and, worse, the image.left mutation corrupts the span).
             if (pf.is_vertical()) { h.AddPiece(pf); ++i; continue; }
@@ -1076,7 +1044,7 @@ PWLFunction Max(const PWLFunction& f_orig, const PWLFunction& g_orig)
         }
         else if (epsilon_equal(pf.domain.left, pg.domain.left))
         {
-            // M5.9 (13.2): verticals meeting the other function at their
+            // Verticals meeting the other function at their
             // abscissa. The pointwise max of a span [lo, hi] against a value v
             // is the span [max(lo, v), max(hi, v)] with the attained endpoint
             // mapped through; the kind survives (jump wins over choice when

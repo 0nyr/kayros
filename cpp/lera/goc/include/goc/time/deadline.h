@@ -1,5 +1,5 @@
 //
-// kayros addition (M5.2, not part of the original GOC library).
+// Kayros addition.
 //
 // An absolute wall-clock deadline shared across the BCP stack. One Deadline is
 // derived from the caller's time limit at BCP::Run and every component

@@ -61,7 +61,7 @@ int BCP::SeparateCutRounds()
 	int cuts_added = 0;
 	while (this->spf->cuts.size() < cut_limit)
 	{
-		if (deadline.Reached()) break; // (M5.2)
+		if (deadline.Reached()) break;
 		Stopwatch cut_rolex(true);
 		lp_solver.time_limit = deadline.Remaining();
 		auto lp_log = lp_solver.Solve(this->spf->formulation, {LPOption::Incumbent});
@@ -98,7 +98,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 	log.cut_family_cut_time = {{"SR", 0.0_sec}};
 	log.cut_family_iteration_count = {{"SR", 0}};
 	
-	// Start algorithm. (M5.2) One absolute deadline for every component below.
+	// Start algorithm. One absolute deadline for every component below.
 	deadline = Deadline::In(time_limit);
 	rolex.Resume();
 	
@@ -126,8 +126,8 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		while (!q.empty())
 		{
 			if (log.status == BCStatus::TimeLimitReached || log.status == BCStatus::MemoryLimitReached) break;
-			if (deadline.Reached()) { log.status = BCStatus::TimeLimitReached; break; } // (M5.2)
-			if (MemoryMonitor::Exceeded()) { log.status = BCStatus::MemoryLimitReached; break; } // kayros (M13.2)
+			if (deadline.Reached()) { log.status = BCStatus::TimeLimitReached; break; }
+			if (MemoryMonitor::Exceeded()) { log.status = BCStatus::MemoryLimitReached; break; }
 			if (log.nodes_closed >= node_limit) { log.status = BCStatus::NodeLimitReached; break; }
 			
 			// Pop node.
@@ -150,14 +150,14 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 			}
 			delete bbnode;
 		}
-		// (M5.2) Only close the gap when the tree was fully explored: a branch
+		// Only close the gap when the tree was fully explored: a branch
 		// abandoned on the deadline (aborted strong branching drops children)
 		// can empty the queue without proving optimality.
 		if (q.empty() && log.status == BCStatus::DidNotStart) z_lb = z_ub;
 		
 		tstream.WriteRow({STR(rolex.Peek()), STR(log.nodes_closed), STR(log.nodes_open), STR(z_lb), STR(z_ub), STR(spf->formulation->VariableCount())});
 
-		// (kayros M5.5) On an aborted search the global lower bound is the best
+		// On an aborted search the global lower bound is the best
 		// open node's bound (q is best-bound-first), not the last popped one —
 		// report it so the final incumbent's true gap is known. If the TL hit
 		// during root CG there is no valid LB and best_bound stays unset.
@@ -201,14 +201,14 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 double BCP::EstimateBound(Node* node)
 {
 	spf->SetForbiddenArcs(node->A);
-	lp_solver.time_limit = deadline.Remaining(); // (M5.2)
+	lp_solver.time_limit = deadline.Remaining();
 	auto lp_log = lp_solver.Solve(spf->formulation);
-	// (M5.2) An aborted probe must poison the run status: dropping both
+	// An aborted probe must poison the run status: dropping both
 	// children of a node silently would let Run() claim optimality later.
 	node->rmp_infeasible = lp_log.status == LPStatus::Infeasible;
     if (node->rmp_infeasible) ++strong_rmp_infeasible_count;
 	if (lp_log.status == LPStatus::TimeLimitReached) log.status = BCStatus::TimeLimitReached;
-	if (lp_log.status == LPStatus::MemoryLimitReached) log.status = BCStatus::MemoryLimitReached; // kayros (M13.2)
+	if (lp_log.status == LPStatus::MemoryLimitReached) log.status = BCStatus::MemoryLimitReached;
 	return lp_log.status == LPStatus::Optimum ? *lp_log.incumbent_value : INFTY;
 }
 
@@ -217,7 +217,7 @@ void BCP::ProcessNode(Node* node)
 	node_seq++;
 	spf->SetForbiddenArcs(node->A);
 	cg_solver.screen_output = node->index == 0 ? &clog : nullptr; // Display only root node CG resolution.
-	cg_solver.time_limit = deadline.Remaining(); // (M5.2)
+	cg_solver.time_limit = deadline.Remaining();
 
 	// Perform column generation to solve the node.
 	auto cg_log = cg_solver.Solve(spf->formulation, {CGOption::IterationsInformation});
@@ -350,7 +350,7 @@ void BCP::BranchNode(Node* node)
 		
 		for (Arc e: x_most)
 		{
-			if (deadline.Reached()) { log.status = BCStatus::TimeLimitReached; break; } // (M5.2)
+			if (deadline.Reached()) { log.status = BCStatus::TimeLimitReached; break; }
 			vector<Arc> A = node->A; // infeasible arcs.
 			
 			// Left node (x_e = 0).
@@ -386,18 +386,18 @@ void BCP::BranchNode(Node* node)
 	// Process new children to the queue.
 	for (Node& candidate: best_candidate)
 	{
-		if (log.status == BCStatus::TimeLimitReached || log.status == BCStatus::MemoryLimitReached) break; // (M5.2)
+		if (log.status == BCStatus::TimeLimitReached || log.status == BCStatus::MemoryLimitReached) break;
 		ProcessNode(new Node(candidate));
 	}
 }
 
 void BCP::FreezeHeuristic()
 {
-	if (deadline.Reached()) return; // (M5.2)
+	if (deadline.Reached()) return;
 	BCSolver bc_solver;
-	bc_solver.time_limit = deadline.Remaining(); // (M5.2) residual budget, not the full TL.
+	bc_solver.time_limit = deadline.Remaining(); // residual budget, not the full TL.
 	auto bc_log = bc_solver.Solve(spf->formulation, {BCOption::BestIntSolution});
-	// (M5.2) A TL-truncated MILP may still carry a feasible incumbent — take it.
+	// A TL-truncated MILP may still carry a feasible incumbent — take it.
 	bool has_incumbent = (bc_log.status == BCStatus::Optimum || bc_log.status == BCStatus::TimeLimitReached)
 		&& bc_log.best_int_value.IsSet() && bc_log.best_int_solution.IsSet();
 	if (has_incumbent && bc_log.best_int_value < z_ub)
@@ -427,7 +427,7 @@ bool BCP::SeparateCuts(const Valuation& z)
 	SubsetRowCut best;
 	for (Vertex i = 1; i < D.NbVertices()-1; ++i)
 	{
-		if (deadline.Reached()) return false; // (M5.2) abort separation; CG's own TL check terminates the run.
+		if (deadline.Reached()) return false; // abort separation; CG's own TL check terminates the run.
 		for (Vertex j = i + 1; j < D.NbVertices() - 1; ++j)
 		{
 			for (Vertex k = j + 1; k < D.NbVertices() - 1; ++k)
