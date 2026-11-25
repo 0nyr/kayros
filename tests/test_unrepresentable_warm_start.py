@@ -25,7 +25,7 @@ from kayros.io import load_instance, to_core
 
 def tight_instance(*, direct_has_knot=False, return_from_one=1, fixed_charge=1, capacity=2):
     # Inverting arrival 16 on the direct outbound arc rounds 15 down by one ULP.
-    length, start = 22, 15
+    length, start = 22.0, 15.0
     name = "tight-depot-opening"
     instance = BenchmarkInstanceTDVRPTW(
         instance_name=name, instance_origin="Blauth2024", benchmark_name="Blauth2024",
@@ -39,10 +39,10 @@ def tight_instance(*, direct_has_knot=False, return_from_one=1, fixed_charge=1, 
             if head == tail:
                 continue
             omit_start = (tail, head) == (0, 1) and not direct_has_knot
-            xs = [0, length] if omit_start else [0, start, length]
+            xs = [0.0, length] if omit_start else [0.0, start, length]
             travel = {(0, 2): 0, (1, 0): return_from_one}.get((tail, head), 1)
             arcs[tail, head] = NDCPWLF(xs, [x + travel for x in xs])
-    atfs = InstanceATFs(name, "Blauth2024", (0, length), 2, arcs)
+    atfs = InstanceATFs(name, "Blauth2024", (0.0, length), 2, arcs)
     return LoadedTDInstance(instance, atfs, Path("synthetic.vrp.json"), None)
 
 
