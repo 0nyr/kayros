@@ -30,11 +30,25 @@ class Instance:
         demands: list[int],
         service_times: list[float],
         arcs: list[tuple[int, int, list[float], list[float]]],
+        fixed_route_cost: float = 0.0,
     ) -> None: ...
+    @property
+    def fixed_route_cost(self) -> float: ...
     def evaluate_route(self, route: list[int]) -> tuple[bool, float, float]: ...
     def route_ready_time_function(
         self, route: list[int]
     ) -> tuple[list[float], list[float]]: ...
+
+class ExactRoutePricer:
+    def __init__(self, instance: Instance, cache_knots: int = 65536) -> None: ...
+    def route_timing(
+        self, route: list[int], /
+    ) -> tuple[tuple[int, int], tuple[int, int]] | None: ...
+    def solution_cost(self, routes: list[list[int]], /) -> tuple[int, int] | None: ...
+    @property
+    def cached_knots(self) -> int: ...
+    @property
+    def prepared_arcs(self) -> int: ...
 
 class IlsParams:
     ils_max_iterations: int
@@ -130,6 +144,8 @@ def solve_ils(
     seed: int,
     time_limit: float,
     on_incumbent: Callable[[Incumbent, list[list[int]]], None] | None = None,
-    initial_routes: list[list[int]] | None = None,
+    initial_routes: list[list[int]] = ...,
     accept_incumbent: Callable[[list[list[int]], bool], bool] | None = None,
+    on_unusable_warm_start: Callable[[float, bool], None] | None = None,
+    fleet_cost_objective: bool = False,
 ) -> SolveResult: ...
