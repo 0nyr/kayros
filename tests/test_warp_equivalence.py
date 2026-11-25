@@ -1,10 +1,13 @@
-"""Check warp timing against the exact library and the sequential binary64 reference. Feasibility must agree with exact route timing and duration must meet exact_reference.TOL. The C++ warp channels must match the Python binary64 implementation bit for bit. On a feasible route the full clamped grid extends the sequential unwarped grid. Hand-built late routes exercise the nonzero-warp case."""
+"""Check warp timing against the exact library and the sequential binary64 reference. Feasibility must agree with exact route timing and duration must meet exact_reference.TOL. The C++ warp channels must match the Python binary64 implementation bit for bit. On a feasible route the two grids agree through the attained value at the last feasible departure. Hand-built late routes exercise the nonzero-warp case."""
 
+from bisect import bisect_left
+from fractions import Fraction
 import math
 import random
 import zlib
 
 import pytest
+from mamut_routing_lib.exact_td import prepare_td
 from mamut_routing_lib.td import NDCPWLF, check_td_solution, load_td_instance
 
 from kayros import _core
@@ -113,10 +116,56 @@ def assert_route_gates(loaded, core, t_end: float, route: list[int], ctx) -> str
         base_xs, base_ys = base.xs, base.ys
     else:
         base_xs, base_ys = core.route_ready_time_function(route)
-    n = len(base_xs)
-    assert rho_xs[:n] == base_xs, (ctx, route)
-    assert rho_ys[:n] == base_ys, (ctx, route)
+    # The first sample at the closed endpoint is attained. Further samples
+    # at that same abscissa describe a right limit outside the feasible domain.
+    n = bisect_left(base_xs, base_xs[-1]) + 1
+    assert rho_xs[:n] == base_xs[:n], (ctx, route)
+    assert rho_ys[:n] == base_ys[:n], (ctx, route)
     return "feasible"
+
+
+@pytest.mark.parametrize("path", [p for p in family_instances("TDVRPTW", "Rifki2020", ["n=30"])
+                                  if p.name == "Rifki-1.vrp.json"])
+def test_closed_terminal_jump_at_the_last_feasible_departure(path):
+    route = [11, 9, 17, 29, 25]
+    loaded = load_td_instance(path)
+    gold = prepare_td(loaded.instance, loaded.atfs, backend="python", objective_function="Duration")
+    knots = gold.route_curve(route)
+    end = Fraction(39225)
+    last = knots[-1]
+    assert (knots[0].departure, last.departure, last.arrival, last.right_arrival) == (0, end, 41735, 41735)
+    optimum = gold.route_timing(route)
+    assert (optimum.duration, optimum.departure_time) == (2439, 5297)
+
+    core = to_core(loaded)
+    base = ref.sequential_windowed_route(loaded.instance, loaded.atfs, route)
+    assert list(zip(base.xs[-2:], base.ys[-2:])) == [(end, 41735), (end, 41744)]
+    rho_points, warp_points = core.route_warp_functions(route, core.warp_horizon())
+    rho, warp = NDCPWLF(*rho_points), NDCPWLF(*warp_points)
+    assert_route_gates(loaded, core, core.warp_horizon(), route, path)
+    epsilon = Fraction(1, 2**20)
+    for delta in (-epsilon, Fraction(0), epsilon):
+        # Replay the original arcs without clamping lateness to inspect the
+        # service at vertex 17 and the return even on the infeasible side.
+        ready = end + delta
+        violations = []
+        for tail, head in zip([0, *route], [*route, 0]):
+            arrival = loaded.atfs.arcs[tail, head].evaluate_exact(ready)
+            earliest, latest = loaded.instance.time_windows[head]
+            if head == 17:
+                assert arrival == 40455 + delta
+            if arrival > latest:
+                violations.append(head)
+            ready = max(earliest, arrival) + loaded.instance.service_times[head]
+        if delta <= 0:
+            assert violations == [] and ready == 41735 + delta
+            assert base.evaluate_exact(end + delta) == rho.evaluate_exact(end + delta) == ready
+            assert warp.evaluate_exact(end + delta) == 0
+        else:
+            assert violations == [17] and ready == 41744 + delta
+            assert end + delta > base.xs[-1]
+            assert rho.evaluate_exact(end + delta) == 41735
+            assert warp.evaluate_exact(end + delta) == delta
 
 
 @pytest.mark.parametrize("instance_path", ALL_CASES)
