@@ -70,7 +70,7 @@ struct SolveParams {
     std::function<void(const std::string&)> on_event;
 };
 
-// payload: normalized Lera instance JSON (built by the kayros.lera Python
+// payload: normalized Lera instance JSON (built by the kayros._bpc Python
 // bridge from a loaded MAMUT TD instance + ATF sidecars; travel_times already
 // present). Runs Lera's shared preprocessing (capacity, service+waiting
 // folding, TW tightening, depot triangle arc removal), then the duration-

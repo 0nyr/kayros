@@ -172,8 +172,8 @@ class Params:
 class Incumbent:
     value: float
     seconds: float
-    iteration: int
-    origin: str  # "greedy" | "ils" | "warm_start"
+    iteration: int | None  # ILS iteration when available
+    origin: str
     exact_cost: Fraction | None = None
     search_value: float | None = None
 

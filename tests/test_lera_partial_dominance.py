@@ -49,7 +49,7 @@ SETTINGS = {
 @pytest.mark.parametrize("instance_path", RC107_50, ids=lambda p: "RC107-n50")
 @pytest.mark.parametrize("setting", sorted(SETTINGS))
 def test_rc107_n50_closes_at_the_optimum_under_every_ladder(instance_path, setting, monkeypatch) -> None:
-    from kayros.lera import routes_to_mamut, solve_duration
+    from kayros._bpc import routes_to_mamut, solve_duration
 
     for name, value in SETTINGS[setting].items():
         monkeypatch.setenv(name, value)

@@ -81,13 +81,13 @@ C101_N25 = _pick(family_instances("TDVRPTW", "Dabia2013", ["n=25"]), "C101")
 
 
 def _cold(loaded, tl=60.0):
-    from kayros.lera import solve_duration
+    from kayros._bpc import solve_duration
 
     return solve_duration(loaded, time_limit_s=tl)
 
 
 def _warm(loaded, routes, tl=60.0):
-    from kayros.lera import solve_duration
+    from kayros._bpc import solve_duration
 
     return solve_duration(loaded, time_limit_s=tl, initial_routes=routes)
 
@@ -343,7 +343,7 @@ def test_jumpfree_vu2020_certificate_is_not_above_the_truth():
     assert res["stepwise_atfs"] is False  # the premise this gate is about
     assert res["exact_log"]["status"] == "Optimum"
     assert res["value"] <= VU_A5PA_D90_W40_TRUE + 1e-6
-    from kayros.lera import routes_to_mamut
+    from kayros._bpc import routes_to_mamut
 
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
@@ -392,7 +392,7 @@ def test_jumpfree_reverse_side_certificate_is_not_above_the_truth(name):
     assert res["stepwise_atfs"] is False  # the premise this gate is about
     assert res["exact_log"]["status"] == "Optimum"
     assert res["value"] <= truth + 1e-6
-    from kayros.lera import routes_to_mamut
+    from kayros._bpc import routes_to_mamut
 
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
@@ -413,7 +413,7 @@ def test_jumpfree_certification_is_warm_start_independent():
     assert cold["exact_log"]["status"] == "Optimum"
     routes = [
         r[1:-1]
-        for r in __import__("kayros.lera", fromlist=["routes_to_mamut"]).routes_to_mamut(
+        for r in __import__("kayros._bpc", fromlist=["routes_to_mamut"]).routes_to_mamut(
             cold["routes"], loaded.instance.num_customers
         )
     ]
