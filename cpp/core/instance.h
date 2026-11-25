@@ -15,7 +15,8 @@ namespace kayros {
 // F0 is the code before the study and is the default.
 // F6 is F4 plus a candidate enumeration of the inter-route passes driven by the granular neighbour lists (fast_enum). It visits the same candidates in the same order as F4, so it follows the F4 trajectory.
 // F7 is F6 with the leaves stored in 1 packed pool instead of separate vectors (compact_cache), same leaf values as F4.
-enum class FoldArm : std::int32_t { F0 = 0, F1 = 1, F2 = 2, F3 = 3, F4 = 4, F5 = 5, F6 = 6, F7 = 7 };
+// F8 and F9 use F3 arithmetic without time windows and the packed leaf pool with windows. F8 keeps the original loops. F9 selects granular enumeration.
+enum class FoldArm : std::int32_t { F0 = 0, F1 = 1, F2 = 2, F3 = 3, F4 = 4, F5 = 5, F6 = 6, F7 = 7, F8 = 8, F9 = 9 };
 
 // F7: every leaf and return leaf of the F4 cache, built eagerly into 1 pool. Entry e occupies data[offset[e], offset[e+1]): its xs, then its ys. Entries 0 to (n+1)^2-1 are the leaves (e = i*(n+1)+j), entry (n+1)^2+i is the return leaf of i.
 struct LeafPool {
@@ -69,14 +70,20 @@ struct Instance {
     bool arm_in_place() const { return fold_arm == FoldArm::F1 || fold_arm == FoldArm::F5; }
     bool arm_leaf_cache() const {
         return fold_arm == FoldArm::F2 || fold_arm == FoldArm::F4 || fold_arm == FoldArm::F5 ||
-               fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7;
+               fold_arm == FoldArm::F6 || arm_compact_cache();
     }
     bool arm_no_alloc() const {
         return fold_arm == FoldArm::F3 || fold_arm == FoldArm::F4 || fold_arm == FoldArm::F5 ||
-               fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7;
+               fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7 ||
+               fold_arm == FoldArm::F8 || fold_arm == FoldArm::F9;
     }
-    bool arm_fast_enum() const { return fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7; }
-    bool arm_compact_cache() const { return fold_arm == FoldArm::F7; }
+    bool arm_fast_enum() const {
+        return fold_arm == FoldArm::F6 || fold_arm == FoldArm::F7 || fold_arm == FoldArm::F9;
+    }
+    bool arm_compact_cache() const {
+        return fold_arm == FoldArm::F7 ||
+               ((fold_arm == FoldArm::F8 || fold_arm == FoldArm::F9) && has_time_windows);
+    }
     void set_fold_arm(FoldArm arm) {
         fold_arm = arm;
         leaf_cache.reset();

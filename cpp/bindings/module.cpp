@@ -3,6 +3,7 @@
 #include <pybind11/stl.h>
 
 #include <chrono>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -118,11 +119,11 @@ kayros::Instance make_instance(
 
 // Fold study (session 136): arm names <-> FoldArm.
 kayros::FoldArm parse_fold_arm(const std::string& name) {
-    static const char* names[] = {"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7"};
-    for (int k = 0; k < 8; ++k) {
+    static const char* names[] = {"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"};
+    for (std::size_t k = 0; k < std::size(names); ++k) {
         if (name == names[k]) return static_cast<kayros::FoldArm>(k);
     }
-    throw std::invalid_argument("unknown fold_arm " + name + " (expected F0 to F7)");
+    throw std::invalid_argument("unknown fold_arm " + name + " (expected F0 to F9)");
 }
 
 std::string fold_arm_name(kayros::FoldArm arm) {
