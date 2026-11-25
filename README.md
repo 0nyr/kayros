@@ -67,6 +67,16 @@ With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callb
 
 The Duration solver uses the implementation of Lera-Romero, Miranda Bront and Soulignac (2020). It can start from customer-only incumbent routes. A time limit and a configurable resident-memory limit allow it to return when pricing exhausts its budget. Its search log records pricing and node closure diagnostics. Under the 2.0 evaluation profile, verifying an incumbent establishes its objective value. An optimality claim also requires a verified lower bound.
 
+The same Dabia incumbent from the heuristic example can seed the exact solver. A checked incumbent is available through `result.routes` and `result.exact_cost`.
+
+```python
+from kayros.exact import solve_exact
+
+result = solve_exact(instance_path, time_limit=600.0, initial_routes=solution.routes)
+print(result.routes, result.exact_cost)
+print(result.reported_best_bound, result.certified_dual_bound)
+```
+
 ## Implementation
 
 The C++ local search represents arc arrival times as piecewise-linear functions and evaluates moves in binary64 arithmetic. On instances with time windows, it caches the composed arc functions used by the move evaluator. It uses greedy construction, ruin-and-recreate perturbations, late acceptance and restarts from the incumbent. The MAMUT library prices the reported route set and computes exact minimizing departure times.

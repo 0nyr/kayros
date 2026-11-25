@@ -9,6 +9,7 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 | In 1.7.1 | In 2.0 development |
 |---|---|
 | `Solution.duration` | `Solution.cost` gives the display of the full objective. `Solution.exact_cost` holds the exact rational. |
+| `kayros.lera.solve_duration` and depot-delimited result paths | `kayros.exact.solve_exact` takes a path or loaded instance, accepts `time_limit` in seconds and returns a typed result with customer-only routes. |
 | Archive layout `benchmarks/<problem_type>/<family>/` | Family layout `benchmarks/<family>/<problem_type>/`, with library 0.13. |
 | `strategy="aco"` or `"aco+ils"` and ant-colony parameters | Use the iterated local search. Replay the ant-colony strategies with 1.7.1. |
 | `fd_period` in iterations | Set `fd_period_work` in evaluated moves. The numerical budgets use different units. |
