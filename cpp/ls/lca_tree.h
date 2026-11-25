@@ -35,7 +35,8 @@ class LcaTree {
     const Pwlf& leaf(std::int64_t i) const { return leaves_[static_cast<std::size_t>(i)]; }
 
     // Composition of leaves lo..hi inclusive (empty Pwlf propagates).
-    Pwlf query(std::int64_t lo, std::int64_t hi) const;
+    // A stored chain is borrowed from the tree. A composed chain is written to scratch.
+    PwlfView query_view(std::int64_t lo, std::int64_t hi, Pwlf& scratch) const;
 
   private:
     // Static balanced BST over boundary keys 0..m+1, array of nodes indexed by

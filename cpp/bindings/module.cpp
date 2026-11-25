@@ -111,6 +111,7 @@ kayros::Instance make_instance(
         std::copy(ys.begin(), ys.end(),
                   inst.atf_ys.begin() + static_cast<std::ptrdiff_t>(b));
     }
+    inst.prepare_leaves();
     return inst;
 }
 

@@ -13,7 +13,7 @@ namespace kayros {
 // TD local search (M3.7), per the Stream-4 decision memo
 // (tdvrptw-workspace reports/design/td-ls-structures-decision.md):
 // - the LCA-BST ranks candidate moves (≤ 1 compose per partial composition);
-// - every ACCEPTED move is repriced by the sequential checker-identical fold
+// - every ACCEPTED move is repriced by the binary64 route fold
 //   (evaluate_route) before being committed — trees rank, the fold accounts.
 
 // Identity function over the feasible depot departure window (empty when the
@@ -28,18 +28,11 @@ Pwlf departure_identity(const Instance& inst);
 std::vector<Pwlf> route_leaves(const Instance& inst, const std::int32_t* route,
                                std::int64_t len);
 
-// theta_to ∘ alpha_{from,to}: the leaf created by an arc that is not in either
-// stored route (move bridges). Empty when the arc's ATF is absent.
-Pwlf bridge_leaf(const Instance& inst, std::int32_t from, std::int32_t to);
-
-// [depot due-date clamp ∘] alpha_{from,0}: the closing leaf after `from`.
-Pwlf return_leaf(const Instance& inst, std::int32_t from);
-
 // Per-route state owned by the LS layer (memo interface contract).
 struct RouteState {
     std::vector<std::int32_t> vertices;  // customer ids, depot excluded
     LcaTree tree;                        // m+1 leaves, P4.0 convention
-    double duration = 0.0;               // ALWAYS the checker-fold repriced value
+    double duration = 0.0;               // binary64 route fold value
     double departure = 0.0;              // earliest optimal depot departure
     std::int64_t load = 0;               // demand sum (capacity bookkeeping)
     // M7.0 bookkeeping (reset by build_route_state):
@@ -59,6 +52,11 @@ bool build_route_state(const Instance& inst, std::vector<std::int32_t> vertices,
 RouteEval evaluate_splice(const Instance& inst, const RouteState& r1,
                           std::int64_t i1, std::int64_t j1,
                           const RouteState& r2, std::int64_t i2, std::int64_t j2);
+
+// Price inserting c at position p of recv, starting with its already computed prefix.
+bool price_insertion(const Instance& inst, const RouteState& recv, PwlfView prefix,
+                     std::int32_t before, std::int32_t c, std::int64_t p,
+                     std::int64_t mb, MinShift& out);
 
 // Intra-route relocate ranking: route r without the customer at position i,
 // re-inserted before position p (p in 0..m, p != i, p != i+1; p == m appends
