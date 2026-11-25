@@ -8,6 +8,8 @@ The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancie
 
 **Version 2.0 is in development.** Its heuristic checks solutions under the MAMUT profile `td-binary64-exact-v1`. The branch-price-and-cut solver's internal stopping condition and floating-point bound are diagnostics while proof verification for this profile is in development.
 
+> **Known issue in releases 1.1.0 to 1.7.1.** On instances whose travel times have value jumps (stepwise arrival functions, such as the Rifki2020 families), the exact component could miss improving columns, so a lower bound or an optimality certificate obtained on such an instance with these releases should not be relied on. Feasible solutions and their values are not affected, and neither are instances without value jumps or the anytime local search. The repair is on `main` and will be part of the next release. See the changelog section [Stepwise repair (prepared as 1.8.0)](CHANGELOG.md#stepwise-repair-prepared-as-180) and [issue #11](https://github.com/0nyr/kayros/issues/11).
+
 ## Install
 
 The published 1.7.1 release is available with `pip install kayros==1.7.1`. To reproduce published runs with that release, use `mamut-routing-lib==0.11.0` and the [archived benchmark layout](https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11).
