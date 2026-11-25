@@ -131,6 +131,7 @@ struct Incumbent {
     double seconds = 0.0;          // wall time since solve start
     std::uint64_t iteration = 0;   // 0 = greedy seed
     std::int32_t origin = 0;       // 0 = greedy, 2 = ils
+    bool from_squeeze = false;
 };
 
 enum class SolveStatus : std::int32_t {
@@ -288,6 +289,10 @@ double solution_duration(const Instance& inst,
 using IncumbentCallback = std::function<void(
     const Incumbent&, const std::vector<std::vector<std::int32_t>>&)>;
 
+// A supplied gate approves a publishable candidate before it becomes the restart solution.
+using IncumbentGate = std::function<bool(
+    const std::vector<std::vector<std::int32_t>>&, bool from_squeeze)>;
+
 // TD-ILS driver (M7.2): greedy seed -> granular descent (+ exhaustive polish)
 // -> {perturb, granular descent, LAHC accept, restart-to-best} until the
 // budget ends. Feasible-only; every value is the canonical checker Duration;
@@ -299,6 +304,7 @@ using IncumbentCallback = std::function<void(
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit_seconds,
                       const IncumbentCallback& on_incumbent = {},
-                      std::vector<std::vector<std::int32_t>> initial_routes = {});
+                      std::vector<std::vector<std::int32_t>> initial_routes = {},
+                      const IncumbentGate& accept_incumbent = {});
 
 }  // namespace kayros

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from decimal import Decimal
+from functools import cached_property
+import logging
 from fractions import Fraction
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 from mamut_routing_lib.enums import ObjectiveFunction
+from mamut_routing_lib.exact import prepare_exact
+from mamut_routing_lib.exact_types import ExactRouteError
 from mamut_routing_lib.models import BenchmarkSolution
-from mamut_routing_lib.td import LoadedTDInstance, check_td_solution
+from mamut_routing_lib.td import LoadedTDInstance
 
 from kayros import _core
 from kayros.io import canonical_objective, load_instance, to_core
@@ -144,6 +148,10 @@ class Params:
     seed_k_factor: float = 2.0
     ils_max_iterations: int = 0
 
+    # Final-only keeps this many distinct prior route sets in addition to the current best.
+    acceptance_mode: Literal["each_incumbent", "final_only"] = "each_incumbent"
+    incumbent_history_size: int = 6
+
     def _to_ils_core(self) -> _core.IlsParams:
         params = _core.IlsParams()
         if self.ils_max_iterations > 0:
@@ -180,6 +188,8 @@ class Incumbent:
     seconds: float
     iteration: int
     origin: str  # "greedy" | "ils"
+    exact_cost: Fraction | None = None
+    search_value: float | None = None
 
 
 _ORIGIN_NAMES = {0: "greedy", 2: "ils"}
@@ -190,13 +200,92 @@ _ORIGIN_NAMES = {0: "greedy", 2: "ils"}
 IncumbentHook = Callable[[Incumbent, list[list[int]]], None]
 
 
+class _Acceptance:
+    """The native loop calls accept before storing its incumbent, then publish after acceptance."""
+
+    def __init__(self, loaded, objective, params, hook):
+        self.loaded = loaded
+        self.objective = ObjectiveFunction(objective)
+        self.mode = params.acceptance_mode
+        if self.mode not in ("each_incumbent", "final_only"):
+            raise ValueError(f"unknown acceptance_mode {self.mode!r}")
+        self.capacity = params.incumbent_history_size
+        if type(self.capacity) is not int or self.capacity < 0:
+            raise ValueError("incumbent_history_size must be a nonnegative integer")
+        self.hook = hook
+        self.best_exact = None
+        self.events = []
+        self.history = OrderedDict()
+        self.stats = dict(proposals=0, infeasible=0, nonimproving=0, squeeze_rejections=0,
+                          final_rejections=0, fallback_attempts=0, recovered=0)
+
+    @cached_property
+    def prepared(self):
+        return prepare_exact(self.loaded, objective_function=self.objective)
+
+    def accept(self, routes, from_squeeze):
+        self.stats["proposals"] += 1
+        if self.mode == "final_only":
+            return True
+        try:
+            cost = self.prepared.evaluate(routes).cost
+        except ExactRouteError:
+            self.stats["infeasible"] += 1
+        else:
+            if self.best_exact is None or cost < self.best_exact:
+                self.best_exact = cost
+                return True
+            self.stats["nonimproving"] += 1
+        self.stats["squeeze_rejections"] += int(from_squeeze)
+        return False
+
+    def publish(self, inc, routes):
+        exact = self.best_exact
+        event = Incumbent(float(exact) if exact is not None else inc.value, inc.seconds,
+                          inc.iteration, _ORIGIN_NAMES[inc.origin], exact, inc.value)
+        self.events.append(event)
+        if self.mode == "final_only" and self.capacity:
+            snapshot = tuple(tuple(route) for route in routes)
+            key = tuple(sorted(snapshot))  # route enumeration does not distinguish solutions
+            self.history[key] = (inc.value, snapshot, inc.from_squeeze)
+            self.history.move_to_end(key)
+            if len(self.history) > self.capacity + 1:
+                self.history.popitem(last=False)
+        if self.hook:
+            self.hook(event, routes)
+
+    def finish(self, result):
+        candidates = [(result.value, result.routes, result.incumbents[-1].from_squeeze)]
+        if self.history:
+            # The current candidate is also the latest publication.
+            self.history.popitem(last=True)
+            candidates.extend(sorted(self.history.values(), key=lambda item: item[0]))
+        for index, (value, routes, from_squeeze) in enumerate(candidates):
+            if index:
+                self.stats["fallback_attempts"] += 1
+            try:
+                evaluation = self.prepared.evaluate(routes)
+            except ExactRouteError as error:
+                self.stats["final_rejections"] += 1
+                self.stats["squeeze_rejections"] += int(from_squeeze)
+                logging.getLogger(__name__).warning("Exact final check rejected candidate %d: %s", index + 1, error)
+                continue
+            if self.best_exact is not None and evaluation.cost != self.best_exact:
+                raise KayrosError("final exact evaluation disagrees with the accepted incumbent")
+            if index:
+                self.stats["recovered"] = 1
+                logging.getLogger(__name__).warning("Recovered a checked incumbent on fallback attempt %d", index)
+            return [list(route) for route in routes], value, evaluation
+        raise InfeasibleError(f"exact final check rejected all {len(candidates)} retained candidates")
+
+
 @dataclass
 class Solution:
     """A solution checked under the exact profile of mamut-routing-lib
     (``td-binary64-exact-v1``).
 
     ``exact_cost`` is the authoritative rational value of ``objective``, as
-    computed by ``mamut_routing_lib.td.check_td_solution``. ``cost`` is its
+    computed by the prepared exact evaluator of mamut-routing-lib. ``cost`` is its
     binary64 display (the nearest double). Under ``"FleetCostDuration"`` both
     include the ``fleet_fixed_cost * num_routes`` term. ``route_durations`` and
     ``route_departures`` are the displays of the exact per-route durations and
@@ -245,6 +334,7 @@ class Solution:
     # thresholds) and restart-to-best count.
     work_units: int = 0
     restarts: int = 0
+    acceptance_stats: dict[str, int] = field(default_factory=dict)
 
     @property
     def num_routes(self) -> int:
@@ -365,13 +455,14 @@ def solve(
     an already-loaded ``LoadedTDInstance``, because by then the artifacts have
     been read and it is too late to verify them here.
 
-    ``on_incumbent`` makes the solve anytime: it fires synchronously on every
-    new incumbent with the ``Incumbent`` record and the routes, so callers can
-    checkpoint solutions while the search keeps running. The stream is strictly
-    improving and opens on the ``"greedy"`` seed within a fraction of a second
-    at every instance size (1.4.0), well before the first descent lands. Keep
-    the hook cheap — the solve loop blocks on it; an
-    exception raised inside it aborts the solve and propagates.
+    By default, a candidate new best must pass exact feasibility and strictly improve the
+    rational objective before it replaces the incumbent. The synchronous callback receives
+    its exact cost, its binary64 display as ``value``, and the approximate ``search_value``.
+    Distinct exact costs can have the same display. With ``acceptance_mode="final_only"``,
+    callback events and ``Solution.incumbents`` describe provisional search improvements
+    and carry ``exact_cost=None``. If the final candidate fails, the solver tries up to
+    ``incumbent_history_size`` prior distinct incumbents in increasing approximate cost
+    order. ``Solution.routes`` and its cost always describe the checked result.
     """
     if isinstance(instance, LoadedTDInstance):
         if verify:
@@ -387,7 +478,6 @@ def solve(
     objective = canonical_objective(params.objective)
     # The objective is always passed explicitly: the default of the library is
     # the published objective of the family, which is not "Duration" everywhere.
-    check_kwargs: dict = {"objective_function": ObjectiveFunction(objective)}
     if objective != "Duration":
         # Contract guards up front (mirroring the checker's misuse guards):
         # the objective needs the instance field and a lib that scores it.
@@ -396,20 +486,20 @@ def solve(
                 f"instance {loaded.instance.instance_name} carries no "
                 f"fleet_fixed_cost; the FleetCostDuration objective requires it"
             )
+    acceptance = _Acceptance(loaded, objective, params, on_incumbent)
     core = to_core(loaded, objective_function=objective)
     tl = 0.0 if time_limit is None else float(time_limit)
 
     if params.strategy != "ils":
         raise ValueError(f"unknown strategy {params.strategy!r}")
 
-    def hook(inc, routes):
-        on_incumbent(Incumbent(inc.value, inc.seconds, inc.iteration, _ORIGIN_NAMES[inc.origin]), routes)
-
     ils_core = params._to_ils_core()
     if tl <= 0.0 and params.ils_max_iterations <= 0:
         ils_core.max_iterations = 5 * params.restart_no_improvement
-    result = _core.solve_ils(core, ils_core, seed, tl, hook if on_incumbent is not None else None)
+    result = _core.solve_ils(core, ils_core, seed, tl, acceptance.publish, accept_incumbent=acceptance.accept)
     if result.status == _core.SolveStatus.Infeasible or not result.routes:
+        if acceptance.stats["infeasible"]:
+            raise InfeasibleError(f"no exact-feasible incumbent in {acceptance.stats['proposals']} proposals")
         if params.k_cap > 0 and objective != "Duration":
             # Plan-15 S3 (D-S3.1): the run never reached the cap, so it
             # publishes nothing. An empty cell is the honest outcome.
@@ -422,47 +512,21 @@ def solve(
             f"{loaded.instance.instance_name}"
         )
 
-    # Final check under the exact profile of the family. No cost is declared:
-    # the search value comes from a binary64 fold, and the reported cost is the
-    # exact one. Feasibility is decided here by exact arithmetic.
-    routes = [list(route) for route in result.routes]
-    check = check_td_solution(
-        loaded,
-        BenchmarkSolution(
-            instance_name=loaded.instance.instance_name,
-            routes=routes,
-            cost=None,
-        ),
-        **check_kwargs,
-    )
-    if not check.is_valid():
-        raise KayrosError(
-            f"final solution rejected by the exact checker "
-            f"({check.status}: {check.error_message})"
-        )
-    # The checker returns its witnesses in canonical route order. Customers are
-    # visited once, so the first customer identifies a route.
-    witness = {e.route[0]: e for e in check.route_evaluations}
-    evaluations = [witness[route[0]] for route in routes]
-    exact_record = check.exact_evaluation
-    # The integers of the record can exceed the digit limit of int(str) (6,009
-    # digits on an instance with 1,000 customers). Decimal converts exactly.
-    exact_cost = Fraction(
-        int(Decimal(exact_record["authoritative_cost"]["numerator"])),
-        int(Decimal(exact_record["authoritative_cost"]["denominator"])),
-    )
+    routes, search_value, evaluation = acceptance.finish(result)
+    witnesses = dict(zip(evaluation.routes, evaluation.route_evaluations))
+    evaluations = [witnesses[tuple(route)] for route in routes]
 
     return Solution(
         instance_name=loaded.instance.instance_name,
         routes=routes,
-        cost=check.routing_cost,
+        cost=evaluation.display_cost,
         route_durations=[float(e.duration) for e in evaluations],
         route_departures=[float(e.departure_time) for e in evaluations],
-        exact_cost=exact_cost,
+        exact_cost=evaluation.cost,
         exact_route_durations=[e.duration for e in evaluations],
         exact_route_departures=[e.departure_time for e in evaluations],
-        search_value=result.value,
-        exact_evaluation=exact_record,
+        search_value=search_value,
+        exact_evaluation=evaluation.as_dict(),
         status=_STATUS_NAMES[result.status],
         iterations=result.iterations_run,
         objective=objective,
@@ -476,15 +540,12 @@ def solve(
         },
         work_units=result.work_units,
         restarts=result.restarts,
-        k_stats={
-            name: getattr(result.k_stats, name) for name in _K_STATS_FIELDS
-        },
+        k_stats={**{name: getattr(result.k_stats, name) for name in _K_STATS_FIELDS},
+                 "k_final": len(routes)},
         k_cap_stats=None if objective == "Duration" or params.k_cap == 0 else {
             name: getattr(result.k_cap_stats, name)
             for name in _K_CAP_STATS_FIELDS
         },
-        incumbents=[
-            Incumbent(i.value, i.seconds, i.iteration, _ORIGIN_NAMES[i.origin])
-            for i in result.incumbents
-        ],
+        incumbents=acceptance.events,
+        acceptance_stats=acceptance.stats,
     )

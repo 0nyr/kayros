@@ -417,7 +417,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("value", &kayros::Incumbent::value)
         .def_readonly("seconds", &kayros::Incumbent::seconds)
         .def_readonly("iteration", &kayros::Incumbent::iteration)
-        .def_readonly("origin", &kayros::Incumbent::origin);
+        .def_readonly("origin", &kayros::Incumbent::origin)
+        .def_readonly("from_squeeze", &kayros::Incumbent::from_squeeze);
 
     py::enum_<kayros::SolveStatus>(m, "SolveStatus")
         .value("Finished", kayros::SolveStatus::Finished)
@@ -540,6 +541,7 @@ PYBIND11_MODULE(_core, m) {
           py::arg("params"), py::arg("seed"), py::arg("time_limit_seconds"),
           py::arg("on_incumbent") = kayros::IncumbentCallback{},
           py::arg("initial_routes") = std::vector<std::vector<std::int32_t>>{},
+          py::arg("accept_incumbent") = kayros::IncumbentGate{},
           py::call_guard<py::gil_scoped_release>());
 
     // --- TD-LS layer (M3.7): exposed for the gate tests and experiments ---

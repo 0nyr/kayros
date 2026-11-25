@@ -1,7 +1,7 @@
 """KAYROS — exact & anytime solver for duration-minimization time-dependent vehicle routing (TDVRPTW / TDVRP).
 
 Benchmarked on the canonical MAMUT-routing TD families; solutions are always
-priced by the reference checker (``mamut_routing_lib.td.check_td_solution``).
+priced by the exact evaluator of mamut-routing-lib.
 """
 
 from importlib.metadata import PackageNotFoundError, version

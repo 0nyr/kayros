@@ -51,6 +51,7 @@ class Incumbent:
     seconds: float
     iteration: int
     origin: int
+    from_squeeze: bool
 
 class SolveStatus(enum.Enum):
     Finished = 0
@@ -107,4 +108,5 @@ def solve_ils(
     time_limit_seconds: float,
     on_incumbent: Callable[[Incumbent, list[list[int]]], None] | None = None,
     initial_routes: list[list[int]] | None = None,
+    accept_incumbent: Callable[[list[list[int]], bool], bool] | None = None,
 ) -> SolveResult: ...

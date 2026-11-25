@@ -54,10 +54,11 @@ def test_ils_strategy_end_to_end_deterministic() -> None:
     origins = {i.origin for i in a.incumbents}
     assert origins <= {"greedy", "ils"}
     assert a.incumbents[0].origin == "greedy"
-    values = [i.value for i in a.incumbents]
+    values = [i.exact_cost for i in a.incumbents]
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values)
-    assert a.search_value == values[-1]
+    assert a.exact_cost == values[-1]
+    assert a.search_value == a.incumbents[-1].search_value
 
 
 def test_ils_strategy_hook_monotone() -> None:
@@ -70,7 +71,8 @@ def test_ils_strategy_hook_monotone() -> None:
         on_incumbent=lambda inc, routes: events.append(inc),
     )
     assert events
-    values = [e.value for e in events]
+    values = [e.exact_cost for e in events]
     assert values == sorted(values, reverse=True)
     assert len(set(values)) == len(values)
-    assert values[-1] == result.search_value
+    assert values[-1] == result.exact_cost
+    assert events[-1].search_value == result.search_value

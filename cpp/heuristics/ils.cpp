@@ -64,7 +64,8 @@ std::vector<std::vector<std::int32_t>> extract_routes(const SearchState& ss) {
 SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                       std::uint64_t seed, double time_limit_seconds,
                       const IncumbentCallback& on_incumbent,
-                      std::vector<std::vector<std::int32_t>> initial_routes) {
+                      std::vector<std::vector<std::int32_t>> initial_routes,
+                      const IncumbentGate& accept_incumbent) {
     using Clock = std::chrono::steady_clock;
     const auto start = Clock::now();
     const auto elapsed = [&start]() {
@@ -99,7 +100,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     double published = std::numeric_limits<double>::infinity();
     const auto publish =
         [&](double value, std::uint64_t iteration, std::int32_t origin,
-            const std::vector<std::vector<std::int32_t>>& routes) {
+            const std::vector<std::vector<std::int32_t>>& routes, bool from_squeeze) {
             const std::int64_t k = static_cast<std::int64_t>(routes.size());
             // S3 publication guard (D-S3.1): above-cap states are
             // unpublishable; they still guide the internal search.
@@ -113,7 +114,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 if (k < result.k_stats.k_best_min) result.k_stats.k_best_min = k;
                 if (k > result.k_stats.k_best_max) result.k_stats.k_best_max = k;
             }
-            result.incumbents.push_back({value, elapsed(), iteration, origin});
+            result.incumbents.push_back({value, elapsed(), iteration, origin, from_squeeze});
             if (cap_active && result.k_cap_stats.reached_cap == 0) {
                 result.k_cap_stats.reached_cap = 1;
                 result.k_cap_stats.first_capped_work = ls_stats.evaluated;
@@ -121,7 +122,29 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             if (on_incumbent) on_incumbent(result.incumbents.back(), routes);
         };
 
+    double best = std::numeric_limits<double>::infinity();
+    const auto consider = [&](double value, std::uint64_t iteration, std::int32_t origin,
+                              const std::vector<std::vector<std::int32_t>>& routes,
+                              bool from_squeeze = false) {
+        if (!(value < best)) return false;
+        if (accept_incumbent) {
+            if (cap_active && static_cast<std::int64_t>(routes.size()) > params.k_cap)
+                return false;
+            if (!accept_incumbent(routes, from_squeeze)) return false;
+        }
+        best = value;
+        result.value = value;
+        result.routes = routes;
+        publish(value, iteration, origin, routes, from_squeeze);
+        return true;
+    };
+    const auto seed_incumbent = [&](double value, const auto& routes) {
+        if (accept_incumbent) consider(value, 0, 0, routes);
+        else publish(value, 0, 0, routes, false);
+    };
+
     // Seed (warm-start routes when provided, greedy otherwise) + descent.
+    const bool warm_start = !initial_routes.empty();
     std::vector<std::vector<std::int32_t>> seed_routes =
         std::move(initial_routes);
     if (seed_routes.empty()) {
@@ -140,7 +163,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         // this opens the anytime stream in well under a second at every size,
         // where 1.3.0 published nothing for ~100 s at n = 1000. Warm-started
         // callers skip it: their solution is already the incumbent.
-        publish(seed_value, 0, 0, seed_routes);
+        seed_incumbent(seed_value, seed_routes);
 
         // K-diverse seeding (1.5.0, plan 13 I2). The search sheds routes
         // freely and effectively never adds one, so the seed's route count
@@ -159,7 +182,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                     // Publish only if it is actually better: splitting usually
                     // costs duration up front and pays off through the search,
                     // and the stream must stay strictly decreasing.
-                    publish(split_value, 0, 0, seed_routes);
+                    seed_incumbent(split_value, seed_routes);
                 }
             }
         }
@@ -173,23 +196,19 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         result.status = SolveStatus::Infeasible;
         return result;
     }
+    if (warm_start && accept_incumbent)
+        consider(solution_duration(inst, seed_routes), 0, 0, seed_routes);
     result.k_stats.k_seed = static_cast<std::int64_t>(seed_routes.size());
     double curr = ls_descend(inst, nb, ss, &ls_stats, deadline);
 
-    double best = curr;
-    result.routes = extract_routes(ss);
-    result.value = best;
-    publish(best, 0, 0, result.routes);  // origin 0 = seed
+    consider(curr, 0, 0, extract_routes(ss));
 
     // Exhaustive polish of the initial best (PyVRP's exhaustive_on_best).
     if (params.exhaustive_on_best && !past()) {
         mark_all_touched(ss);
         curr = ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
         if (curr < best) {
-            best = curr;
-            result.routes = extract_routes(ss);
-            result.value = best;
-            publish(best, 0, 2, result.routes);
+            consider(curr, 0, 2, extract_routes(ss));
         }
     }
 
@@ -249,12 +268,15 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         std::int64_t* budget_ptr = params.fd_work_cap > 0 ? &fd_budget : nullptr;
         const std::int64_t basin_mark = ls_stats.evaluated;
         bool dropped = false;
+        bool from_squeeze = false;
         for (std::int32_t a = 0; a < params.fd_attempts; ++a) {
             if (budget_ptr != nullptr && fd_budget <= 0) break;
             if (deadline != nullptr && Clock::now() >= *deadline) break;
+            const auto rescues = result.fd_stats.ladder_rescues;
             if (fleet_descent(inst, nb, ss, rng, fd_params, fd_pcount,
                               deadline, budget_ptr, &result.fd_stats)) {
                 dropped = true;
+                from_squeeze = result.fd_stats.ladder_rescues > rescues;
                 break;
             }
         }
@@ -300,10 +322,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                         ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
                 }
                 if (nodrop_cand < best) {
-                    best = nodrop_cand;
-                    result.routes = extract_routes(ss);
-                    result.value = best;
-                    publish(best, iteration, 2, result.routes);
+                    consider(nodrop_cand, iteration, 2, extract_routes(ss), true);
                 }
             }
             result.fd_stats.basin_evaluated += ls_stats.evaluated - basin_mark;
@@ -317,6 +336,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             cand = ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
         }
         if (params.sq_work_cap > 0 && !past() && try_squeeze()) {
+            from_squeeze = true;
             mark_all_touched(ss);
             cand = ls_descend(inst, nb, ss, &ls_stats, deadline);
             if (params.exhaustive_on_best && !past()) {
@@ -325,10 +345,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             }
         }
         if (cand < best) {
-            best = cand;
-            result.routes = extract_routes(ss);
-            result.value = best;
-            publish(best, iteration, 2, result.routes);
+            consider(cand, iteration, 2, extract_routes(ss), from_squeeze);
         }
         // M0.3 instrumentation: the basin descents' share of LS work, so
         // FD's total cost is fd_stats.evaluated + fd_stats.basin_evaluated
@@ -368,7 +385,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             params.restart_no_improvement_work > 0 &&
             ls_stats.evaluated - improve_work_mark >=
                 params.restart_no_improvement_work;
-        if (no_improvement == params.restart_no_improvement || work_restart) {
+        if (!result.routes.empty() && (no_improvement == params.restart_no_improvement || work_restart)) {
             // Restart-to-best: fresh state, cleared history.
             if (!init_search_state(inst, result.routes, ss)) break;
             ++result.restarts;
@@ -456,27 +473,27 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
         ++no_improvement;
         if (!cap_reject && cand < best) {
-            no_improvement = 0;
-            improve_work_mark = ls_stats.evaluated;
+            const auto candidate_work = ls_stats.evaluated;
             if (params.exhaustive_on_best && !past()) {
                 mark_all_touched(ss);
                 cand = ls_descend(inst, exhaustive, ss, &ls_stats, deadline);
             }
-            if (outcome.applied) {
-                if (outcome.dissolved) {
-                    ++fks.dissolved_new_best;
-                    if (ss.states.size() < result.routes.size())
-                        ++fks.dissolved_new_best_k_lt;
-                } else {
-                    ++fks.normal_new_best;
+            const auto previous_k = result.routes.size();
+            if (consider(cand, iteration + 1, 2, extract_routes(ss))) {
+                no_improvement = 0;
+                improve_work_mark = candidate_work;
+                if (outcome.applied) {
+                    if (outcome.dissolved) {
+                        ++fks.dissolved_new_best;
+                        if (ss.states.size() < previous_k)
+                            ++fks.dissolved_new_best_k_lt;
+                    } else {
+                        ++fks.normal_new_best;
+                    }
                 }
+                if (k_after > k_before) ++ks.new_best_k_up;
+                else if (k_after < k_before) ++ks.new_best_k_down;
             }
-            if (k_after > k_before) ++ks.new_best_k_up;
-            else if (k_after < k_before) ++ks.new_best_k_down;
-            best = cand;
-            result.routes = extract_routes(ss);
-            result.value = best;
-            publish(best, iteration + 1, 2, result.routes);
         }
 
         // LAHC acceptance (enhancement 1: accept on improving the current).

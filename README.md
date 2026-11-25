@@ -71,7 +71,11 @@ print(result["exact_log"]["status"], result["value"])
 # valid global lower bound when the root relaxation finished (absent otherwise).
 ```
 
-`solution.cost` is the binary64 display of the exact cost computed by the library (`mamut_routing_lib.td.check_td_solution`, profile `td-binary64-exact-v1`), and `solution.exact_cost` is that cost as a rational. The value of the search fold is kept in `solution.search_value`.
+`solution.cost` is the binary64 display of the exact cost computed by the library (profile `td-binary64-exact-v1`), and `solution.exact_cost` is that cost as a rational. The value of the search fold is kept in `solution.search_value`.
+
+With the default `Params(acceptance_mode="each_incumbent")`, Kayros checks each candidate new best for feasibility and strict improvement of the rational objective before installing it as the incumbent. The callback exposes the rational `incumbent.exact_cost`, its binary64 display `incumbent.value` and the approximate `incumbent.search_value`. Two strictly improving rational costs can have the same display.
+
+With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callback reports provisional search improvements with `incumbent.exact_cost=None`. If the final candidate fails the exact check, Kayros tries the last 6 distinct prior route sets in increasing order of approximate cost. Set the history size to 0 to check only the final candidate. The solver logs final rejections and recovery and raises `InfeasibleError` if all retained candidates fail. `solution.acceptance_stats` gives counts of infeasible proposals, nonimproving proposals, squeeze rejections, final rejections and fallback attempts.
 
 The exact component reads `KAYROS_BPC_*` environment variables, meant for experiments (they are documented in `cpp/lera/bridge/lera_bridge.cpp`). A set variable takes precedence over the matching argument of `solve_duration` without any warning, e.g. `KAYROS_BPC_NEAR_REL` over `near_rel` and `KAYROS_BPC_HE_CUTBLIND` over `heuristic_cut_blind`. The values in force are recorded in `result["effective_algorithm_settings"]["pricing_options"]`, under the names of the variables, so two keys differ from the parameter names: `he_cutblind` is the mode of `heuristic_cut_blind` and `lam_iterate` records the queue-iterating last-arc merge. The threshold of `near_rel` is relative to the mean customer dual, i.e. the sum of the positive customer duals divided by the number of customers.
 
