@@ -133,3 +133,51 @@ def test_public_api_recovers_a_prior_incumbent(monkeypatch, caplog):
 def test_invalid_acceptance_options(kwargs):
     with pytest.raises(ValueError):
         _Acceptance(None, "Duration", kayros.Params(**kwargs), None)
+
+
+@pytest.mark.parametrize("mode", ["each_incumbent", "final_only"])
+@pytest.mark.parametrize("warm", [False, True])
+def test_finite_search_value_with_overflowing_exact_display(mode, warm):
+    from pathlib import Path
+    from sys import float_info
+    from mamut_routing_lib.exact_td import prepare_td
+    from mamut_routing_lib.td import InstanceATFs, LoadedTDInstance, NDCPWLF
+    from mamut_routing_lib.td.models import BenchmarkInstanceTDVRPTW
+
+    # Multiplying the fixed charge by five rounds down to max binary64.
+    # The total duration fits inside half an ULP, but the exact sum crosses it.
+    ulp = 2**971
+    duration = float(ulp // 16)
+    horizon = float(ulp)
+    charge = float.fromhex("0x1.9999999999999p+1021")
+    name = "finite-search-overflowing-exact"
+    instance = BenchmarkInstanceTDVRPTW(
+        instance_name=name, instance_origin="Blauth2024", benchmark_name="Blauth2024",
+        num_customers=5, num_vehicles=5, vehicle_capacity=1, coordinates=[(i, 0) for i in range(6)],
+        demands=[0, 1, 1, 1, 1, 1], service_times=[0] * 6, time_windows=[(0, horizon)] + [(0, 0)] * 5,
+        horizon=(0, horizon), fleet_fixed_cost=charge, td={"model": "atf-ndcpwlf", "atf_path": "toy.atf.json"},
+    )
+    arcs = {}
+    for tail in range(6):
+        for head in range(6):
+            if tail != head:
+                travel = duration if head == 0 else 0
+                arcs[tail, head] = NDCPWLF([0, horizon], [travel, horizon + travel])
+    atfs = InstanceATFs(name, "Blauth2024", (0, horizon), 5, arcs)
+    loaded = LoadedTDInstance(instance, atfs, Path("synthetic.vrp.json"), None)
+    routes = [[i] for i in range(1, 6)]
+    checked = prepare_td(instance, atfs, objective_function="FleetCostDuration", backend="python").evaluate(routes)
+    assert checked.cost == Fraction(float_info.max) + 9 * (ulp // 16)
+    assert checked.display_cost is None
+    events = []
+    result = kayros.solve(loaded, kayros.Params(acceptance_mode=mode, objective="FleetCostDuration", ils_max_iterations=1),
+                          initial_routes=routes if warm else None, on_incumbent=lambda e, r: events.append((e, r)))
+    assert result.routes == routes and result.exact_cost == checked.cost
+    assert result.search_value == float_info.max and result.cost is None
+    (event, published), = events
+    assert published == routes and event.origin == ("warm_start" if warm else "greedy")
+    assert event.search_value == float_info.max
+    if mode == "each_incumbent":
+        assert event.exact_cost == checked.cost and event.value is None
+    else:
+        assert event.exact_cost is None and event.value == event.search_value

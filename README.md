@@ -44,7 +44,7 @@ print(solution.cost, solution.num_routes, solution.status)
 
 # Anytime: react to every new incumbent while the solve keeps running
 def on_incumbent(incumbent, routes):
-    print(f"[{incumbent.seconds:7.2f}s] {incumbent.value:.6f} ({incumbent.origin})")
+    print(f"[{incumbent.seconds:7.2f}s] {incumbent.value} ({incumbent.origin})")
 
 solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumbent)
 ```
@@ -68,7 +68,7 @@ print(fleet_solution.cost, fleet_solution.num_routes)
 
 `solution.cost` is the binary64 display of the exact cost computed by the library (profile `td-binary64-exact-v1`), and `solution.exact_cost` is that cost as a rational. The value of the search fold is kept in `solution.search_value`.
 
-With the default `Params(acceptance_mode="each_incumbent")`, Kayros checks each candidate new best for feasibility and strict improvement of the rational objective before installing it as the incumbent. The callback exposes the rational `incumbent.exact_cost`, its binary64 display `incumbent.value` and the approximate `incumbent.search_value`. Two strictly improving rational costs can have the same display. The native search prepares exact arc data on demand and retains up to 65,536 input breakpoints across proposals. It can prepare evicted arcs again. The returned routes also pass through the library evaluator.
+With the default `Params(acceptance_mode="each_incumbent")`, Kayros checks each candidate new best for feasibility and strict improvement of the rational objective before installing it as the incumbent. The callback exposes the rational `incumbent.exact_cost`, its binary64 display `incumbent.value` and the approximate `incumbent.search_value`. Two strictly improving rational costs can have the same display. When the rational cost overflows binary64, the display is `None` and the callback retains both the rational cost and the search value. The native search prepares exact arc data on demand and retains up to 65,536 input breakpoints across proposals. It can prepare evicted arcs again. The returned routes also pass through the library evaluator.
 
 With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callback reports provisional search improvements with `incumbent.exact_cost=None`. If the final candidate fails the exact check, Kayros tries the last 6 distinct prior route sets in increasing order of approximate cost. Set the history size to 0 to keep only the latest search candidate. An eligible checked seed that the search could not represent remains available regardless of history size. The solver logs final rejections and recovery and raises `InfeasibleError` if all retained candidates fail. `solution.acceptance_stats` gives counts of infeasible proposals, nonimproving proposals, squeeze rejections, final rejections and fallback attempts.
 

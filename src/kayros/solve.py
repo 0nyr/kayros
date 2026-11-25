@@ -213,8 +213,11 @@ class _Acceptance:
 
     def publish(self, inc, routes):
         exact = self.best_exact
-        event = Incumbent(float(exact) if exact is not None else inc.value, inc.seconds,
-                          inc.iteration, _ORIGIN_NAMES[inc.origin], exact, inc.value)
+        try:
+            display = float(exact) if exact is not None else inc.value
+        except OverflowError:
+            display = None
+        event = Incumbent(display, inc.seconds, inc.iteration, _ORIGIN_NAMES[inc.origin], exact, inc.value)
         self.events.append(event)
         if self.mode == "final_only" and self.capacity:
             snapshot = tuple(tuple(route) for route in routes)
@@ -411,7 +414,7 @@ def solve(
 
     If binary64 initialization cannot represent a validated in-cap seed, the callback immediately receives its exact cost and search_value=None in either mode. The search tries cold construction with the remaining time. The seed is retained on an exact tie.
 
-    By default, each candidate new best must pass exact feasibility and strictly improve the rational objective before publication. The synchronous callback receives its exact_cost, its binary64 display as value and its approximate search_value. Distinct rational costs can have the same display.
+    By default, each candidate new best must pass exact feasibility and strictly improve the rational objective before publication. The synchronous callback receives its exact_cost, its binary64 display as value and its approximate search_value. Distinct rational costs can have the same display. The display is None when the rational cost overflows binary64.
 
     With acceptance_mode="final_only", subsequent search publications are provisional and carry exact_cost=None. If final verification rejects the last candidate, the solver tries up to incumbent_history_size earlier distinct candidates in increasing approximate cost order. Solution.routes and Solution.exact_cost describe the checked result."""
     if isinstance(instance, LoadedTDInstance):
