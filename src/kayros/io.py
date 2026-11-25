@@ -45,7 +45,7 @@ def to_core(
 ) -> _core.Instance:
     """Build the native instance from the materialized MAMUT operands.
 
-    The search fold uses binary64. The native incumbent evaluator prepares the original arc knots for exact GMP pricing. The Python library checks the final solution. Duration sets the per-route charge to zero. FleetCostDuration takes the charge from the instance."""
+    The default search uses a binary64 fold. Exact reference search and incumbent checking use the original arc knots for GMP pricing. The Python library checks the final solution. Duration sets the per-route charge to zero. FleetCostDuration takes the charge from the instance."""
     instance = loaded.instance
     atfs = loaded.atfs
     objective = canonical_objective(objective_function)
