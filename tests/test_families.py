@@ -1,7 +1,4 @@
-"""M3.4: all four MAMUT TD families, both problem types.
-
-For each satellite family (Ari2018, Vu2020, Rifki2020, while Dabia2013 is covered exhaustively by test_checker_equivalence) there are two checks: an agreement spot check against the library's exact evaluation on random routes (feasibility equal, float duration within TOL of the exact one) and a small-budget solve() smoke. Rifki2020 is the stress case: its canonical ATFs carry genuine vertical steps (non-FIFO envelope consolidation), exercising the step semantics of the engine end to end.
-"""
+"""Check exact feasibility, binary64 duration and short public solves on Ari2018, Vu2020 and Rifki2020, with and without windows. The Dabia2013 routes are covered by test_checker_equivalence. Rifki2020 exercises vertical jumps in the arrival functions."""
 
 import random
 import zlib
@@ -60,7 +57,7 @@ def test_family_checker_equivalence(instance_path) -> None:
 def test_family_solve_smoke(instance_path) -> None:
     solution = kayros.solve(
         instance_path,
-        kayros.Params(ils_max_iterations=250),  # default strategy ("ils" since 0.4.0)
+        kayros.Params(ils_max_iterations=250),
         seed=1,
     )
     assert solution.cost > 0.0

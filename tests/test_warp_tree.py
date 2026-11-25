@@ -1,16 +1,4 @@
-"""P8.2 gates: warp-augmented segments in the LCA-BST.
-
-Discipline per the P8.0 memo §5 (the P4.1 lesson transposed): warp dissolves
-the domain wall, so BOTH channels are value channels under association dust —
-trees rank, the sequential augmented fold accounts. Hence:
-
-- ``update_leaf`` must equal a fresh rebuild BITWISE on every query range
-  (same association — the td-route-trees P4.3 gate on both channels);
-- full-range tree queries vs the sequential fold: zero-warp feasibility must
-  agree exactly (the empirical P4.1 claim, now on the warp channel), values
-  agree association-close (tight on Dabia, feasibility-only on Rifki steps);
-- splice evaluations vs direct fold pricing of the spliced vector: same.
-"""
+"""Check warp segment trees against rebuilt trees and the sequential binary64 fold. Localized updates must reproduce every rebuilt query bit for bit. Tree associations are tested for feasibility on stepwise inputs and for close penalised prices on continuous inputs."""
 
 import random
 
@@ -68,8 +56,7 @@ def test_tree_full_query_matches_fold(gate_case) -> None:
             assert not ref["total"], (path.name, route)
             continue
         assert ref["total"], (path.name, route)
-        # Zero-warp feasibility: exact agreement across associations (the
-        # P4.1 emptiness claim transposed to the warp channel).
+        # Compare the zero-warp feasibility of the two binary64 associations.
         tree_feasible = w_ys[0] == 0.0
         assert tree_feasible == ref["feasible"], (path.name, route)
         if tight:

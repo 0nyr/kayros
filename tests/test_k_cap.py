@@ -1,11 +1,4 @@
-"""Plan-15 S3: the K-cap confinement (``k_cap``, design memo section 10).
-
-Contract under test: inert at 0 under both objectives and F-gated dead code
-under Duration at any value; a seed or warm start above the cap drains toward
-it before the loop; incumbents publish only at K <= k_cap; a run that never
-reaches the cap returns Infeasible with an EMPTY incumbent stream (D-S3.1);
-armed runs are deterministic.
-"""
+"""Check the FleetCostDuration cap. The search can start above the cap while only in-cap incumbents are published. A run that cannot reach the cap returns Infeasible with an empty incumbent stream. A zero cap and all Duration runs follow the unrestricted search."""
 
 import pytest
 
@@ -115,9 +108,7 @@ def test_k_cap_reachable_drains_and_publishes_only_capped() -> None:
 
 
 def test_k_cap_unreachable_returns_nothing() -> None:
-    """Cap 1 is structurally impossible on the toy: the run must publish
-    NOTHING and come back Infeasible with empty routes (D-S3.1), not hand
-    back an above-cap solution."""
+    """The toy cannot reach one route. Expect Infeasible with no routes or publications."""
     core = _priced_ladder_core()
     result, published_k = _solve_capped(core, k_cap=1)
     assert result.status == _core.SolveStatus.Infeasible

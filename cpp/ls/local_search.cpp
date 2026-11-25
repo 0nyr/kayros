@@ -9,23 +9,13 @@ namespace kayros {
 
 namespace {
 
-// Screening threshold on tree-ranked deltas: ulp-class association noise
-// (P4.1) must not trigger commits; genuine improvements on MAMUT instances
-// are orders of magnitude above this.
+// Ignore sub-threshold tree-ranked improvements before rebuilding the affected routes.
 constexpr double kScreenEps = 1e-9;
 
 // Operator indices into SearchState::last_tested.
 enum Op : std::size_t { kRelocate = 0, kIntra = 1, kSwap = 2, kTwoOptStar = 3 };
 
-// Commit path (memo Decision 3): rebuild the changed routes from scratch —
-// leaves, tree and the sequential checker-fold repricing — and accept only if
-// the repriced sum of the touched routes strictly improves on their old sum,
-// FleetCostDuration-priced: each side carries fixed_route_cost per non-empty
-// route, so a move that empties a route is credited F (exact no-op at F = 0).
-// An empty vertex vector drops the route. Returns true when committed.
-// M7.0: a commit bumps the epoch, stamps both routes' last_modified and marks
-// every client of the post-move routes touched (moves preserve the client
-// partition, so the union of the new routes covers the union of the old).
+// Rebuild each changed route, including its tree and binary64 route price. Commit a strict improvement in the sum of the affected routes, including a charge for each nonempty route. Drop empty routes. Advance the epoch and mark every customer in the changed routes touched.
 bool commit_two(const Instance& inst, SearchState& ss, std::size_t a,
                 std::vector<std::int32_t> new_a, std::size_t b,
                 std::vector<std::int32_t> new_b, LsStats* stats) {
@@ -78,11 +68,7 @@ bool commit_two(const Instance& inst, SearchState& ss, std::size_t a,
     return true;
 }
 
-// Per-pass retest mask (M7.0 staleness). Client c is (re)enumerated by
-// operator op iff its own context changed since its stamp, or — for the
-// inter-route operators — some granular neighbour's context did. With
-// exhaustive lists the neighbour term is "anything changed anywhere"
-// (max over touched), which only ever skips work at a proven fixed point.
+// Retest a customer if its own context or a relevant granular neighbour changed since this operator last tested it. With exhaustive lists, any intervening change permits a retest.
 std::vector<char> compute_retest(const NeighbourLists& nb,
                                  const SearchState& ss, Op op) {
     const std::size_t n1 = ss.touched.size();
@@ -183,11 +169,7 @@ bool relocate_pass(const Instance& inst, const NeighbourLists& nb,
                 if (a == b) continue;
                 const std::int64_t ma =
                     static_cast<std::int64_t>(states[a].vertices.size());
-                // Emptying credit (M7 FleetCostDuration): relocating a
-                // singleton donor's only client drops a route, worth F on top
-                // of the duration gain — without it, any duration-increasing
-                // relocate is screened out and removals worth up to F are
-                // never tried. Exact no-op at F = 0.
+                // Credit the fixed route charge when relocating a singleton empties its route. Under Duration this credit is zero.
                 const double empty_credit =
                     ma == 1 ? inst.fixed_route_cost : 0.0;
                 for (std::int64_t i = 0; i < ma; ++i) {
@@ -433,8 +415,7 @@ double ls_descend(const Instance& inst, const NeighbourLists& nb,
         return deadline != nullptr &&
                std::chrono::steady_clock::now() >= *deadline;
     };
-    // First-improvement VND: any committed move restarts the operator cycle.
-    // Terminates: every commit strictly decreases the (checker-fold) total.
+    // Restart the operator cycle after each strict improvement in the binary64 search objective.
     bool improved = true;
     while (improved && !past()) {
         improved = relocate_pass(inst, nb, ss, stats) ||

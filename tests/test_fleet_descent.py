@@ -1,10 +1,4 @@
-"""Plan-12 M4: the fleet-descent phase (NBRMH-lite ejection ladder).
-
-Synthetic isolation of the two ladder rungs (feasible best-insert, then
-contiguous-window insertion-with-ejection), the all-or-nothing rollback, and
-the solve()-level contract: inert under Duration (the F-gate sits before any
-draw), armed and deterministic under FleetCostDuration.
-"""
+"""Exercise the Nagata-Bräysy-inspired fleet descent, including feasible insertion, contiguous ejection and all-or-nothing rollback. The public run uses the ladder only with a positive route charge."""
 
 import pytest
 from mamut_routing_lib.td import load_td_instance
@@ -94,8 +88,7 @@ def test_fleet_descent_deterministic() -> None:
 
 
 def test_fleet_descent_work_cap_rolls_back() -> None:
-    """A tiny work cap must end the attempt in an all-or-nothing rollback
-    (plan 15 M0.2: the drain is capped by work, never by wall clock)."""
+    """Exhausting the candidate budget must roll back the drain."""
     core = _ladder_core()
     routes, value, success, _pops, _s1, _ej, dead, budget, work_rb, evaluated = (
         _core.ls_fleet_descent(

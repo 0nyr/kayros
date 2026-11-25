@@ -1,9 +1,4 @@
-"""M3.2 gate: core route pricing must agree with the library's exact evaluation.
-
-For random routes over real MAMUT instances (feasible or not), the compiled core's feasibility verdict must equal the library's, and its binary64 duration must lie within `exact_reference.TOL` (relative) of the library's exact duration. Since library 0.13 the checker evaluates in exact rational arithmetic and the solver's binary64 fold is an internal approximation, so there is no bit-identity contract any more (before 0.13 this gate was `==`).
-
-Removed with the library float fold: the comparison of the ready-time function breakpoints with `compute_route_ready_time_function` (no longer in the library, no replacement oracle) and the bitwise departure comparison (the library now returns the earliest minimizing departure, which the float fold does not promise). The solver's own function is covered by the warp prefix gate in test_warp_equivalence and by test_pwlf_equivalence.
-"""
+"""Compare fast route pricing with the MAMUT exact evaluation. Feasibility must agree. The binary64 duration must meet the bound in exact_reference.TOL."""
 
 import random
 import zlib

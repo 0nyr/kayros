@@ -1,9 +1,4 @@
-"""Function-level equivalence: kayros._core pwlf primitives vs the reference
-mamut_routing_lib.td.pwlf implementation (the canonical checker's engine).
-
-All comparisons are exact (``==`` on floats, list equality on breakpoints):
-the C++ port must be bit-identical, including at vertical steps and plateaus.
-"""
+"""Compare binary64 piecewise-linear primitives with mamut_routing_lib.td.pwlf. The two implementations must agree bit for bit on breakpoints and values, including vertical jumps and plateaus."""
 
 import random
 

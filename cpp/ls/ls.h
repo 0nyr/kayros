@@ -10,17 +10,13 @@
 
 namespace kayros {
 
-// TD local search (M3.7), per the Stream-4 decision memo
-// (tdvrptw-workspace reports/design/td-ls-structures-decision.md):
-// - the LCA-BST ranks candidate moves (≤ 1 compose per partial composition);
-// - every ACCEPTED move is repriced by the binary64 route fold
-//   (evaluate_route) before being committed — trees rank, the fold accounts.
+// The Blauth range tree ranks splice candidates. Each accepted move must also improve after the affected routes are rebuilt with the binary64 search fold.
 
 // Identity function over the feasible depot departure window (empty when the
 // depot TW is inverted). The left end of every route fold.
 Pwlf departure_identity(const Instance& inst);
 
-// Route leaves per the P4.0 convention, for r = (o, r0..r_{m-1}, o):
+// For a route (o, r0..r[m-1], o), the m+1 leaves are
 //   L_0 = theta_{r0} ∘ alpha_{o,r0} ∘ identity(depot departure window)
 //   L_i = theta_{r[i]} ∘ alpha_{r[i-1],r[i]}          (1 <= i <= m-1)
 //   L_m = [depot due-date clamp ∘] alpha_{r[m-1],o}
@@ -28,20 +24,19 @@ Pwlf departure_identity(const Instance& inst);
 std::vector<Pwlf> route_leaves(const Instance& inst, const std::int32_t* route,
                                std::int64_t len);
 
-// Per-route state owned by the LS layer (memo interface contract).
+// Per-route state owned by local search.
 struct RouteState {
     std::vector<std::int32_t> vertices;  // customer ids, depot excluded
-    LcaTree tree;                        // m+1 leaves, P4.0 convention
+    LcaTree tree;                        // One leaf per arc, including the return to the depot.
     double duration = 0.0;               // binary64 route fold value
-    double departure = 0.0;              // earliest optimal depot departure
+    double departure = 0.0;              // earliest minimizing departure on the rebuilt binary64 curve
     std::int64_t load = 0;               // demand sum (capacity bookkeeping)
-    // M7.0 bookkeeping (reset by build_route_state):
+    // Search stamps reset by build_route_state.
     std::vector<double> del_dur;         // cached deletion rankings per position
     bool del_valid = false;              // del_dur filled for current vertices
 };
 
-// Build (or rebuild after surgery) the full state: leaves + tree + checker
-// fold repricing. Returns false when the route is time-infeasible.
+// Build the leaves, tree and binary64 route price. Return false if no feasible departure is found.
 bool build_route_state(const Instance& inst, std::vector<std::int32_t> vertices,
                        RouteState& state);
 
@@ -77,19 +72,7 @@ struct LsStats {
     std::int64_t evaluated = 0;
 };
 
-// M7.0 promising-set / staleness state, persistent across descents (the ILS
-// loop keeps one SearchState alive; perturbation marks the ruined clients
-// touched so the following descent rescans only around the kick).
-//
-// Epoch discipline: every committed move bumps `epoch`, stamps both touched
-// routes' last_modified and every client of both post-move routes in
-// `touched`. A pass that completes without committing stamps the clients it
-// enumerated in `last_tested[op]`. A client is (re)enumerated by operator op
-// iff its own context or some granular neighbour's context changed since its
-// stamp; with exhaustive lists (k == 0) the neighbour term degrades to "any
-// commit since the stamp", which makes the whole scheme skip work only after
-// the descent has already proven a fixed point — enumeration order and hence
-// the search trajectory are identical to the pre-M7.0 VND.
+// Keep search epochs across descents. Each committed move stamps its changed routes and all their customers. After a pass without a commit, stamp each tested customer for that operator. A later pass retests customers whose context or a relevant granular neighbour changed. With exhaustive lists any intervening commit permits a retest.
 struct SearchState {
     std::vector<RouteState> states;
     std::vector<std::int64_t> touched;                    // per vertex id, size n+1
@@ -103,12 +86,7 @@ bool init_search_state(const Instance& inst,
                        const std::vector<std::vector<std::int32_t>>& routes,
                        SearchState& ss);
 
-// First-improvement VND descent on a live SearchState (relocate, intra
-// relocate, swap, 2-opt*; granular enumeration under `nb`, staleness-gated).
-// Returns the canonical checker Duration of the final solution. An optional
-// deadline is checked between operator passes (M7.2 anytime compliance): on
-// expiry the descent stops at the next pass boundary — always a consistent,
-// fold-repriced state — so the overshoot is bounded by one operator pass.
+// Apply first-improvement relocate, intra-route relocate, swap and 2-opt* with the supplied neighbourhoods. The optional deadline stops the descent between operator passes, with all accepted routes repriced. Return the final binary64 objective.
 double ls_descend(const Instance& inst, const NeighbourLists& nb,
                   SearchState& ss, LsStats* stats = nullptr,
                   const std::chrono::steady_clock::time_point* deadline = nullptr);
@@ -118,12 +96,7 @@ double ls_descend(const Instance& inst, const NeighbourLists& nb,
 // granular-era stamps certify a weaker coverage than exhaustive enumeration.
 void mark_all_touched(SearchState& ss);
 
-// First-improvement descent over inter-route relocate, intra-route relocate,
-// inter-route swap and 2-opt*, iterated until a full cycle yields nothing.
-// `routes` is modified in place (empty routes dropped, order otherwise kept);
-// the return value is the canonical checker Duration of the final solution
-// (solution_cost), kInfeasible when the input itself is infeasible.
-// The two-argument overload is the exhaustive pre-M7.0 behavior.
+// Modify the supplied routes in place until a full operator cycle finds no improvement. Drop empty routes, preserve the order of remaining routes, and return the binary64 objective or kInfeasible for an infeasible input. The two-argument overload uses exhaustive enumeration.
 double local_search(const Instance& inst,
                     std::vector<std::vector<std::int32_t>>& routes,
                     LsStats* stats = nullptr);

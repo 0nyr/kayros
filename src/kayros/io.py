@@ -1,10 +1,6 @@
-"""Bridge between mamut-routing-lib TD artifacts and the kayros compiled core.
+"""Load MAMUT TD artifacts and copy their binary64 operands into the compiled instance.
 
-The core consumes the checker conventions verbatim: vertices ``0..n`` with the
-depot at 0, arrival-time functions per arc over the horizon, exact doubles.
-No family-specific loading happens here — mamut-routing-lib already normalizes
-every benchmark family to the canonical format.
-"""
+Vertices 1 through n are customers and vertex 0 is the depot. Each directed arc carries an arrival-time function over the instance horizon."""
 
 from __future__ import annotations
 
@@ -14,9 +10,7 @@ from mamut_routing_lib.td import LoadedTDInstance, load_td_instance
 
 from kayros import _core
 
-# Canonical objective value strings (the lib enum's values), keyed by their
-# case/underscore-folded spellings. Kept as plain strings so kayros keeps
-# importing against mamut-routing-lib < 0.9.0 for Duration work.
+# Accepted spellings of the two MAMUT objective values.
 _OBJECTIVE_BY_KEY = {
     "duration": "Duration",
     "fleetcostduration": "FleetCostDuration",
@@ -40,46 +34,18 @@ def canonical_objective(objective_function: object) -> str:
 
 
 def load_instance(path: str | Path, *, verify: bool = False) -> LoadedTDInstance:
-    """Load a MAMUT TD instance (``.vrp.json``) together with its ATF sidecar.
+    """Load a MAMUT TD instance and its ATF sidecar.
 
-    ``verify`` turns on the artifact integrity check of mamut-routing-lib
-    (``verify_sha256``): the sidecar file digests, plus ``atf_sha256``, the
-    digest of the materialized arrival-time functions, re-derived by a full
-    canonical re-serialization and compared against the value the instance
-    file declares.
-
-    **Verify on test runs, and on the first run over data you have not used
-    before.** That is what catches a truncated download, a sidecar that does
-    not belong to the instance sitting next to it, or a hand-edited artifact:
-    without the check those failure modes are silent, and the solver happily
-    optimizes the wrong travel times.
-
-    **It is off by default here because this is the solver's hot path.**
-    Materialization is deterministic, so once a pair of artifacts has been
-    checked, re-checking it on every solve tells you nothing new. The check is
-    not cheap at scale: the canonical re-serialization costs about 80 seconds
-    and roughly 10 GB of extra peak memory on a one-million-arc instance with
-    114 million breakpoints (n = 1000), which used to show up as a mysterious
-    slow loading phase before the search even started.
-    """
+    With verify=True the loader checks the files and the digest of the materialized arrival-time functions against the instance declaration. This requires an additional pass over the arc data."""
     return load_td_instance(path, verify_sha256=verify)
 
 
 def to_core(
     loaded: LoadedTDInstance, objective_function: object = "Duration"
 ) -> _core.Instance:
-    """Build the compiled-core instance from a loaded MAMUT TD instance.
+    """Build the native instance from the materialized MAMUT operands.
 
-    The search uses binary64 operands from the materialized instance. Final
-    solution costs come from the prepared exact evaluator of mamut-routing-lib.
-
-    ``objective_function`` selects what the core's fold prices: under
-    ``Duration`` (the default) ``fixed_route_cost`` stays 0 even when the
-    instance carries a ``fleet_fixed_cost`` (objectives are orthogonal scoring
-    contracts; F is ignored, exactly like the checker). Under
-    ``FleetCostDuration`` it is read from ``instance.fleet_fixed_cost``
-    (``None`` → 0; ``solve()`` rejects the missing field before it gets here).
-    """
+    The search fold uses binary64. The native incumbent evaluator prepares the original arc knots for exact GMP pricing. The Python library checks the final solution. Duration sets the per-route charge to zero. FleetCostDuration takes the charge from the instance."""
     instance = loaded.instance
     atfs = loaded.atfs
     objective = canonical_objective(objective_function)

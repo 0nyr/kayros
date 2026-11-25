@@ -164,9 +164,7 @@ double solution_cost(const Instance& inst,
         if (!eval.feasible) return kInfeasible;
         total += eval.duration;
     }
-    // FleetCostDuration term, checker order: the canonical fold first, then a
-    // single F * K multiply-add over the used (non-empty) routes. Exact no-op
-    // when fixed_route_cost is 0 (Duration).
+    // Add the per-route charge after summing the binary64 durations in canonical order.
     return total +
            inst.fixed_route_cost * static_cast<double>(order.size());
 }

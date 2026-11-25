@@ -1,11 +1,4 @@
-"""Plan-15 S2: the post-drain squeeze (penalised polish with zero-warp banking).
-
-Synthetic unit tests of the phase contract (no-op on no-bank, budget respect,
-zero-warp boundary, determinism) plus the solve()-level contract: inert at
-sq_work_cap=0 under both objectives, armed and deterministic under
-FleetCostDuration, and the published stream stays strictly improving and
-checker-feasible with the squeeze on.
-"""
+"""Check post-drain squeeze work limits, determinism and zero-warp checkpoints. A phase that finds no improvement preserves the starting routes. The public solver checks the selected routes under the exact objective."""
 
 import pytest
 
@@ -77,8 +70,7 @@ def test_squeeze_result_is_feasible() -> None:
 
 @pytest.mark.parametrize("instance_path", BLAUTH_N10)
 def test_squeeze_inert_at_zero_cap_fcd(instance_path) -> None:
-    """sq_work_cap=0 (the default) must reproduce the pre-squeeze
-    FleetCostDuration stream bitwise: explicit 0 == dataclass default."""
+    """An explicit zero work budget and the default both disable the post-drain squeeze."""
     from mamut_routing_lib.td import load_td_instance
 
     loaded = load_td_instance(instance_path)

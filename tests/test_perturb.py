@@ -1,14 +1,4 @@
-"""M7.1 ruin-and-recreate gates (Stream 7, td-ils-design.md).
-
-Discipline:
-- feasible-only: the perturbed solution is always a complete feasible
-  solution — partition preserved, checker-valid, canonical Duration;
-- the kick is typically worsening (that is its job); what is asserted is
-  validity, not improvement;
-- seeded determinism: same input + seed => identical perturbed solution;
-- the undo path leaves the input solution exactly restored when repair is
-  impossible (forced via a fleet bound of zero slack and huge kicks).
-"""
+"""Check that ruin and recreate yields a complete feasible solution, repeats for a fixed seed and restores the input when repair fails under a tight fleet bound."""
 
 import pytest
 

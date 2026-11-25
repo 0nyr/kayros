@@ -4,22 +4,8 @@
 
 namespace kayros {
 
-// TD time-warp primitives (Stream 8, P8.0 design memo).
-//
-// The exact core encodes a time window as a DOMAIN wall: make_theta caps the
-// vertex function's domain at the deadline, and compose's img∩dom truncation
-// erases late arrivals. The warp-augmented builders below replace that wall by
-// a clamp-at-deadline plus a separate non-negative warp channel:
-//
-//   theta~_j(a) = max(e_j, min(a, l_j)) + s_j   (non-decreasing, then FLAT)
-//   w_j(a)     = max(0, a - l_j)                (zero, then a +1 ramp)
-//
-// Everything stays inside the NDCPWLF algebra (no decreasing "back-in-time"
-// functions). On arrivals a <= l_j the clamped builder executes the exact same
-// arithmetic as make_theta, and compose processes its interior breakpoint at
-// l_j with the same event/inversion arithmetic that today processes theta's
-// domain end — this is what makes the augmented fold reduce BITWISE to the
-// checker fold on the feasible region (gate G1/G2 in test_warp_equivalence).
+// The ordinary window function ends at the deadline. To price lateness, the warp fold extends it with a constant ready time and records a second, nonnegative warp function.
+// For arrival a, clamped ready time is max(e_j, min(a, l_j)) + s_j and lateness is max(0, a - l_j). Through the deadline the uncompressed augmented fold uses the same binary64 arithmetic as the sequential unwarped reference.
 
 // Warp-augmented vertex pair (theta~_j, w_j), both total on [0, t_end].
 // Preconditions: earliest <= latest <= t_end.
@@ -37,14 +23,7 @@ ThetaWarp make_theta_warp(double earliest, double latest, double service_time,
 Pwlf make_return_clamp(double due, double t_end);
 Pwlf make_return_warp(double due, double t_end);
 
-// Remove interior points of exactly-flat runs (equal ys) and exactly-vertical
-// runs (equal xs) in place. This "safe" dedup class is value-neutral:
-// interpolation on a flat/vertical segment reproduces every removed point
-// bitwise, a flat-run interior can never be a strict minimum of ys[k]-xs[k]
-// (same y, smaller x than the kept run end), and zero-prefix detection keeps
-// the run endpoints. This is what collapses the clamp-totality breakpoint
-// growth (74-93% of rho~'s points are flat-run interiors on wide-TW
-// instances). NEVER applied to the checker-twin reference path.
+// Deduplicate interiors of exactly flat and vertical runs, preserving their endpoints. This preserves the binary64 minimum duration and the end of the zero-warp prefix. The full sequential reference retains every knot.
 void dedup_safe_runs(Pwlf& f);
 
 // h = f + g on dom(f) ∩ dom(g); empty when the intersection is empty.
@@ -60,11 +39,7 @@ Pwlf add(PwlfView f, PwlfView g);
 // strictly positive beyond). Returns false when w(xs[0]) > 0 (no zero set).
 bool zero_prefix_end(PwlfView w, double* end);
 
-// Duration minimisation restricted to the exactly-zero-warp set:
-// min (rho.ys[k] - rho.xs[k]) over breakpoints with rho.xs[k] <= zero-warp end.
-// This is the accounting evaluator: on checker-feasible routes it must equal
-// the checker's Delta* bitwise (gate G1). Returns false when the zero-warp set
-// is empty (checker-infeasible route).
+// Find the minimum duration among exactly zero-warp departures on the sequential binary64 curve. Return the earliest minimizing departure on that curve.
 bool min_zero_warp_duration(PwlfView rho, PwlfView warp, MinShift* out);
 
 // Penalised objective Phi(t) = (rho(t) - t) + penalty * warp(t), minimised

@@ -85,14 +85,10 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     SolveResult result;
 
-    // Work-unit accounting (1.3.0): candidate pricings across every
-    // descent this solve runs. Integer increments only, so streams and priced
-    // values are byte-identical with or without the counter. Declared before
-    // the publication point so the S3 first-capped-work stamp can read it.
+    // Count candidate pricings across descents and record work at the first in-cap publication.
     LsStats ls_stats;
 
-    // Plan-15 S3: the K-cap arms only when routes are priced, like the rest
-    // of the fleet machinery; under Duration k_cap is dead code at any value.
+    // Constrain the fleet only when the objective prices routes.
     const bool cap_active = inst.fixed_route_cost > 0.0 && params.k_cap > 0;
 
     // Single publication point for the anytime stream: records the incumbent,
@@ -102,8 +98,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         [&](double value, std::uint64_t iteration, std::int32_t origin,
             const std::vector<std::vector<std::int32_t>>& routes, bool from_squeeze) {
             const std::int64_t k = static_cast<std::int64_t>(routes.size());
-            // S3 publication guard (D-S3.1): above-cap states are
-            // unpublishable; they still guide the internal search.
+            // Above-cap solutions can guide the search but cannot enter the incumbent stream.
             if (cap_active && k > params.k_cap) return;
             if (!(value < published)) return;
             published = value;
@@ -157,20 +152,10 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             result.status = SolveStatus::Infeasible;
             return result;
         }
-        // Publish-early (1.4.0, plan 13 I1): the raw seed goes out the moment
-        // it is built, before the first descent, which is itself a minutes-long
-        // stretch of silence at scale. Together with the O(n^2) construction
-        // this opens the anytime stream in well under a second at every size,
-        // where 1.3.0 published nothing for ~100 s at n = 1000. Warm-started
-        // callers skip it: their solution is already the incumbent.
+        // Submit the raw greedy seed before the first descent. The warm-start path submits its validated seed separately.
         seed_incumbent(seed_value, seed_routes);
 
-        // K-diverse seeding (1.5.0, plan 13 I2). The search sheds routes
-        // freely and effectively never adds one, so the seed's route count
-        // decides the final one; starting above the constructed count and
-        // letting the search descend is what buys the fleet-starved
-        // instances. Duration only: under FleetCostDuration every extra route
-        // is priced and this would be actively harmful.
+        // Under Duration, split the constructed routes before descent to vary the initial fleet size. A positive fixed charge disables splitting.
         if (inst.fixed_route_cost == 0.0 && params.seed_k_factor > 1.0) {
             const std::int32_t target = static_cast<std::int32_t>(
                 params.seed_k_factor * static_cast<double>(seed_routes.size()));
@@ -236,9 +221,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     std::uint64_t iteration = 0;
     std::int64_t no_improvement = 0;
 
-    // Plan-12 M4 fleet-descent phase. Armed only when routes are priced:
-    // under Duration the branch is dead code and no draw is consumed, so
-    // 1.1.x rng streams stay bitwise.
+    // Fleet descent consumes random draws only when the objective prices routes.
     FleetDescentParams fd_params;
     fd_params.fd_k_max = params.fd_k_max;
     fd_params.fd_ep_budget = params.fd_ep_budget;
@@ -258,10 +241,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     // attempt stuck; the state is then bitwise unperturbed).
     const auto run_fleet_descent = [&]() -> double {
         ++result.fd_stats.triggers;
-        // Per-trigger drain budget in candidate pricings (plan 15 M0.2: the
-        // wall-clock fd_time_cap_seconds is gone, the drain is capped by
-        // work so trajectories are machine-independent). The global deadline
-        // still passes through: it only ends the run, it takes no decision.
+        // Each candidate pricing consumes one unit of the per-trigger drain budget. The global deadline still ends the run.
         std::int64_t fd_budget = params.fd_work_cap;
         std::int64_t* budget_ptr = params.fd_work_cap > 0 ? &fd_budget : nullptr;
         const std::int64_t basin_mark = ls_stats.evaluated;
@@ -278,11 +258,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
                 break;
             }
         }
-        // Plan-15 S2 squeeze: a penalised polish of the post-drain state, run
-        // on a routes COPY and adopted into ss only when it banks a strictly
-        // better exactly-zero-warp solution, so a phase that banks nothing is
-        // a strict no-op. Fires on both paths (one routine, two walls: the
-        // post-drop repair and the matched-K polish); rng-free, work-capped.
+        // Squeeze the post-drain state when enabled. Count its work separately and adopt only a zero-warp improvement that rebuilds as feasible.
         const auto try_squeeze = [&]() -> bool {
             SqueezeParams sqp;
             sqp.sq_penalty = params.sq_penalty;
@@ -297,8 +273,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             if (!adopted) return false;
             std::vector<std::vector<std::int32_t>> pre = extract_routes(ss);
             if (!init_search_state(inst, sq_routes, ss)) {
-                // Unreachable (exactly-zero warp == checker-feasible,
-                // gate-proven); restore the pre-squeeze state if it ever is.
+                // Restore the pre-squeeze state if its unwarped binary64 rebuild fails.
                 const bool ok = init_search_state(inst, pre, ss);
                 (void)ok;
                 mark_all_touched(ss);
@@ -345,9 +320,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         if (cand < best) {
             consider(cand, iteration, 2, extract_routes(ss), from_squeeze);
         }
-        // M0.3 instrumentation: the basin descents' share of LS work, so
-        // FD's total cost is fd_stats.evaluated + fd_stats.basin_evaluated
-        // against ls_stats.evaluated + fd_stats.evaluated for the solve.
+        // Track the basin descents separately from ejection pricing so total fleet-descent work can be recovered.
         result.fd_stats.basin_evaluated += ls_stats.evaluated - basin_mark;
         // Reset AFTER the basin descents so the next fd_period_work window
         // measures ILS work between triggers.
@@ -357,11 +330,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     fd_work_mark = ls_stats.evaluated;
     improve_work_mark = ls_stats.evaluated;
-    // Plan-15 S3 seed drain: a seed (or warm start) above the cap is drained
-    // toward it by back-to-back descent attempts before the loop opens, the
-    // M5 wave shape (warm-start at K, cap at K-1). On a no-progress sweep the
-    // loop starts anyway; the cap keeps acting through the candidate guard
-    // and the publication guard.
+    // Drain an above-cap seed before the first iteration. A sweep without progress returns control to ILS with the cap still enforced.
     if (fd_armed && cap_active) {
         while (static_cast<std::int32_t>(ss.states.size()) > params.k_cap &&
                !past()) {
@@ -407,9 +376,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         }
 
         take_snapshot(ss, snapshot);
-        // Kick lifecycle counters (Plan 12 M1): integer increments and
-        // states.size() reads only, so the rng stream and every priced value
-        // are byte-identical with or without them.
+        // Record kick outcomes without consuming RNG draws or changing search prices.
         FleetKickStats& fks = result.fleet_stats;
         const std::size_t k_before = ss.states.size();
         const PerturbOutcome outcome = perturb(inst, nb, ss, rng, perturb_params);
@@ -452,10 +419,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             else if (k_after < k_before) ++ks.k_down_after_descent;
         }
 
-        // Plan-15 S3 candidate guard: monotone toward the cap. Above the cap
-        // K may fall or hold, never rise; at or below it, never re-ascend
-        // above the cap. Rejection reuses the LAHC restore path below, so
-        // every other counter and the history bookkeeping stay untouched.
+        // Above the cap, allow the fleet to shrink or hold. After reaching the cap, reject moves back above it through the usual restoration path.
         const bool cap_reject =
             cap_active &&
             k_after > std::max<std::size_t>(
@@ -510,9 +474,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
 
     result.iterations_run = iteration;
     result.work_units = ls_stats.evaluated;
-    // Plan-15 S3 return contract (D-S3.1): a capped run that never reached
-    // the cap returns Infeasible with no routes and no incumbents; an
-    // above-cap solution never masquerades as a capped result.
+    // Return Infeasible with no published routes if the run never reaches the cap.
     if (cap_active &&
         static_cast<std::int32_t>(result.routes.size()) > params.k_cap) {
         result.routes.clear();

@@ -54,14 +54,7 @@ def family_instances(problem_type: str, family: str, size_dirs: list[str]) -> li
 
 
 def blauth2024_instances(size_dir: str) -> list:
-    """Converted Blauth2024 instances (M7 FleetCostDuration gates).
-
-    The family is CC-BY-NC and not vendored with kayros: it resolves through
-    KAYROS_BLAUTH2024_DIR (a directory of ``Blauth-<city>.vrp.json`` + ATF
-    sidecars, e.g. a size dir of the converted preview tree) or, once the
-    satellite repo is mounted, through the standard benchmarks tree. Empty
-    when neither is reachable (tests skip).
-    """
+    """Locate converted Blauth2024 instances under KAYROS_BLAUTH2024_DIR or the installed family collection. The CC-BY-NC data are distributed separately from Kayros."""
     env = os.environ.get("KAYROS_BLAUTH2024_DIR")
     if env:
         directory = Path(env)

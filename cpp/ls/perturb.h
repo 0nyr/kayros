@@ -8,37 +8,8 @@
 
 namespace kayros {
 
-// M7.1 ruin-and-recreate perturbation (Stream 7, td-ils-design.md),
-// feasible-only: the SearchState holds a complete feasible solution before
-// and after every call.
-//
-// Ruin: draw K ~ uniform[min_perturbations, max_perturbations] (clamped to n), walk a
-// seeded random client order, and for each seed client remove it and its
-// granular neighbours until K clients are out (removals keep every route
-// feasible: a subsequence of a feasible route is feasible).
-// Recreate: removed clients in random order, each committed at its best
-// tree-ranked feasible position over all routes x positions; the committed
-// route is rebuilt through the checker fold (repricing rule: trees rank, the
-// fold accounts). A client with no feasible position opens a singleton route
-// when the fleet bound allows; otherwise the whole kick is undone and redrawn
-// (up to max_redraws), and the state is left unperturbed when every redraw
-// fails.
-// On success the SearchState epoch advances once and every client of every
-// modified route is marked touched, so the following granular descent
-// rescans exactly around the kick.
-//
-// Route-dissolve kick (M7 FleetCostDuration): with probability dissolve_pct%
-// a kick seeds the ruin with EVERY client of one smallest route (random among
-// ties), so the route is dropped whole and its clients repair into the rest.
-// The additive F in the acceptance alone cannot cross the empty-a-route
-// plateau (paper6/PyVRP lesson: emptying a route needs several coordinated
-// relocations, each individually worsening); the dissolve jumps it in one
-// kick and the LAHC loop keeps or reverts the result. Armed ONLY when the
-// instance prices routes (fixed_route_cost > 0) and two routes exist — under
-// Duration no draw is consumed, so pre-M7 rng streams are reproduced bitwise.
-//
-// Determinism: all draws come from the caller's rng via modulo/Fisher-Yates
-// (no std::uniform_*_distribution — implementation-defined across platforms).
+// Ruin and recreate preserves a feasible complete search state or restores the supplied routes. Draw a target removal count, clamped at n, and remove customers around seeds in a shuffled order using their granular neighbours. Reinsert them in random order at the first tree-ranked position that passes a rebuild. If no insertion works, open a singleton when the fleet bound allows. Otherwise undo the kick and redraw, up to max_redraws. A successful kick advances the epoch and marks all customers in changed routes touched.
+// With a positive route charge and at least two routes, a dissolve kick may seed the removal with every customer on a smallest route. Draws use the supplied RNG and shared modulo and Fisher-Yates operations.
 struct PerturbParams {
     std::int32_t min_perturbations = 1;
     std::int32_t max_perturbations = 25;

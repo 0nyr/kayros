@@ -7,18 +7,12 @@
 
 namespace kayros {
 
-// TD instance in checker conventions: vertices 0..n with 0 = depot, customers
-// 1..n; complete arc set carrying arrival-time functions alpha_ij over the
-// horizon (arrival_at_j = alpha_ij(departure_from_i), FIFO by monotonicity).
+// MAMUT TD vertices use 0 for the depot and 1..n for customers. Arc alpha_ij maps a departure at i to its arrival at j and is nondecreasing.
 struct Instance {
     std::int32_t num_customers = 0;   // n
     std::int32_t num_vehicles = -1;   // fleet upper bound; -1 = unbounded
     std::int64_t vehicle_capacity = 0;
-    // FleetCostDuration fixed cost F per used (non-empty) route, in the
-    // instance's time unit; 0 = plain Duration (every pre-M7 caller). The
-    // solution objective is then fold + F * K with K the route count, priced
-    // exactly like the checker: canonical duration fold first, one multiply,
-    // one add.
+    // Binary64 charge per nonempty route, in the instance time unit. The heuristic sums route durations in canonical order, then adds F times the route count. Duration uses F = 0.
     double fixed_route_cost = 0.0;
     double horizon_start = 0.0;
     double horizon_end = 0.0;
@@ -61,7 +55,7 @@ struct Instance {
 struct RouteEval {
     bool feasible = false;
     double duration = 0.0;   // Delta*_r = min_t (delta_r(t) - t)
-    double departure = 0.0;  // earliest optimal depot departure t*_r
+    double departure = 0.0;  // earliest binary64 minimizer on this route curve
 };
 
 // Route ready-time function delta_r over feasible depot departure times.
@@ -70,7 +64,7 @@ struct RouteEval {
 Pwlf route_ready_time_function(const Instance& inst, const std::int32_t* route,
                                std::int64_t len);
 
-// Optimal duration and earliest optimal departure (checker's compute_route_duration).
+// Minimum duration and earliest minimizing departure on the binary64 route curve.
 RouteEval evaluate_route(const Instance& inst, const std::int32_t* route,
                          std::int64_t len);
 

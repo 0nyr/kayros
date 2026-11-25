@@ -12,16 +12,10 @@ namespace kayros {
 namespace {
 
 constexpr double kScreenEps = 1e-9;  // local_search.cpp's screening epsilon
-// Dominating repair-leg weight: one ms of warp outweighs any single-move
-// duration delta by orders of magnitude, so repair descents only ever trade
-// warp down (the P8.3 lesson made structural). Constant by design, not a
-// knob: the repair leg exists to reach zero warp, not to be calibrated.
+// The repair leg heavily penalizes accumulated warp to guide the search back to a zero-warp solution.
 constexpr double kRepairPenalty = 1e8;
 
-// Whole-search state: warp route states + client->route bookkeeping +
-// route-level staleness. Transplanted verbatim from the td-time-warp
-// branch's warp_ils.cpp (P8.3), with work-budget charging and zero-warp
-// checkpoint banking added; see the plan-15 M1 memo.
+// Warp route states, client-to-route membership and per-route change stamps, adapted from the td-time-warp descent.
 struct WarpSearch {
     std::vector<WarpRouteState> states;
     std::vector<std::int32_t> route_of;  // vertex id -> state index (-1 = none)
@@ -364,7 +358,7 @@ bool squeeze_phase(const Instance& inst, const NeighbourLists& nb,
     const double t_end = warp_horizon(inst);
     WarpSearch ws;
     if (!init_warp_search(inst, routes, params.sq_penalty, t_end, ws)) {
-        return false;  // entry state hits a hard wall: not S2's business
+        return false;  // The starting route exceeds a hard horizon bound.
     }
     if (stats) ++stats->phases;
 
@@ -377,8 +371,7 @@ bool squeeze_phase(const Instance& inst, const NeighbourLists& nb,
     const std::int64_t reserve = params.sq_work_cap / 5;
     descend(inst, nb, ws, params.sq_penalty, t_end, deadline, &budget, reserve,
             stats, bank, /*stop_when_feasible=*/false);
-    // Repair leg at the dominating weight, exiting at the first exactly-zero
-    // warp state (P8.3), banking it when improving.
+    // Repair with the larger penalty and save the first zero-warp improvement.
     if (!search_feasible(ws)) {
         descend(inst, nb, ws, kRepairPenalty, t_end, deadline, &budget, 0,
                 stats, bank, /*stop_when_feasible=*/true);
@@ -547,12 +540,7 @@ bool squeeze_insert(const Instance& inst, const NeighbourLists& nb,
                             (rem_cost + ins.penalised) - (cost_r + cost2);
                         if (delta < -kScreenEps &&
                             (!mv.found || delta < mv.delta)) {
-                            // NOTE: the reference's early-commit cutoff
-                            // (stop scanning when a move wipes the selected
-                            // route's whole penalty, M0.7 trick 3) is
-                            // deliberately not in v0: it needs the removal
-                            // eval's residual warp threaded through here,
-                            // and it is an optimization, not semantics.
+                            // Scan the full neighbourhood of the selected warp-positive route before choosing the best move.
                             mv = {true, false, u, v, r2, p, delta};
                         }
                     }

@@ -1,21 +1,4 @@
-"""Greedy-seed construction gate (1.4.0).
-
-Through 1.3.0 the seed ran a full TD Dijkstra over the free customers at every
-placement and selected on the earliest MULTI-HOP ready time. 1.4.0 selects on
-the direct ready time instead, which is the same rule up to ties: Dijkstra's
-first settled node is by construction the free customer with the smallest
-direct ready time, so the multi-hop minimum equals the direct minimum and is
-attained at the same customer. The two can only part where a detour reaches a
-customer in exactly the same total time — a time window binding hard enough for
-the wait to absorb it — and there the lookahead is a different tie break, not a
-better choice.
-
-These tests hold the claim to account: the shipped construction must agree with
-the retained lookahead reference on every instance in the checkout, and it must
-be dramatically cheaper. A failure here does not mean the seed is wrong; it
-means the tie case is real on that instance and the plan-13 M9 arm's
-trajectory-equality claim needs re-verification for it.
-"""
+"""Compare direct greedy selection with the retained TD Dijkstra lookahead on the installed families. A time window may absorb a detour and create a tie. The tests compare the constructed routes and measure the cost of the two selection rules."""
 
 import time
 

@@ -99,10 +99,7 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
         }
         if (placed) continue;
 
-        // Plan-15 S1: squeeze strictly between feasible-insert failure and
-        // ejection (the RMH order); the p-count increments only after BOTH
-        // fail. Inert at sq_ladder=false: the increment below then sits
-        // exactly where it always did.
+        // Try Nagata-Bräysy squeeze after feasible insertion fails and before ejection. Increment the difficulty count only after available insertion and squeeze attempts fail.
         if (params.sq_ladder) {
             if (stats) ++stats->ladder_squeezes;
             std::vector<std::vector<std::int32_t>> cur;
@@ -134,11 +131,7 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
         }
         ++pcount[static_cast<std::size_t>(c)];
 
-        // Ladder step 2 (NBRMH step 3): contiguous-window insertion-with-
-        // ejection. One splice evaluation prices "replace recv[i..j] by [c]";
-        // among feasible windows pick min sum of p-counts, tie-broken by the
-        // splice-ranked delta, then (route, i). The commit reprices through
-        // the checker fold; ejected clients return to the pool.
+        // Replace a contiguous segment of a feasible receiving route by c. Minimize the sum of ejected difficulty counts, then the splice delta, then (route, position). Reprice the route with the search fold and return the ejected customers to the pool.
         RouteState c_single;
         charge(1);
         if (!build_route_state(inst, {c}, c_single)) {

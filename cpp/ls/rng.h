@@ -7,10 +7,7 @@
 
 namespace kayros {
 
-// Platform-stable integer draw in [0, n): modulo over the full 64-bit stream
-// (std::uniform_int_distribution is implementation-defined; bias at these
-// ranges is negligible and determinism wins). Hoisted verbatim from
-// perturb.cpp (M3, plan 12) so the fleet-descent phase draws identically.
+// Draw in [0, n) by reducing the caller's 64-bit RNG output modulo n. Perturbation and fleet descent use the same rule across standard-library implementations.
 inline std::uint64_t draw(std::mt19937_64& rng, std::uint64_t n) {
     return rng() % n;
 }
