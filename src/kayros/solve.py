@@ -13,7 +13,7 @@ from typing import Callable, Literal
 
 from mamut_routing_lib.enums import ObjectiveFunction
 from mamut_routing_lib.exact import prepare_exact
-from mamut_routing_lib.exact_types import ExactRouteError
+from mamut_routing_lib.exact_types import ExactRouteError, canonical_checked_routes
 from mamut_routing_lib.models import BenchmarkSolution
 from mamut_routing_lib.td import LoadedTDInstance
 
@@ -152,6 +152,21 @@ class _Acceptance:
     def prepared(self):
         return prepare_exact(self.loaded, objective_function=self.objective)
 
+    @cached_property
+    def core(self):
+        return to_core(self.loaded, objective_function=self.objective)
+
+    @cached_property
+    def native_pricer(self):
+        return _core.ExactRoutePricer(self.core)
+
+    def proposal_cost(self, routes):
+        snapshot = self.prepared
+        ordered = canonical_checked_routes(routes, num_customers=snapshot.num_customers, demands=snapshot.demands,
+                                           capacity=snapshot.capacity, fleet_limit=snapshot.fleet_limit)
+        cost = self.native_pricer.solution_cost(ordered)
+        return None if cost is None else Fraction(*cost)
+
     def validate_seed(self, routes):
         try:
             evaluation = self.prepared.evaluate(routes)
@@ -169,8 +184,10 @@ class _Acceptance:
             return True
         seed, self.verified_seed = self.verified_seed, None
         try:
-            cost = seed[1] if seed is not None and routes == seed[0] else self.prepared.evaluate(routes).cost
+            cost = seed[1] if seed is not None and routes == seed[0] else self.proposal_cost(routes)
         except ExactRouteError:
+            cost = None
+        if cost is None:
             self.stats["infeasible"] += 1
         else:
             if self.best_exact is None or cost < self.best_exact:
@@ -433,7 +450,7 @@ def solve(
             )
     acceptance = _Acceptance(loaded, objective, params, on_incumbent)
     seed_routes = acceptance.validate_seed(initial_routes) if initial_routes is not None else []
-    core = to_core(loaded, objective_function=objective)
+    core = acceptance.core
     tl = 0.0 if time_limit is None else float(time_limit)
 
     if params.strategy != "ils":

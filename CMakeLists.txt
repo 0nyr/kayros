@@ -14,10 +14,19 @@ option(KAYROS_NATIVE "Build with -march=native (local benchmarking only)" OFF)
 # dependency.
 option(KAYROS_WITH_LERA "Build the exact BPC component (HiGHS by default)" ON)
 
+find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
+find_package(MAMUTRouting CONFIG QUIET)
+if(NOT MAMUTRouting_FOUND)
+    execute_process(COMMAND "${Python_EXECUTABLE}" -m mamut_routing_lib.cmake
+        OUTPUT_VARIABLE MAMUTRouting_python_dir OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY)
+    find_package(MAMUTRouting CONFIG REQUIRED HINTS "${MAMUTRouting_python_dir}")
+endif()
 
 pybind11_add_module(_core
     cpp/bindings/module.cpp
+    cpp/bindings/exact_routes.cpp
     cpp/pwlf/pwlf.cpp
     cpp/pwlf/warp.cpp
     cpp/core/route_eval.cpp
@@ -37,6 +46,7 @@ pybind11_add_module(_core
     cpp/ls/local_search.cpp
 )
 target_include_directories(_core PRIVATE cpp)
+target_link_libraries(_core PRIVATE MAMUTRouting::td_exact)
 target_compile_definitions(_core PRIVATE KAYROS_VERSION="${SKBUILD_PROJECT_VERSION_FULL}")
 # Bit-identical agreement with the Python reference checker requires plain
 # IEEE-754 double arithmetic: no FMA contraction, ever.

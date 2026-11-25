@@ -1,10 +1,13 @@
 """Exercise both public solves and the native exact checker in an installed wheel."""
 
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 import kayros
+from kayros import _core
 from kayros.exact import solve_exact
+from kayros.io import to_core
 from mamut_routing_lib.enums import ObjectiveFunction
 from mamut_routing_lib.td import compute_solution_cost, load_td_instance
 
@@ -21,7 +24,11 @@ def main(root: str) -> int:
         return 1
     if result.raw["checker_infeasible_columns"] != 0 or not result.routes:
         return 1
-    checked = compute_solution_cost(loaded.instance, loaded.atfs, result.routes, ObjectiveFunction.DURATION)
+    checked = compute_solution_cost(loaded.instance, loaded.atfs, result.routes, ObjectiveFunction.DURATION, backend="python")
+    pricer = _core.ExactRoutePricer(to_core(loaded))
+    native = pricer.solution_cost(result.routes)
+    if native is None or Fraction(*native) != checked:
+        return 1
     return 0 if checked == result.exact_cost and result.cost == float(checked) and checked <= heuristic.exact_cost else 1
 
 

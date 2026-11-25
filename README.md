@@ -12,13 +12,16 @@ The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancie
 
 The published 1.7.1 release is available with `pip install kayros==1.7.1`. To reproduce published runs with that release, use `mamut-routing-lib==0.11.0` and the [archived benchmark layout](https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11).
 
-For the 2.0 development version, install library 0.13 and Kayros in the same Python environment with pip 25.1 or later.
+For the 2.0 development version, build a wheel of the pinned MAMUT library with pip 25.1 or later. The directory must also be visible to pip's isolated build environment when it installs Kayros from a checkout or a source distribution.
 
 ```sh
-python -m pip install "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@0ead6a19f3688b60edc4fd66da073a07813c3216"
-git clone https://github.com/0nyr/kayros && cd kayros
-python -m pip install --group dev -e .
+export PIP_FIND_LINKS="$PWD/kayros-build-wheels"
+mkdir -p "$PIP_FIND_LINKS"
+python -m pip wheel --no-deps --wheel-dir "$PIP_FIND_LINKS" "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@9ebdcff2e49c184e04c5630a3dae5a7c2daffc6d"
+python -m pip install ./kayros-2.0.0.dev0.tar.gz
 ```
+
+For an editable install, run `python -m pip install --group dev -e .` from the Kayros checkout with the same `PIP_FIND_LINKS`. CMake discovers the library's header and GMP linkage through its `MAMUTRouting::td_exact` target. For a standalone CMake build, install the pinned wheel in your environment and pass `-DMAMUTRouting_DIR="$(python -m mamut_routing_lib.cmake)"` to CMake.
 
 The development build supports CPython 3.11 to 3.14. Building both projects from source requires a C++23 compiler, Boost.Graph and GMP development files. The Kayros build backend provides CMake 3.26 or later. CMake builds HiGHS statically when it cannot find an installed copy. Link-time optimization for the branch-price-and-cut solver is enabled on supported toolchains (`KAYROS_LERA_IPO`).
 

@@ -31,9 +31,9 @@ def test_fraction_gate_and_squeeze_rejections():
         cost = next(costs)
         if isinstance(cost, Exception):
             raise cost
-        return SimpleNamespace(cost=cost)
+        return cost
 
-    policy.prepared = SimpleNamespace(evaluate=evaluate)
+    policy.proposal_cost = evaluate
     assert not policy.accept([[1]], True)
     assert policy.accept([[2]], False)
     policy.publish(incumbent(1.1), [[2]])
