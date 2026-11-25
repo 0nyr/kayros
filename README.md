@@ -2,38 +2,36 @@
 
 [![PyPI](https://img.shields.io/pypi/v/kayros)](https://pypi.org/project/kayros/) [![SWH](https://archive.softwareheritage.org/badge/origin/https://github.com/0nyr/kayros/)](https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/0nyr/kayros)
 
-**KAYROS** is an exact & anytime solver for **duration-minimization time-dependent vehicle routing** problems, TDVRPTW (with time windows) and TDVRP, benchmarked on the canonical [MAMUT-routing](https://github.com/ANR-MAMUT/MAMUT-routing) TD instance families.
+**KAYROS** solves time-dependent vehicle routing problems with or without customer time windows (TDVRPTW and TDVRP). The heuristic minimizes total route duration or fleet cost plus duration. The branch-price-and-cut solver minimizes duration. Both read the time-dependent families of [MAMUT-routing](https://github.com/ANR-MAMUT/MAMUT-routing).
 
 The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancient Greek notion of the *right, opportune moment*, fitting for a time-dependent solver where *when* each route departs is itself a decision. It is also a [recursive acronym](https://en.wikipedia.org/wiki/Recursive_acronym): **K**ayros **A**nytime-**Y**ielding **R**outing **O**ptimization **S**olver.
 
-> Status: **beta (2.0.0 in development, latest release v1.7.1)**, developed as part of a PhD. KAYROS offers two solving modes on one exact time-dependent engine: an anytime iterated local search, which produced most of the best-known solutions of the MAMUT-routing store, and an exact branch-price-and-cut component (`kayros.lera`) that issues checker-exact optimality certificates. Every run ends with an honest verdict (optimum, time limit, or resource limit), never a silent kill.
+**Version 2.0 is in development.** Its heuristic checks solutions under the MAMUT profile `td-binary64-exact-v1`. The branch-price-and-cut solver's internal stopping condition and floating-point bound are diagnostics while proof verification for this profile is in development.
 
 ## Install
 
-```sh
-pip install kayros    # or: uv add kayros / uv pip install kayros
-```
+The published 1.7.1 release is available with `pip install kayros==1.7.1`. To reproduce published runs with that release, use `mamut-routing-lib==0.11.0` and the [archived benchmark layout](https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11).
 
-This pulls everything, including the benchmark loaders and the reference checker ([`mamut-routing-lib`](https://pypi.org/project/mamut-routing-lib/)). Since version 1.6.1, KAYROS requires `mamut-routing-lib>=0.6.0,<0.12`: KAYROS implements the historical `td-fold/1` contract, while checker 0.12 introduced `td-fold/2`. A mixed environment can fail the final objective-equality check even when the values differ by only a final floating-point bit. Upgrade existing environments with `python -m pip install --upgrade kayros`, or pin `mamut-routing-lib==0.11.0` when retaining an older KAYROS release. Newer checker versions will be admitted after numerical compatibility is validated. For development:
-
-**Benchmark data.** This version of KAYROS reads the former MAMUT-routing layout, in which a sidecar sits next to its instance. That layout is kept, read-only, in [MAMUT-routing-archive-2026-11](https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11), and the examples below use its paths. The `main` branch of [MAMUT-routing](https://github.com/ANR-MAMUT/MAMUT-routing) now holds 1 repository per benchmark family, in the layout of `mamut-routing-lib` 0.13, which a later KAYROS release will adopt.
+For the 2.0 development version, install library 0.13 and Kayros in the same Python environment with pip 25.1 or later.
 
 ```sh
+python -m pip install "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@0ead6a19f3688b60edc4fd66da073a07813c3216"
 git clone https://github.com/0nyr/kayros && cd kayros
-pip install -e . --group dev    # pip >= 25.1 (or: uv pip install -e . --group dev)
+python -m pip install --group dev -e .
 ```
 
-Requirements: Python ≥ 3.11. Building from source (sdist or checkout) additionally needs a C++23 compiler, CMake ≥ 3.26 (fetched automatically by the build backend when missing) and Boost.Graph headers+library; the HiGHS LP solver is fetched and built statically by CMake when no install is found. The exact component is built with link-time optimization when the toolchain supports it (CMake option `KAYROS_LERA_IPO`, on by default). CMake turns it off with the status line `Lera BPC: link-time optimization unavailable` when the toolchain lacks it, and the solver gives no other sign. To check a source build, look for that status line in the output of a verbose build (`pip install -v .`), or keep the build directory (`pip install . -C build-dir=build`) and look for `-flto` in the generated build files (`build/build.ninja` when the build backend uses Ninja, its default).
+The development build supports CPython 3.11 to 3.14. Building both projects from source requires a C++23 compiler, Boost.Graph and GMP development files. The Kayros build backend provides CMake 3.26 or later. CMake builds HiGHS statically when it cannot find an installed copy. Link-time optimization for the branch-price-and-cut solver is enabled on supported toolchains (`KAYROS_LERA_IPO`).
+
+The examples use paths relative to a MAMUT-routing checkout with the corresponding family submodule and sidecars installed. [Benchmark collections](https://github.com/ANR-MAMUT/MAMUT-routing)
 
 ## Usage
 
-Anytime heuristic solve: iterated local search over granular candidate lists, streaming every new incumbent:
+Use `kayros.solve` for an anytime iterated local search. An optional callback receives each incumbent while the search runs.
 
 ```python
 import kayros
 
-# Any MAMUT-routing TD instance (.vrp.json with its .atf.json sidecar next to it)
-instance_path = "benchmarks/TDVRPTW/Dabia2013/n=25/C101.vrp.json"
+instance_path = "benchmarks/Dabia2013/TDVRPTW/n=25/C101.vrp.json"
 solution = kayros.solve(instance_path, time_limit=10.0, seed=42)
 print(solution.cost, solution.num_routes, solution.status)
 
@@ -44,33 +42,19 @@ def on_incumbent(incumbent, routes):
 solution = kayros.solve(instance_path, time_limit=60.0, on_incumbent=on_incumbent)
 ```
 
-Instances are loaded without re-verifying their artifact digests, because materialization is deterministic and the check costs minutes and gigabytes of peak memory at n = 1000. Pass `verify=True` (to `kayros.solve` on a path, or to `kayros.io.load_instance`) on test runs and on the first run over data you have not used before: it re-derives the sidecar digests and the ATF digest and pins them against what the instance file declares, which is what catches a truncated download or a mismatched sidecar. Without it those failures are silent.
+Pass `verify=True` on the first load of unfamiliar data to check the sidecar and materialized arrival-function digests against the instance metadata. Repeated runs can reuse the loaded instance. Digest verification is optional because it can take minutes and several gigabytes on large instances.
 
 To polish a known solution, pass `initial_routes=previous.routes` to `kayros.solve`. Each route contains customer IDs and omits the depot. Kayros validates the seed under the selected objective, then starts the local search from the supplied route order. For Blauth2024 record polishing, set `objective="FleetCostDuration"` and `k_cap=len(previous.routes)` in `Params`.
 
-The default strategy is `"ils"` (single-trajectory iterated local search), picked over the alternatives in a 20,808-run head-to-head across five TD families at n=10..1000, with the margin growing with instance size. Set `Params(num_neighbours=0)` to use exhaustive local-search enumeration.
+The ILS uses granular candidate lists. Set `Params(num_neighbours=0)` to enumerate the whole neighborhood.
 
-Families that price vehicles (a normative `fleet_fixed_cost` field on the instance, e.g. [Blauth2024](https://github.com/ANR-MAMUT/MAMUT-routing)) can be solved under the **FleetCostDuration** objective: the same canonical duration fold plus `fleet_fixed_cost × num_routes`, priced bitwise by the reference checker. The fleet term is part of `solution.duration`; the local search then trades route dissolves against duration, helped by a route-dissolve perturbation kick.
-
-```python
-params = kayros.Params(objective="fleet_cost_duration")
-solution = kayros.solve(instance_path, params, time_limit=10.0, seed=42)
-print(solution.cost, solution.num_routes)  # the cost includes the fleet term
-```
-
-Exact solve: branch-price-and-cut with checker-exact certificates, optionally warm-started from a known solution (the fast path when certifying near-optimal solutions, e.g. stored best-known ones):
+Blauth2024 instances carry a fixed cost per vehicle. With `FleetCostDuration`, the checked objective is the sum of route durations plus the fixed cost times the number of routes. The search can dissolve routes and polish their durations under this objective.
 
 ```python
-from mamut_routing_lib.td import load_td_instance
-from kayros.lera import solve_duration
-
-loaded = load_td_instance(instance_path)
-result = solve_duration(loaded, time_limit_s=600.0,
-                        initial_routes=[list(r) for r in solution.routes])
-print(result["exact_log"]["status"], result["value"])
-# status == "Optimum" with routes == [] means: the warm-start solution itself
-# is proven optimal. On a time limit, result["exact_log"]["best_bound"] is a
-# valid global lower bound when the root relaxation finished (absent otherwise).
+berlin = "benchmarks/Blauth2024/TDVRPTW/n=10/Blauth-berlin.vrp.json"
+params = kayros.Params(objective="FleetCostDuration")
+fleet_solution = kayros.solve(berlin, params, time_limit=10.0, seed=42)
+print(fleet_solution.cost, fleet_solution.num_routes)
 ```
 
 `solution.cost` is the binary64 display of the exact cost computed by the library (profile `td-binary64-exact-v1`), and `solution.exact_cost` is that cost as a rational. The value of the search fold is kept in `solution.search_value`.
@@ -79,66 +63,25 @@ With the default `Params(acceptance_mode="each_incumbent")`, Kayros checks each 
 
 With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callback reports provisional search improvements with `incumbent.exact_cost=None`. If the final candidate fails the exact check, Kayros tries the last 6 distinct prior route sets in increasing order of approximate cost. Set the history size to 0 to check only the final candidate. The solver logs final rejections and recovery and raises `InfeasibleError` if all retained candidates fail. `solution.acceptance_stats` gives counts of infeasible proposals, nonimproving proposals, squeeze rejections, final rejections and fallback attempts.
 
-The exact component reads `KAYROS_BPC_*` environment variables, meant for experiments (they are documented in `cpp/lera/bridge/lera_bridge.cpp`). A set variable takes precedence over the matching argument of `solve_duration` without any warning, e.g. `KAYROS_BPC_NEAR_REL` over `near_rel` and `KAYROS_BPC_HE_CUTBLIND` over `heuristic_cut_blind`. The values in force are recorded in `result["effective_algorithm_settings"]["pricing_options"]`, under the names of the variables, so two keys differ from the parameter names: `he_cutblind` is the mode of `heuristic_cut_blind` and `lam_iterate` records the queue-iterating last-arc merge. The threshold of `near_rel` is relative to the mean customer dual, i.e. the sum of the positive customer duals divided by the number of customers.
+## Branch-price-and-cut
 
-Resource limits are verdicts, not crashes: besides the hard time-limit deadline, the exact solve carries a **memory self-guard**: an RSS watermark polled at the same interruption points as the deadline. When pricing would outgrow the machine (full-horizon TDVRP labeling can exceed any node's RAM), the solve unwinds cleanly with `exact_log.status == "MemoryLimitReached"`, honest bounds, and no certificate. The default limit is resolved from the machine (own RSS + ~80% of available memory, capped by the cgroup limit); `solve_duration(memory_limit_mb=...)` overrides it, `0` disables.
+The Duration solver uses the implementation of Lera-Romero, Miranda Bront and Soulignac (2020). It can start from customer-only incumbent routes. A time limit and a configurable resident-memory limit allow it to return when pricing exhausts its budget. Its search log records pricing and node closure diagnostics. Under the 2.0 evaluation profile, verifying an incumbent establishes its objective value. An optimality claim also requires a verified lower bound.
 
-## Design
+## Implementation
 
-KAYROS is two solving modes on one exact time-dependent engine:
+The C++ local search represents arc arrival times as piecewise-linear functions and evaluates moves in binary64 arithmetic. On instances with time windows, it caches the composed arc functions used by the move evaluator. It uses greedy construction, ruin-and-recreate perturbations, late acceptance and restarts from the incumbent. The MAMUT library prices the reported route set and computes exact minimizing departure times.
 
-- **The engine** (`cpp/pwlf`, `cpp/core`) represents arrival times as non-decreasing continuous piecewise-linear functions (NDCPWLF) and evaluates routes by exact function composition: a bit-identical C++ port of the reference checker's arithmetic (gated by an equivalence suite over the full benchmark set).
-- **The anytime stack** (`kayros.solve`): greedy construction and a single-trajectory TD iterated local search (granular ruin-and-recreate kicks, late-acceptance hill climbing, restart-to-best), over one time-dependent local-search layer using LCA-BST move evaluation (Blauth et al. 2024) with granular candidate lists: tree-ranked relocate/swap/2-opt\* where every *accepted* move is repriced by the checker-identical fold before it counts.
-- **The exact component** (`kayros.lera`): the branch-price-and-cut solver of Lera-Romero, Miranda Bront & Soulignac (2020), vendored under `cpp/lera/` (see its `NOTICE.md`) on the open-source [HiGHS](https://highs.dev/) LP backend, extended with deadline-compliant anytime behavior, warm starts through columns, TDVRP support, honest time-limit gap reporting, and the memory self-guard. Every column entering the master problem is repriced in the checker's arithmetic, so reported values (and optimality certificates) are checker-exact: *optimal under checker-exact route costs and standard LP/pricing tolerances, completeness modulo the search engine's epsilon dominance*. On stepwise (value-jump) travel-time functions the labeling switches automatically to an exact value-jump path: the steps' verticals travel through the piecewise-linear machinery as tagged first-class objects (jump vs departure-choice verticals, attained values preserved) instead of being smoothed into steep bridges, so pricing stays complete and stepwise certificates are single-run checker-exact certificates like any other. This path was promoted after a validation ladder ending in a 1444-run four-solve re-certification campaign that re-confirmed 93 stored certificates at their exact stored values with zero checker-infeasible priced columns (`cpp/lera/NOTICE.md` item 9 records the full history). Turning the LP dual bounds themselves into rigorous certificates (safe bounding) is future work.
+The branch-price-and-cut solver lives in `cpp/lera/`. Its default LP backend is HiGHS. Source builds can select CPLEX with `-DLERA_LP_BACKEND=cplex`. Each solver run uses one thread. [Solver provenance and modifications](https://github.com/0nyr/kayros/blob/main/cpp/lera/NOTICE.md)
 
-## Core principles
+## Migrating from 1.7.1
 
-- **The checker is the referee.** Every solution and every certificate is priced by the reference checker of `mamut-routing-lib`; the checker's value is the value.
-- **Exact arithmetic.** Plain IEEE-754 doubles, no epsilon comparisons in the engine, no FMA contraction (`-ffp-contract=off`); results are bit-reproducible across machines.
-- **Anytime first.** Time budgets are hard deadlines honored by every component (heuristics and exact search alike), and incumbents stream out as they are found; a solver that only answers at the end is not a solver you can interrupt.
-- **Honest verdicts.** A run ends with an answer: optimum, time limit, or resource limit, with valid bounds where they exist. The solver is never OOM-killed mid-certificate, and it never claims more than its arithmetic supports.
-- **One-command install, no proprietary dependency.** The default build, including the exact component, is pure open source; HiGHS is built statically into the wheels. The faster CPLEX backend for the BPC remains strictly a source-build opt-in (`-DLERA_LP_BACKEND=cplex`) and never ships in wheels.
-- **One run is one thread.** No intra-run parallelism; parallelism belongs to the experiment layer above.
-- **POD core.** The fresh C++ is plain structs, flat arrays and free functions: optimization-kernel style, no framework (the vendored BPC keeps its upstream style, contained under `cpp/lera/`).
-
-## Versions
-
-Most recent first. The [changelog](https://github.com/0nyr/kayros/blob/main/CHANGELOG.md) gives the details and the evidence behind each entry.
-
-- **2.0.0** (in development, 1.8.0 was not released). Repairs the exact component on instances with stepwise travel times (value jumps), where releases 1.1.0 to 1.7.1 could miss improving columns and report a node bound above its true value. Optimality certificates and lower bounds obtained on such instances with an earlier version are to be derived again. Results on instances without value jumps are unchanged. The result of an exact solve gains two records, `pricing_integrity` and `closure_conditions`.
-- **1.7.1** (2026-11-12). Documentation, tests and packaging metadata only. Solver behaviour and results are identical to 1.7.0.
-- **1.7.0** (2026-11-11). Repairs two defects under which the exact component could close above the optimum: a partial-dominance step inherited from the upstream branch-price-and-cut code, and the addition of a scalar point to a duration function. The lower bound reported at a limit no longer ignores an interrupted branch. Label correction is repaired and on by default, branching is reproducible, and Exact pricing is faster (near-zero reduced-cost columns, cut-blind dominance at the heuristic elementarity level, a packed dominance filter, link-time optimization).
-- **1.6.1** (2026-10-14). Requires `mamut-routing-lib>=0.6.0,<0.12`, the checker versions that implement the `td-fold/1` contract of KAYROS.
-- **1.6.0** (2026-08-08). An opt-in penalty-tolerant time-window squeeze and a K-capped confined search, both inert by default. Armed and warm-started, this build refreshed 29 of the 30 Blauth2024 FleetCostDuration best-known solutions, and all 30 are now held by KAYROS. The fleet-descent drain is capped by work instead of wall-clock time (breaking: `fd_time_cap_seconds` is replaced by `fd_work_cap`).
-- **1.5.2** (2026-08-07). Loading no longer re-verifies the artifact digests by default. `verify=True` runs the check.
-- **1.5.1** (2026-08-05). Repairs an over-certification of jump-free instances by the exact component of 1.1.0 to 1.5.0. A re-certification campaign on the repaired build re-derived 466 of the 468 stored certificates at their stored values. The 2 others are a certificate retracted after a checker-valid counterexample and an instance refused by the protocol.
-- **1.5.0** (2026-08-04). K-diverse seeding (`seed_k_factor=2.0`). Under Duration the search starts from a fleet twice as large as the constructed one and shrinks it. At a fixed time limit on a dense family with tight time windows, this lowers the duration by 5.2 % on average, with gains of up to 27 % on single instances.
-- **1.4.0** (2026-08-04). The first solution is published in well under a second at every instance size, where 1.3.0 published nothing for about 100 s at n = 1000.
-- **1.3.0** (2026-07-29). A fleet-descent route-elimination phase for FleetCostDuration, the mechanism behind the first best-known solutions beaten on Blauth2024, and work-based triggers.
-- **1.2.1** (2026-07-27). The default share of route-dissolve kicks (`dissolve_pct`) rises from 25 to 50 %, the best setting of a tuning grid on Blauth2024.
-- **1.2.0** (2026-07-26). The FleetCostDuration objective (a fleet fixed cost plus duration, as priced by the Blauth2024 family) with a route-dissolve perturbation, and wheels for CPython 3.14.
-- **1.1.3** (2026-07-20). Documentation only: `AUTHORS.md`, for the HAL and Software Heritage deposit, and extended acknowledgements.
-- **1.1.2** (2026-07-18). Documentation only: install commands for `uv`, acknowledgements, funding, and `date-released` in `CITATION.cff`.
-- **1.1.1** (2026-07-18). Documentation only: corrected attribution of the vendored branch-price-and-cut solver, and a References section.
-- **1.1.0** (2026-07-18). Exact pricing on stepwise travel-time functions, which carries the value jumps through the labeling instead of smoothing them, and optimality stamping on stepwise instances.
-- **1.0.0** (2026-07-17). First beta, with the memory self-guard of the exact component.
-- **0.5.0** (2026-07-15). Audited optimality certificates and the multi-gate certification protocol, under which the store was re-certified at 468 proven optima.
-- **0.4.0** (2026-07-08). Iterated local search becomes the default anytime strategy, with granular candidate lists in every local search.
-- **0.3.0** (2026-07-07). The exact branch-price-and-cut component ships in the default build on the HiGHS LP backend.
-- **0.2.0** (2026-07-06). The anytime solver: greedy construction, a time-dependent ant colony and the granular local search.
-- **0.1.0** (2026-07-06). The NDCPWLF composition engine, a bit-identical C++ port of the arithmetic of the reference checker.
-
-The proven optima of the MAMUT-routing store (704 as of 2026-08-08, among them the first 238 certificates of the Poryos2026 families) were issued by versions before 1.7.0, and they have not all been re-derived since the 1.7.0 repairs (see the 1.7.0 entry of the changelog). Of these, the 107 certificates of the Rifki2020 families concern instances with stepwise travel times, on which the exact component of versions 1.1.0 to 1.7.1 could miss improving columns (see the 1.8.0 entry). No optimum of these 107 is known to be wrong, and the 60 with 10 customers are confirmed by an exhaustive enumeration, but all 107 are to be derived again with 1.8.0 or later.
+Instances now live under `benchmarks/<family>/<problem_type>/`. Read `solution.cost` for the objective display and `solution.exact_cost` for the rational value. The ILS is the supported heuristic. Fleet descent uses `fd_period_work` to count evaluated moves between periodic triggers. [Changelog and migration table](https://github.com/0nyr/kayros/blob/main/CHANGELOG.md)
 
 ## Archival and reproducibility
 
 `kayros` is archived by [Software Heritage](https://www.softwareheritage.org/); the badge above tracks the archive status of the GitHub origin ([archived origin](https://archive.softwareheritage.org/browse/origin/?origin_url=https://github.com/0nyr/kayros), [archival visits](https://archive.softwareheritage.org/browse/origin/visits/?origin_url=https://github.com/0nyr/kayros)). For academic referencing, prefer Software Heritage identifiers (SWHIDs) of the exact archived revision or release tag over the moving repository origin; when reporting computational results, cite both the kayros release used and the MAMUT-routing benchmark artifacts it was run on.
 
 The component study of the exact solver consists of 1,400 runs on the 56 Dabia2013 instances with 100 customers, 1,120 of them with KAYROS 1.7.0 and the others with the [repaired upstream solver](https://github.com/0nyr/lera-tdvrptw-bpc-repaired) (tag `component-study-as-run`). Its run records and analysis are published as a [dataset](https://doi.org/10.5281/zenodo.24153428), and its harness is the repository [kayros-ablation](https://github.com/0nyr/kayros-ablation). The KAYROS run records identify the sources by commit `25d8f00`, whose `cpp/` and `src/` trees are those of the `v1.7.0` release. Version 1.7.1 changes no behaviour of the solver. Its changes to these trees are comments, documentation strings, names of tests and of build targets, and new tests, and the results of the exact component are identical to those of 1.7.0 on the instances compared (see the 1.7.1 entry of the changelog).
-
-## Branches
-
-Development happens on `main`. One long-lived branch is deliberately **not** merged: `td-time-warp` prototypes penalised exploration of the time-infeasible region (time-warp moves in the local search). A controlled head-to-head found it a no-go for the default solver (parity at best, worse on several families at equal time budgets), so it is kept reachable behind `Params` for reproducibility rather than merged; the negative result is written up in full as a thesis appendix.
 
 ## Provenance
 

@@ -4,11 +4,19 @@ All notable changes to KAYROS are recorded here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
-The heuristic solver uses iterated local search. The `aco` and `aco+ils` strategies and the ant-colony parameters have been removed. Historical runs can be replayed with Kayros 1.7.1.
+### Migrating to 2.0
 
-Fleet descent draws its victim route uniformly and processes ejected customers in reverse insertion order. Use `fd_period_work` for periodic triggers. The experimental `fd_period`, `fd_route_choice` and `fd_pop_order` parameters have been removed.
+| In 1.7.1 | In 2.0 development |
+|---|---|
+| `Solution.duration` | `Solution.cost` gives the display of the full objective. `Solution.exact_cost` holds the exact rational. |
+| Archive layout `benchmarks/<problem_type>/<family>/` | Family layout `benchmarks/<family>/<problem_type>/`, with library 0.13. |
+| `strategy="aco"` or `"aco+ils"` and ant-colony parameters | Use the iterated local search. Replay the ant-colony strategies with 1.7.1. |
+| `fd_period` in iterations | Set `fd_period_work` in evaluated moves. The numerical budgets use different units. |
+| `fd_route_choice` and `fd_pop_order` | Fleet descent samples victim routes uniformly and processes ejected customers in reverse insertion order. |
 
-Development towards 2.0.0. Version 1.8.0 was prepared and not released. Its entry is kept below as written and becomes part of the 2.0.0 entry. Its figures are to be checked again before the release.
+The default heuristic checks each candidate new best for feasibility and compares exact rational costs before accepting it. With `acceptance_mode="final_only"`, provisional incumbents are checked at return. If the last one fails, the solver can recover from its retained history (`incumbent_history_size`, default 6). Both modes accept complete customer-only warm starts through `kayros.solve(initial_routes=...)`.
+
+The following stepwise repair was developed for 1.8.0 and first enters the 2.0 development line. The historical comparisons use the arithmetic and dataset revisions of those experiments.
 
 ### Stepwise repair (prepared as 1.8.0)
 
@@ -37,10 +45,6 @@ This release repairs the exact component on instances whose travel times are ste
 - **Results on stepwise instances.** The columns generated, the root LP value, the number of nodes and the running time can differ from 1.7.1 on instances with value jumps. On the instances compared, the phantom columns and the duplicates disappear.
 - **The comment and the documentation of `KAYROS_BPC_VERIFY_FINAL`** no longer present the verification pass as a safety net. `verify_final_runs` counts the passes that were started, is global to the solve and is no guarantee. `closure_conditions` is the record to read.
 - **JSON form of a vertical piece** inside the solver: both ends of the span, and the string `"choice"` as a third element for a departure-choice vertical. No file written by KAYROS contains such pieces.
-
-### Compatibility
-
-No function signature, parameter or default value changes, and no key of the result dictionaries is removed or renamed. Two keys are added (`pricing_integrity`, `closure_conditions`). A solve that used to succeed can now raise only on a stepwise instance, in the cases listed under "A loud failure instead of a bridged jump". The version number is 1.8.0 rather than 1.7.2 because results can change on stepwise instances and because earlier certificates on these instances are to be derived again.
 
 ### Known issues
 

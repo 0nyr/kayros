@@ -439,10 +439,8 @@ def solve(
     default, FleetCostDuration via ``params.objective``).
 
     ``instance`` is a ``.vrp.json`` path or an already-loaded
-    ``LoadedTDInstance``. The returned ``Solution.cost`` is priced by the
-    reference checker under the selected objective; an internal/checker
-    disagreement raises (it would be a kayros bug, never a rounding issue to
-    tolerate).
+    ``LoadedTDInstance``. The returned ``Solution.cost`` is the binary64
+    display of the exact objective, with its rational value in ``Solution.exact_cost``.
 
     ``verify`` applies to the loading half only, and is forwarded to
     ``kayros.io.load_instance``: it re-derives the sidecar digests and the

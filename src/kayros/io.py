@@ -70,9 +70,8 @@ def to_core(
 ) -> _core.Instance:
     """Build the compiled-core instance from a loaded MAMUT TD instance.
 
-    Float coercions mirror the checker exactly (``_vertex_time_window`` and the
-    ``service_time`` cast in ``compute_route_ready_time_function``), so core
-    route pricing is bit-identical to ``check_td_solution``.
+    The search uses binary64 operands from the materialized instance. Final
+    solution costs come from the prepared exact evaluator of mamut-routing-lib.
 
     ``objective_function`` selects what the core's fold prices: under
     ``Duration`` (the default) ``fixed_route_cost`` stays 0 even when the
