@@ -1,5 +1,5 @@
 //
-// kayros addition (plan 2, Stream 5 M5.1) — NOT part of Lera-Romero's goc.
+// Kayros addition to Lera-Romero's goc library.
 // Solver-agnostic in-memory Formulation used by the HiGHS backend: the model
 // lives entirely in goc data structures; the solver materializes it per solve.
 //
@@ -20,7 +20,7 @@ namespace goc
 class MatrixFormulation : public Formulation
 {
 public:
-	// Incremental-sync journal (M5.1b): every mutation is recorded so a
+	// Incremental-sync journal: every mutation is recorded so a
 	// persistent solver backend can replay only the ops it has not consumed
 	// yet (keeping its warm simplex basis) instead of rebuilding the model.
 	// Destructive ops (removals, objective replacement) record FullRebuild.

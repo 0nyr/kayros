@@ -19,35 +19,26 @@
 
 namespace goc
 {
-// M13.3 (kayros-added, NOT vendored): selects which vertical-piece arithmetic
-// the PWL operators use.
+// Kayros selects vertical-piece arithmetic per solve and thread.
 //
-//   true  = the M13.0 exact tagged-vertical rules. Compose carries BOTH
+//   true  = tagged-vertical rules. Compose carries both
 //           vertical kinds through an increasing inner function, operator+
 //           pairs vertical endpoints by sweep order, and operator+/operator*
 //           hold an operand back for any stacked boundary piece. These rules
 //           are what the exact value-jump labeling needs on step-carrying
 //           (stepwise-ATF) instances.
-//   false = the pre-M13.0 (kayros 1.0.0) rules with the scalar-point addition
-//           repair, which preserve only JUMP
+//   false = the jump-free rules preserve only JUMP
 //           verticals in Compose, pair operator+ verticals by image order, and
 //           hold back only for a boundary vertical after a non-vertical piece.
 //           Addition also retains a single nonvertical point operand across
 //           stacked CHOICE pieces at exactly the same abscissa.
 //
-// Why the switch exists: CHOICE verticals (from Inverse of a departure
-// plateau) and set-valued label durations occur on JUMP-FREE instances too, so
-// the M13.0 rules were never confined to the exact path the way M13.0 assumed.
-// On jump-free instances they change the audited v1.0.0 arithmetic and
-// over-certify (M13.3). The flag retains the legacy arithmetic on jump-free
-// solves, except for the scalar-point addition repair needed to preserve all
-// attainable departure choices on a tight connection.
-//
+// Inverting a departure plateau can create a CHOICE vertical even on jump-free input. Select the arithmetic from the original arrival functions. The jump-free addition rule retains a scalar point across stacked CHOICE pieces to preserve attainable departure times.
 // Each solve scopes the arithmetic to its calling thread. Outside a solve the
 // primitives use the exact vertical semantics.
 bool step_exact_arithmetic();
 
-// (1.8.0) Raised by PWLFunction::Inverse, on a step-carrying solve, on a
+// Raised by PWLFunction::Inverse, on a step-carrying solve, on a
 // discontinuity that it cannot invert exactly: a downward value jump, a domain
 // gap or a decreasing function. Callers that know the arc add it to the
 // message. A jump-free solve never raises it.
@@ -162,12 +153,12 @@ public:
     
     // Returns: whether some piece covers x; if so *value = the attained value
     // there (Value semantics without the hard failure). Post-domination label
-    // durations legitimately carry interior domain holes (M5.9); callers that
+    // durations legitimately carry interior domain holes; callers that
     // may probe inside them use this instead of Value.
     bool TryValue(double x, double* value) const;
 
-    // Returns: the MINIMUM value attainable at x across every piece covering x
-    // (M5.9, 21/n). Label DURATION functions are set-valued at an abscissa
+    // Minimum attainable value across every piece covering x.
+    // Label duration functions are set-valued at an abscissa
     // where a departure-choice set exists (stacked point pieces or choice
     // verticals from composing through dep): the label semantics D(t) = min
     // duration at t demands the minimum, while Value returns an arbitrary
@@ -182,9 +173,9 @@ public:
     // Returns: the inverse of this function (f) if is inversible, otherwise returns g(y) = max{x : f(x) = y}.
     PWLFunction Inverse() const;
 
-    // Returns: g(x) = f(T - x). Exact graph transform (M5.9, design memo 12.2):
+    // Returns: g(x) = f(T - x). Exact graph transform:
     // each breakpoint abscissa moves by ONE IEEE subtraction (platform-stable, no
-    // epsilon logic), arrays reversed; a value jump's ATTAINED endpoint (13.1) is
+    // epsilon logic), arrays reversed; a value jump's ATTAINED endpoint is
     // preserved by construction. Replaces Compose(T - Id), the labeling's only
     // decreasing-inner composition (reverse_instance, Merge).
     PWLFunction FlipTime(double t_max) const;

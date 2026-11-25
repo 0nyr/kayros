@@ -33,14 +33,14 @@ public:
     LinearFunction(const Point2D& p1, const Point2D& p2);
 
     // Verticals (zero-width pieces with distinct image endpoints) come in two
-    // kinds with different composition semantics (M5.9, design memo 13.2):
+    // kinds with different composition semantics:
     //  - JUMP (slope = +INFTY): a genuine discontinuity of a pointwise function
     //    (e.g. a stepwise travel-time up-step in arr). Interior span values are
     //    unattained; composition discards them.
     //  - CHOICE (slope = -INFTY): the inverse of a plateau (dep at a waiting
     //    plateau or a slope-0 arr stretch). Every interior value is a genuinely
     //    attainable choice; composition SWEEPS the outer function over the span.
-    // Both store the attained/representative value in `intercept` (13.1): for a
+    // Both store the attained/representative value in `intercept`: for a
     // choice vertical that is the duration-optimal representative (the latest
     // departure, goc's historical max{x : f(x) = y} inverse semantics).
     // A plateau (slope 0) and a single point are NOT verticals.
@@ -61,7 +61,7 @@ public:
     // order. For an ordinary piece these are Value(domain.left), Value(domain.right).
     // For a vertical (value jump) Value returns only the incoming endpoint, so we
     // return both image endpoints, incoming first (intercept holds the
-    // left-continuous incoming value). M5.9: preserves jumps under pointwise
+    // left-continuous incoming value). Preserves jumps under pointwise
     // arithmetic (operator+/operator*), which otherwise collapse them.
     std::pair<double, double> sweep_endpoints() const;
     

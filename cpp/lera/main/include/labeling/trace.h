@@ -1,5 +1,5 @@
 //
-// kayros (M5.9/M13.0) label-trace harness. Dev tool, zero cost when the env
+// Kayros label tracing. Disabled when the environment
 // vars are unset. Shared by the monodirectional labeling (KAYROS_TRACE_PATH:
 // per-label extension/domination/enumeration fates for prefix labels of the
 // target vertex sequence) and the bidirectional merge (KAYROS_TRACE_MERGE: a
@@ -63,7 +63,7 @@ inline std::string path_str(const Label* l)
 	return s;
 }
 
-// --- merge tracing (M13.0) ---------------------------------------------------
+// --- merge tracing ---------------------------------------------------
 
 inline const std::vector<goc::Vertex>& merge_target()
 {

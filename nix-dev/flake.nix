@@ -24,7 +24,7 @@
           packages = with pkgs; [ boost gmpxx highs ];
 
           shellHook = ''
-            # Vendored Lera BPC (cpp/lera, KAYROS_WITH_LERA=ON builds only):
+            # Vendored Lera BPC (enabled by default):
             # CPLEX 22.1 local install + nixpkgs Boost, same env contract as
             # the TDVRPTW-solver dev shell.
             export CPLEX_HOME=~/cplex2210/CPLEX_Studio221

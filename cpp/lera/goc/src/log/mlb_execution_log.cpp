@@ -58,7 +58,7 @@ ostream& operator<<(ostream& os, MLBStatus status)
 	unordered_map<MLBStatus, string> mapper = {{MLBStatus::DidNotStart, "DidNotStart"},
 											  {MLBStatus::TimeLimitReached, "TimeLimitReached"},
 											  {MLBStatus::ProcessLimitReached, "ProcessLimitReached"},
-											  {MLBStatus::MemoryLimitReached, "MemoryLimitReached"}, // kayros (M13.2)
+											  {MLBStatus::MemoryLimitReached, "MemoryLimitReached"},
 											  {MLBStatus::Finished, "Finished"}};
 	return os << mapper[status];
 }

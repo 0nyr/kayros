@@ -45,7 +45,7 @@ ostream& operator<<(ostream& os, BLBStatus status)
 	unordered_map<BLBStatus, string> mapper = {{BLBStatus::DidNotStart, "DidNotStart"},
 											   {BLBStatus::TimeLimitReached, "TimeLimitReached"},
 											   {BLBStatus::SolutionLimitReached, "SolutionLimitReached"},
-											   {BLBStatus::MemoryLimitReached, "MemoryLimitReached"}, // kayros (M13.2)
+											   {BLBStatus::MemoryLimitReached, "MemoryLimitReached"},
 											   {BLBStatus::Finished, "Finished"}};
 	return os << mapper[status];
 }

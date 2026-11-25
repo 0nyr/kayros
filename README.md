@@ -18,10 +18,12 @@ For the 2.0 development version, build a wheel of the pinned MAMUT library with 
 export PIP_FIND_LINKS="$PWD/kayros-build-wheels"
 mkdir -p "$PIP_FIND_LINKS"
 python -m pip wheel --no-deps --wheel-dir "$PIP_FIND_LINKS" "mamut-routing-lib @ git+https://github.com/ANR-MAMUT/MAMUT-routing-lib.git@9ebdcff2e49c184e04c5630a3dae5a7c2daffc6d"
-python -m pip install ./kayros-2.0.0.dev0.tar.gz
+git clone https://github.com/0nyr/kayros.git
+cd kayros
+python -m pip install --group dev -e .
 ```
 
-For an editable install, run `python -m pip install --group dev -e .` from the Kayros checkout with the same `PIP_FIND_LINKS`. CMake discovers the library's header and GMP linkage through its `MAMUTRouting::td_exact` target. For a standalone CMake build, install the pinned wheel in your environment and pass `-DMAMUTRouting_DIR="$(python -m mamut_routing_lib.cmake)"` to CMake.
+To install from a development source distribution, run `python -m pip install ./kayros-2.0.0.dev0.tar.gz` with the same `PIP_FIND_LINKS`. CMake discovers the library's header and GMP linkage through its `MAMUTRouting::td_exact` target. For a standalone CMake build, install the pinned wheel in your environment and pass `-DMAMUTRouting_DIR="$(python -m mamut_routing_lib.cmake)"` to CMake.
 
 The development build supports CPython 3.11 to 3.14. Building both projects from source requires a C++23 compiler, Boost.Graph and GMP development files. The Kayros build backend provides CMake 3.26 or later. CMake builds HiGHS statically when it cannot find an installed copy. Link-time optimization for the branch-price-and-cut solver is enabled on supported toolchains (`KAYROS_LERA_IPO`).
 
@@ -62,7 +64,7 @@ print(fleet_solution.cost, fleet_solution.num_routes)
 
 `solution.cost` is the binary64 display of the exact cost computed by the library (profile `td-binary64-exact-v1`), and `solution.exact_cost` is that cost as a rational. The value of the search fold is kept in `solution.search_value`.
 
-With the default `Params(acceptance_mode="each_incumbent")`, Kayros checks each candidate new best for feasibility and strict improvement of the rational objective before installing it as the incumbent. The callback exposes the rational `incumbent.exact_cost`, its binary64 display `incumbent.value` and the approximate `incumbent.search_value`. Two strictly improving rational costs can have the same display.
+With the default `Params(acceptance_mode="each_incumbent")`, Kayros checks each candidate new best for feasibility and strict improvement of the rational objective before installing it as the incumbent. The callback exposes the rational `incumbent.exact_cost`, its binary64 display `incumbent.value` and the approximate `incumbent.search_value`. Two strictly improving rational costs can have the same display. The native search prepares exact arc data on demand and retains up to 65,536 input breakpoints across proposals. It can prepare evicted arcs again. The returned routes also pass through the library evaluator.
 
 With `Params(acceptance_mode="final_only", incumbent_history_size=6)`, the callback reports provisional search improvements with `incumbent.exact_cost=None`. If the final candidate fails the exact check, Kayros tries the last 6 distinct prior route sets in increasing order of approximate cost. Set the history size to 0 to check only the final candidate. The solver logs final rejections and recovery and raises `InfeasibleError` if all retained candidates fail. `solution.acceptance_stats` gives counts of infeasible proposals, nonimproving proposals, squeeze rejections, final rejections and fallback attempts.
 

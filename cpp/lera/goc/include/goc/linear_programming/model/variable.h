@@ -42,7 +42,7 @@ public:
 	
 private:
 	friend class CplexFormulation;
-	friend class MatrixFormulation; // kayros addition (HiGHS backend, M5.1).
+	friend class MatrixFormulation; // kayros addition (HiGHS backend).
 	friend class std::hash<Variable>;
 	
 	Variable(const std::string& name, int* index);

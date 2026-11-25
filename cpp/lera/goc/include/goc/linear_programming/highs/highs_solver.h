@@ -1,5 +1,5 @@
 //
-// kayros addition (plan 2, Stream 5 M5.1) — NOT part of Lera-Romero's goc.
+// Kayros addition to Lera-Romero's goc library.
 // HiGHS backend mirroring goc/linear_programming/cplex/cplex_solver.h.
 // Stateless: the HiGHS model is materialized from the Formulation per solve
 // (single source of truth; duals come postsolved to the original space, so

@@ -5,13 +5,7 @@ TD instances (subsampled from real benchmarks, value-jump ATFs preserved) are
 solved by both the exact BPC prover and the ILS heuristic, and the two soundness
 invariants S1/S2 (see ``td_fuzz``) are asserted.
 
-- ``test_rifki22_reproducer_*`` pin a *fixed* minimal reproducer discovered by
-  the fuzzer (Rifki-22 n=20, customers {4,6,8,10,12,13,15,19}): before M5.9 cold
-  certified ``Optimum 2504`` while the true optimum is ``2496`` (ILS and warm
-  both reach it). Strict-xfail until the exact-``Inverse`` fix landed; now hard
-  gates. NOTE (2026-07-10): these gates pin LOCAL-BUILD soundness only; the g5k
-  re-certification showed the residual mispricing is build-dependent (identical
-  payloads certify differently under another toolchain). See NOTICE item 9.
+- The fixed Rifki-22 subset previously closed cold at 2,504 while a feasible solution costs 2,496. The inverse of a nondecreasing function must preserve its value jumps. These comparisons exercise the current build.
 - ``test_fuzz_batch`` is the broad sweep. It is opt-in (set ``KAYROS_FUZZ=1``)
   because each case runs a full solve; it prints every unsound case so new
   reproducers can be pinned.
@@ -60,7 +54,7 @@ def test_rifki22_reproducer_ils_finds_true_optimum():
 def test_rifki22_reproducer_cold_is_sound():
     """Cold certified optimum must not exceed the true optimum 2496.
 
-    Fixed in M5.9 (exact non-decreasing ``Inverse``); cold certified 2504 before.
+    The nondecreasing inverse must retain both endpoints of a jump.
     """
     require_benchmarks()
     inst = _load_rifki22()
@@ -72,7 +66,7 @@ def test_rifki22_reproducer_cold_is_sound():
 def test_rifki22_reproducer_warm_start_independent():
     """Cold and optimal-warm solves must certify the same value.
 
-    Fixed in M5.9; was 2504 (cold) vs 2496 (warm) before.
+    The historical discrepancy was 2,504 cold versus 2,496 warm.
     """
     require_benchmarks()
     inst = _load_rifki22()

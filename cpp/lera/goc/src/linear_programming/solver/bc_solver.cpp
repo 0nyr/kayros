@@ -6,7 +6,7 @@
 
 #include "goc/linear_programming/solver/bc_solver.h"
 
-// kayros (M5.1): compile-time LP backend switch (CPLEX default, HiGHS optional).
+// Kayros: compile-time LP backend selection (HiGHS by default, CPLEX optional).
 #ifdef GOC_LP_BACKEND_HIGHS
 #include "goc/linear_programming/highs/matrix_formulation.h"
 #include "goc/linear_programming/highs/highs_solver.h"

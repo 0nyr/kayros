@@ -11,13 +11,13 @@ using namespace goc;
 
 namespace solver
 {
-// M5.9 dev tracing: set by DominationStep when the candidate matches
+// Trace matched labels: set by DominationStep when the candidate matches
 // KAYROS_TRACE_PATH; DominatePieces then prints its piece comparisons.
 bool trace_domination_detail = false;
 
 namespace
 {
-// M5.9 (design memo 13.2): domination values of a piece at [l, r], respecting
+// Domination values of a piece at [l, r], respecting
 // the vertical kinds. CANDIDATE side (f1, the function being pruned): a CHOICE
 // vertical carries a whole span of genuinely achievable durations, so it is
 // protected by its BEST (minimum) value — erasing it requires the entire span
@@ -41,7 +41,7 @@ inline double dominator_value(const LinearFunction& p, double x)
 }
 } // namespace
 
-// M5.9 (20/n): the completion base must be an UPPER bound of the dominator's
+// The completion base must be an UPPER bound of the dominator's
 // duration at its domain end. With stacked choice pieces (several zero-width
 // pieces at the same final abscissa, the departure-choice set), the LAST
 // piece's top is not necessarily the maximum: take the max image top over
@@ -98,7 +98,7 @@ bool PWLDominationFunction::DominatePieces(const PWLFunction& f2, double delta)
 	if (f2.Domain().IsPoint() && !f1.Domain().IsPoint()) return false;
 
 	// Piece to add to the final of f2 with waiting time to include all f1's domain.
-	// M5.9 (20/n): base = max over ALL pieces at the final abscissa (stacked
+	// Base = max over ALL pieces at the final abscissa (stacked
 	// choice pieces can hide the maximum in a non-last piece).
 	double f2_last_duration = completion_base(f2);
 	auto completion_piece = LinearFunction(
@@ -227,7 +227,7 @@ bool PWLDominationFunction::IsAlwaysDominated(const PWLFunction& f2, double delt
 	if (epsilon_bigger(min(dom(f2)), f1.Domain().left)) return false;
 	
 	// Piece to add to the final of f2 with waiting time to include all f1's domain.
-	// M5.9 (20/n): see DominatePieces — max over all pieces at the final abscissa.
+	// See DominatePieces — max over all pieces at the final abscissa.
 	double f2_last_duration = completion_base(f2);
 	auto completion_piece = LinearFunction(
 		{max(dom(f2)), f2_last_duration},

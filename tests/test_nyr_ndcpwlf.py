@@ -1,15 +1,4 @@
-"""Unit gates for the step-capable NDCPWLF primitives (M5.9).
-
-These pin the exact-jump semantics of ``nyr::NDCPWLF`` before it replaces
-``goc::PWLFunction`` inside the labeling (design memo
-``reports/design/m5.9-exact-stepwise-labeling-design.md``). The authoritative
-convention is the canonical checker's: evaluation is **left-continuous** at a
-value jump — at the abscissa of an up-step the function takes the *lower*
-(pre-jump) value, i.e. ``f(x) = lim_{t->x^-} f(t)``. Every new primitive
-(Inverse, Max/Min, domination) must share this convention.
-
-Test surface: ``kayros._lera.nyr.NDCPWLF`` (bound in ``cpp/lera/bridge/lera_module.cpp``).
-"""
+"""Check left-continuous evaluation, composition and inversion of nyr::NDCPWLF. At an upward value jump the function takes its lower, attained value. The labeling uses goc::PWLFunction for its general duration functions."""
 
 from __future__ import annotations
 

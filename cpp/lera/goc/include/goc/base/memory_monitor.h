@@ -1,7 +1,7 @@
-// kayros (M13.2): graceful OOM self-rejection guard. NOT upstream goc code.
+// Kayros: graceful OOM self-rejection guard. NOT upstream goc code.
 //
 // Per-thread watermark of process RSS: the prover polls it at the same loop heads as
-// the M5.2 deadline and unwinds with MemoryLimitReached instead of being
+// the deadline and unwinds with MemoryLimitReached instead of being
 // OS-OOM-killed with no verdict (the Vu2020 full-horizon TDVRP pathology:
 // trivial-TW pruning is weak, label accumulation exceeds any node's RAM).
 // Analogous to the poison-and-continue and time-limit guards: the outcome is

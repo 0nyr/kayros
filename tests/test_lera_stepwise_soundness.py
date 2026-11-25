@@ -1,33 +1,6 @@
-"""Soundness gates for exact-BPC certification on stepwise (value-jump) ATFs.
+"""Regression tests for BPC pricing on stepwise and continuous inputs.
 
-Historical context (M5.9). The vendored Lera BPC *was* unsound on stepwise
-travel-time functions (Rifki2020 and any future step-carrying family): value
-jumps were mollified into 1e-3-wide steep bridge segments, whose
-~1000*step-height slope turned the labeling's epsilon arithmetic and domain
-clamps into O(step-height) merge/dominance mispricing. Negative-reduced-cost
-columns were silently dropped and the branch-and-price closed at a wrong,
-warm-start-dependent "optimum". See ``cpp/lera/NOTICE.md`` item 9 and the
-2026-07-08 Rifki retraction report. Stepwise instances have run on the exact
-tagged-vertical path since M13.0 and the forward-side mollifier is deleted; the
-reverse-side normalizer (``continuize_value_jumps``) is retained because the
-jump-free path needs it, and the gates below pin that (item 9, amendment 7).
-
-These tests are the *specification* of the fix. The M5.9 numerics fix (exact
-coordinate-swap ``Inverse`` for non-decreasing functions) made them pass on the
-local build: the pricing incompleteness that certified 8376 > 8361 is gone
-here, so the gates below are hard gates. **They are necessary, not sufficient**:
-the 2026-07-10 g5k re-certification showed the residual mispricing is
-BUILD-DEPENDENT (bit-identical payloads certify differently under gcc-13/Debian
-vs the local NixOS toolchain; e.g. Rifki-25 n=10 cold 4820 vs true 4357 on g5k
-only). These gates therefore pin local-build soundness against regressions;
-they do not certify the prover on stepwise ATFs. See NOTICE item 9 and the
-2026-07-10 campaign report. The guard tests (jump-free family) must stay green
-throughout. Randomized coverage: ``test_prover_fuzz_soundness.py``.
-
-The decisive minimal reproducer is TDVRPTW/Rifki2020/n=20/Rifki-16: cold solve
-certifies ``Optimum 8376`` while the checker-valid solution below carries cost
-8361 (a 124-unit / 1.46% refutation), and the certified value is warm-start
-dependent (8485 / 8376 / 8361 from stored-BKS / cold / counterexample starts).
+Rifki supplies checked solutions below previously reported numerical optima. The tests exercise vertical value jumps, reverse-side normalization and pricing on each build. The randomized cases in test_prover_fuzz_soundness.py complement these fixed witnesses. See cpp/lera/NOTICE.md, item 9, for the history.
 """
 
 from __future__ import annotations
@@ -64,9 +37,7 @@ def _need(path, label):
 # Decisive minimal reproducer -------------------------------------------------
 RIFKI16_N20 = _pick(family_instances("TDVRPTW", "Rifki2020", ["n=20"]), "Rifki-16")
 
-# A checker-valid solution strictly below the M5.7 "proven optimum" 8485 and
-# below the cold-start "optimum" 8376 (M7.4 ILS counterexample; retraction
-# report 2026-07-08). Its exact checker cost is asserted in-test.
+# Checked routes costing 8,361 undercut the historical native closures at 8,485 and 8,376.
 RIFKI16_N20_COUNTEREXAMPLE = [
     [5],
     [8, 13],
@@ -111,13 +82,7 @@ def test_reproducer_counterexample_is_checker_valid():
 
 
 def test_stepwise_certified_value_is_sound():
-    """A certified optimum must not exceed a known checker-valid solution.
-
-    Cold solve of the reproducer: the certified value must be <= 8361 (the
-    checker cost of a feasible solution). Fixed in M5.9 (exact non-decreasing
-    ``Inverse`` removed the pricing incompleteness that made the mollified path
-    certify 8376); was strict-xfail before the fix.
-    """
+    """The native closure value must be at most the checked feasible cost of 8,361."""
     require_benchmarks()
     _need(RIFKI16_N20, "Rifki-16 n=20 TDVRPTW")
     loaded = load_td_instance(RIFKI16_N20)
@@ -127,12 +92,7 @@ def test_stepwise_certified_value_is_sound():
 
 
 def test_stepwise_certification_is_warm_start_independent():
-    """A sound proof cannot depend on the warm start.
-
-    Cold and counterexample-warm solves must both certify Optimum at the same
-    value. Before M5.9: 8376 (cold) vs 8361 (warm) -- warm-start dependence was
-    the decisive soundness signature; now both certify 8361.
-    """
+    """Cold and warm native searches must reach the same numerical closure on this witness."""
     require_benchmarks()
     _need(RIFKI16_N20, "Rifki-16 n=20 TDVRPTW")
     loaded = load_td_instance(RIFKI16_N20)
@@ -211,21 +171,7 @@ def test_asymmetric_rifki14_k15_is_sound():
     assert res["value"] <= RIFKI14_K15_TRUE_UB + 1e-6
 
 
-# --- M13.0: the 3 exact-arm incompleteness reproducers (1.1.0) ---------------
-# Under KAYROS_STEP_EXACT=1 (the exact tagged-vertical path, which also
-# bypasses the reverse-side normalizer) the cold
-# solve used to certify ABOVE the checker-valid optimum (7451 > 7378,
-# 21330 > 21319; dropped negative-reduced-cost columns), while warm-starting
-# with the witness routes certified the truth: pure pricing incompleteness
-# (the 13.7 signature). FIXED by the 1.1.0 three-layer repair (extension
-# elapsed-time identity, path-keyed solution pool, operator+ stacked-tail
-# hold-back): Rifki-2 and Rifki-17 certify their truths cold == warm and are
-# hard certification gates. Rifki-18 finds the true optimum as its incumbent
-# but cannot close the tree within local TLs on the fixed build (honest
-# TimeLimitReached; the exact path trades speed for completeness there), so
-# its gate asserts SOUNDNESS (never a certificate above the truth, incumbent
-# == truth); its full certification budget is judged by the g5k sweep.
-# Truths are the audited mollified four-run certificates (store BKS).
+# These three Rifki witnesses exercise waiting on a value jump, path-based deduplication and a stacked departure choice at the end of a piecewise function. The historical reference values are costs of feasible solutions. Rifki-18 may reach its time limit at the test budget.
 M130_EXACT_CASES = {
     "Rifki-2": ("n=20", 7378.0, 300.0),
     "Rifki-18": ("n=20", 7127.0, 300.0),
@@ -273,7 +219,7 @@ def test_exact_path_rifki18_n20_is_sound():
 # ILS-confirmed optimum. Fast (seconds).
 C102_K7_SRC = ("Dabia2013", "n=25", "C102")
 C102_K7_KEEP = [5, 7, 9, 12, 13, 15, 17]
-C102_K7_TRUE = 7525.999728501456  # checker-exact; ILS matches at display precision
+C102_K7_TRUE = 7525.999728501456  # reference solution cost at display precision
 
 
 def test_jumpfree_c102_k7_guard():
@@ -288,35 +234,13 @@ def test_jumpfree_c102_k7_guard():
     assert res["value"] == pytest.approx(C102_K7_TRUE, abs=1e-9)
 
 
-# --- M13.3: the jump-free over-certification the M13.0 gating premise caused --
-# M13.0 selected its new step-arc extension arithmetic (and the goc vertical
-# rules) on "does any operand carry a vertical", asserting that jump-free
-# instances carry none. That premise is FALSE: CHOICE verticals (Inverse of a
-# departure plateau) and set-valued label durations are ubiquitous on jump-free
-# instances (probe on this very instance: 6560 step-arc extensions vs 1387
-# legacy, zero of them at a JUMP vertical). The exact-path arithmetic is sound
-# only against exact-path semantics, so on jump-free data it certified optima
-# strictly ABOVE checker-valid solutions on at least six Vu2020 instances
-# (+0.29 to +9.88). M13.3 gates both layers on the solve being step-carrying
-# (KAYROS_STEP_EXACT), restoring the audited kayros 1.0.0 arithmetic here.
-#
-# This is the largest of the six (+4.27 at M13.0..1.5.0) and the fastest to
-# close (~10-25 s cold). The truth is the stored MAMUT certificate, which the
-# pre-M13.0 build reproduces bit-exactly and which an independent checker-valid
-# solution attains.
+# A CHOICE vertical can occur on a jump-free instance. Using the stepwise extension rules on Vu-A5-pA-d90-w40 led to closure about 4.27 above a feasible route set. The route cost below is the regression threshold.
 VU_A5PA_D90_W40 = ("Vu2020", "n=59", "Vu-A5-pA-d90-w40")
 VU_A5PA_D90_W40_TRUE = 2760.1098340282865
 
 
 def test_jumpfree_vu2020_certificate_is_not_above_the_truth():
-    """A jump-free cold certificate must not exceed the known optimum.
-
-    Hard soundness gate. M13.0 through 1.5.0 certified ``Optimum
-    2764.379834028286`` here, 4.27 above a checker-valid solution: a live
-    over-certification, not a bound-quality issue. Also checks the returned
-    solution prices at the certified value under the reference checker, so a
-    "sound" value backed by an infeasible route cannot pass.
-    """
+    """Check that cold BPC closure stays below the known feasible Vu2020 cost and that its returned routes attain the reported cost to the test tolerance."""
     require_benchmarks()
     fam, size, name = VU_A5PA_D90_W40
     src = instance_path("TDVRPTW", fam, size, name)
@@ -331,7 +255,7 @@ def test_jumpfree_vu2020_certificate_is_not_above_the_truth():
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
     ]
-    # M2: becomes exact equality once priced columns are evaluated exactly
+    # The master currently sums binary64 column costs.
     assert_value_close(res["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
@@ -380,7 +304,7 @@ def test_jumpfree_reverse_side_certificate_is_not_above_the_truth(name):
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
     ]
-    # M2: becomes exact equality once priced columns are evaluated exactly
+    # The master currently sums binary64 column costs.
     assert_value_close(res["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
@@ -403,8 +327,8 @@ def test_jumpfree_certification_is_warm_start_independent():
     warm = _warm(loaded, routes, tl=120.0)
     assert warm["exact_log"]["status"] == "Optimum"
     assert cold["value"] == warm["value"]
-    # And the reported value is checker-exact.
-    # M2: becomes exact equality once priced columns are evaluated exactly
+    # Check the native value against an independent exact evaluation.
+    # The master currently sums binary64 column costs.
     assert_value_close(cold["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
