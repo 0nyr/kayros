@@ -242,8 +242,6 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
     FleetDescentParams fd_params;
     fd_params.k_max = params.fd_k_max;
     fd_params.ep_budget = params.fd_ep_budget;
-    fd_params.route_choice = params.fd_route_choice;
-    fd_params.pop_order = params.fd_pop_order;
     fd_params.sq_ladder = params.sq_ladder;
     fd_params.sq_penalty = params.sq_penalty;
     std::vector<std::int32_t> fd_pcount(
@@ -352,8 +350,7 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
         // against ls_stats.evaluated + fd_stats.evaluated for the solve.
         result.fd_stats.basin_evaluated += ls_stats.evaluated - basin_mark;
         // Reset AFTER the basin descents so the next fd_period_work window
-        // measures pure ILS work between triggers (mirrors fd_period, which
-        // counts iterations only).
+        // measures ILS work between triggers.
         fd_work_mark = ls_stats.evaluated;
         return cand;
     };
@@ -401,12 +398,6 @@ SolveResult solve_ils(const Instance& inst, const IlsParams& params,
             history_idx = 0;
             no_improvement = 0;
             improve_work_mark = ls_stats.evaluated;
-        }
-        if (fd_armed && params.fd_period > 0 && iteration > 0 &&
-            iteration % static_cast<std::uint64_t>(params.fd_period) == 0 &&
-            !past()) {
-            const double fd_cand = run_fleet_descent();
-            if (!std::isnan(fd_cand)) curr = fd_cand;
         }
         if (fd_armed && params.fd_period_work > 0 &&
             ls_stats.evaluated - fd_work_mark >= params.fd_period_work &&

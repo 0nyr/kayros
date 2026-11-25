@@ -64,7 +64,7 @@ class Params:
     exhaustive_on_best: bool = True
     # Fleet-descent phase (Plan 12 M4, 1.3.0): an NBRMH-style ejection-ladder
     # route elimination run on the incumbent at every restart-to-best trigger
-    # (and every fd_period iterations when fd_period > 0). Inert under
+    # and after each fd_period_work candidate evaluations. Inert under
     # Duration (only armed when the objective prices routes). fd_attempts=0
     # disables it entirely (the pre-M4 behavior).
     fd_attempts: int = 3
@@ -110,19 +110,7 @@ class Params:
     # The cap is a plain route-count target with no anchoring to any
     # reference fleet; sub-reference caps are legitimate (plan 15 D10).
     k_cap: int = 0
-    fd_period: int = 0
-    fd_route_choice: int = 0  # 0 uniform random victim, 1 smallest
-    fd_pop_order: int = 0  # 0 LIFO, 1 difficult-first
-    # Work-based triggers (1.3.0): thresholds in LS work units (candidate
-    # pricings, see Solution.work_units). Deterministic wall-time proxies that
-    # self-scale with instance size, where the flat iteration counts above fit
-    # one size class only (Blauth2024 iteration velocity spans ~1100/s at n=10
-    # to ~0.2/s at n=2000). 0 disables; each may be combined with its
-    # iteration-count counterpart (whichever fires first). fd_period_work only
-    # arms when the objective prices routes, like fd_period.
-    # F-gated like fd_period: dead code under Duration at any value, so the
-    # 1.3.0 default (the campaign-winning ~150 s cadence on one modern core)
-    # only changes FleetCostDuration runs.
+    # Candidate evaluations between fleet-descent phases. Zero disables the periodic trigger.
     fd_period_work: int = 100_000_000
     # BREAKING default in 1.3.0: the work-based restart is ON by default
     # with a deliberately long ~25-minute stall window (the flat
@@ -174,9 +162,6 @@ class Params:
         params.sq_on_nodrop = self.sq_on_nodrop
         params.sq_ladder = self.sq_ladder
         params.k_cap = self.k_cap
-        params.fd_period = self.fd_period
-        params.fd_route_choice = self.fd_route_choice
-        params.fd_pop_order = self.fd_pop_order
         params.fd_period_work = self.fd_period_work
         params.restart_no_improvement_work = self.restart_no_improvement_work
         params.seed_k_factor = self.seed_k_factor

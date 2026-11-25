@@ -47,24 +47,7 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
     snapshot.reserve(K);
     for (const RouteState& s : ss.states) snapshot.push_back(s.vertices);
 
-    // Victim route: uniform random (NBRMH's choice) or smallest (the dissolve
-    // kick's choice), uniform among ties.
-    std::size_t victim;
-    if (params.route_choice == 1) {
-        std::size_t min_size = ss.states[0].vertices.size();
-        for (const RouteState& s : ss.states) {
-            min_size = std::min(min_size, s.vertices.size());
-        }
-        std::vector<std::size_t> ties;
-        for (std::size_t k = 0; k < K; ++k) {
-            if (ss.states[k].vertices.size() == min_size) ties.push_back(k);
-        }
-        victim = ties[static_cast<std::size_t>(
-            draw(rng, static_cast<std::uint64_t>(ties.size())))];
-    } else {
-        victim = static_cast<std::size_t>(
-            draw(rng, static_cast<std::uint64_t>(K)));
-    }
+    const auto victim = static_cast<std::size_t>(draw(rng, K));
 
     // Ejection pool, LIFO (route order in, reverse order out).
     std::vector<std::int32_t> pool = ss.states[victim].vertices;
@@ -90,17 +73,8 @@ bool fleet_descent(const Instance& inst, const NeighbourLists& nb,
             return false;
         }
 
-        std::size_t pick = pool.size() - 1;  // LIFO
-        if (params.pop_order == 1) {
-            for (std::size_t i = 0; i < pool.size(); ++i) {
-                if (pcount[static_cast<std::size_t>(pool[i])] >
-                    pcount[static_cast<std::size_t>(pool[pick])]) {
-                    pick = i;
-                }
-            }
-        }
-        const std::int32_t c = pool[pick];
-        pool.erase(pool.begin() + static_cast<std::ptrdiff_t>(pick));
+        const std::int32_t c = pool.back();
+        pool.pop_back();
         if (stats) ++stats->pops;
 
         // Ladder step 1: feasible best-insert (tree-ranked, fold-committed,

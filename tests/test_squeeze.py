@@ -104,7 +104,7 @@ def test_squeeze_armed_deterministic_and_valid(instance_path) -> None:
         objective="fleet_cost_duration",
         ils_max_iterations=400,
         sq_work_cap=50_000,
-        fd_period=25,
+        fd_period_work=2000,
     )
     a = kayros.solve(loaded, params, seed=11)
     b = kayros.solve(loaded, params, seed=11)
@@ -140,7 +140,7 @@ def test_ladder_squeeze_armed_deterministic(instance_path) -> None:
         objective="fleet_cost_duration",
         ils_max_iterations=400,
         sq_ladder=True,
-        fd_period=25,
+        fd_period_work=2000,
     )
     a = kayros.solve(loaded, params, seed=5)
     b = kayros.solve(loaded, params, seed=5)

@@ -57,7 +57,7 @@ def test_work_restart_fires_and_is_deterministic(instance_path) -> None:
 @parametrized
 def test_fd_work_trigger_fires_on_priced_solve(instance_path) -> None:
     """Under FleetCostDuration with the stagnation and period triggers both
-    dead (flat restart unreachable, work restart explicitly off, fd_period 0),
+    dead (flat restart unreachable, work restart explicitly off),
     fd_period_work alone must produce FD triggers; without it the baseline
     stays at zero."""
     loaded = with_fleet_cost(load_td_instance(instance_path), BLAUTH_F)

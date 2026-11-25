@@ -34,8 +34,7 @@ struct IlsParams {
     // Exhaustive-VND polish on every new global best (PyVRP-consistent).
     bool exhaustive_on_best = true;
     // Plan-12 M4 fleet-descent phase (NBRMH-lite ejection ladder), run on the
-    // incumbent at every restart-to-best trigger (and every fd_period
-    // iterations when fd_period > 0). Armed only when the instance prices
+    // incumbent at restart and at the work trigger. Armed only when the instance prices
     // routes (fixed_route_cost > 0): under Duration no draw is consumed and
     // the branch is dead code, so 1.1.x streams stay bitwise.
     std::int32_t fd_attempts = 3;        // attempts per trigger; 0 disables
@@ -52,7 +51,6 @@ struct IlsParams {
     // pricings/s single-core rate (10 s = 6.5M). 0 = uncapped. Like every
     // fd_* knob this is F-gated: dead code under Duration.
     std::int64_t fd_work_cap = 6'500'000;
-    std::int64_t fd_period = 0;          // 0 = stagnation-trigger only
     // Plan-15 S2 squeeze (INERT at the default 0): a penalised polish of the
     // post-drain state on every FD trigger, on both the post-drop and the
     // no-drop (matched-K) paths. Runs a granular Phi-descent (Phi = duration
@@ -82,18 +80,7 @@ struct IlsParams {
     // The cap is a plain route-count target: nothing anchors it to any
     // reference fleet, and sub-reference caps are legitimate (plan 15 D10).
     std::int32_t k_cap = 0;
-    std::int32_t fd_route_choice = 0;    // 0 random, 1 smallest
-    std::int32_t fd_pop_order = 0;       // 0 LIFO, 1 difficult-first
-    // Work-based triggers (1.3.0): thresholds in LS work units
-    // (LsStats::evaluated, candidate pricings). Deterministic wall-time
-    // proxies that self-scale with instance size, unlike the flat iteration
-    // counts above (iteration velocity spans n=10 ~1100/s to n=2000 ~0.2/s
-    // on Blauth2024, so any flat count fits one size class only). 0 = off;
-    // both may be combined with their iteration-count counterparts
-    // (whichever fires first wins). fd_period_work is F-gated like fd_period:
-    // under Duration the trigger is dead code at any value, so the 1.3.0
-    // default (the campaign-winning ~150 s cadence on one modern core) only
-    // changes FleetCostDuration runs.
+    // Candidate evaluations between fleet-descent phases. Zero disables the periodic trigger.
     std::int64_t fd_period_work = 100'000'000;
     // K-diverse seeding (plan 13 I2, 1.5.0): before the search starts, split
     // the greedy seed's routes until the route count reaches seed_k_factor
