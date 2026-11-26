@@ -7,7 +7,6 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
-#include <map>
 #include <stdexcept>
 #include <string>
 
@@ -155,7 +154,7 @@ struct Pricer {
     std::vector<std::array<int, 3>> cuts;
     std::vector<bool> forbid;  // (n+1)^2
     std::vector<Label> L;
-    std::vector<std::map<long long, std::vector<int>>> bucket;  // stored labels by vertex, then by load
+    std::vector<std::vector<int>> bucket;
     std::vector<std::vector<int>> cuts_of;
     Result res;
     bool limit_hit = false;
@@ -269,25 +268,19 @@ struct Pricer {
                     set_unreachable(N);
                     if (opt.dominance) {
                         N.s = shadow(N.f);
-                        auto &B = bucket[x];
-                        // Rule (b): a dominator of N has load at most q_N, a label N dominates has load at least q_N.
-                        // The other tests would return false, so skipping them changes no decision.
                         bool out = false;
-                        for (auto it = B.begin(); it != B.end() && it->first <= N.q && !out; ++it)
-                            for (int s : it->second)
-                                if (L[s].alive && dominates(L[s], N)) { out = true; break; }
+                        for (int s : bucket[x])
+                            if (L[s].alive && dominates(L[s], N)) { out = true; break; }
                         if (out) { ++st.dominated; if (limits()) break; continue; }
-                        for (auto it = B.lower_bound(N.q); it != B.end(); ++it) {
-                            auto &list = it->second;
-                            std::size_t keep = 0;
-                            for (int s : list) {
-                                if (!L[s].alive) continue;
-                                if (dominates(N, L[s])) { L[s].alive = false, Map().swap(L[s].f), L[s].s = {}, ++st.dominated; continue; }
-                                list[keep++] = s;
-                            }
-                            list.resize(keep);
+                        auto &B = bucket[x];
+                        std::size_t keep = 0;
+                        for (int s : B) {
+                            if (!L[s].alive) continue;
+                            if (dominates(N, L[s])) { L[s].alive = false, Map().swap(L[s].f), L[s].s = {}, ++st.dominated; continue; }
+                            B[keep++] = s;
                         }
-                        B[N.q].push_back(static_cast<int>(L.size()));
+                        B.resize(keep);
+                        B.push_back(static_cast<int>(L.size()));
                     }
                     level[k + 1].push_back(static_cast<int>(L.size()));
                     L.push_back(std::move(N));
