@@ -397,6 +397,40 @@ void shadow_gates(Tally &t) {
     std::cout << "shadow: " << pairs << " curve pairs, exact refusals " << refused << ", shadow rejections " << rejected << '\n';
 }
 
+// A label limit makes the pass unresolved: no minimum and no best route are returned,
+// and every negative route returned is genuine, with its exact reduced cost.
+void limit_gates(Tally &t) {
+    long long unresolved = 0, negatives = 0;
+    for (int seed = 1; seed <= 12; ++seed) {
+        Rng r{static_cast<std::uint64_t>(seed) * 104729ULL};
+        const int n = 5 + seed % 3;
+        const Data d = random_instance(r, n, seed % 2 == 0, seed % 3 == 0);
+        const ex::Instance I = build(d);
+        const Brute b = brute_force(d);
+        for (int s = 0; s < 10; ++s) {
+            const ex::Duals D = random_duals(r, n);
+            const Reference ref = reference(b, D);
+            for (const bool dominance : {true, false}) {
+                ex::Options o;
+                o.dominance = dominance;
+                o.label_limit = r.uni(1, 8);
+                const ex::Result res = ex::price(I, D, o);
+                ++t.checks;
+                if (res.counters.created < o.label_limit) continue;  // the pass ended before the limit
+                ++unresolved;
+                if (res.status != ex::Status::unresolved || res.min_rc || !res.best_route.empty())
+                    t.fail("a pass stopped by its label limit must be unresolved without a minimum");
+                for (const auto &[route, rc] : res.negatives) {
+                    ++negatives;
+                    auto it = ref.rc.find(route);
+                    if (it == ref.rc.end() || it->second != rc) t.fail("unresolved pass returned a wrong negative route");
+                }
+            }
+        }
+    }
+    std::cout << "limits: " << unresolved << " unresolved passes, " << negatives << " negative routes checked\n";
+}
+
 }  // namespace
 
 int main() {
@@ -405,6 +439,7 @@ int main() {
 #ifndef KAYROS_EXACT_MUTANT_TEST  // the mutation check counts minima only (criterion 2)
         curve_gates(t);
         shadow_gates(t);
+        limit_gates(t);
 #endif
         hand_gates(t);
         random_gates(t);
