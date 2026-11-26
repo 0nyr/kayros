@@ -19,7 +19,7 @@ import pytest
 from mamut_routing_lib.td import load_td_instance
 
 from conftest import family_instances
-from exact_reference import assert_value_close, exact_duration_cost
+from exact_reference import assert_exact_value, exact_duration_cost
 
 RC107_50 = [p for p in family_instances("TDVRPTW", "Dabia2013", ["n=50"]) if p.name == "RC107.vrp.json"]
 RC107_50_OPTIMUM = 10614.011179781175
@@ -35,7 +35,6 @@ def test_rc107_n50_closes_at_the_optimum(instance_path, verify_final_mask) -> No
     assert result["closure_census"]["cg_unresolved_final_pricing"] == 0
     assert result["value"] == pytest.approx(RC107_50_OPTIMUM, rel=1e-9)
     routes = [r[1:-1] for r in routes_to_mamut(result["routes"], loaded.instance.num_customers)]
-    # The master currently sums binary64 column costs.
-    assert_value_close(result["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
+    assert_exact_value(result, exact_duration_cost(loaded.instance, loaded.atfs, routes))
     counters = result.get("pricing_counters", {})
     assert counters.get("verify_final_catches", 0) == 0

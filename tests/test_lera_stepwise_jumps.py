@@ -25,7 +25,7 @@ import pytest
 from mamut_routing_lib.td import load_td_instance
 
 from conftest import family_instances
-from exact_reference import assert_value_close, exact_duration_cost
+from exact_reference import assert_exact_value, exact_duration_cost
 
 ENUMERATED_ROOT_LP = 4193.857142857141
 
@@ -66,6 +66,7 @@ def _assert_clean_pricing(result: dict) -> None:
     for counter in INTEGRITY_COUNTERS:
         assert integrity[counter] == 0, f"{counter} = {integrity[counter]}"
     assert result["checker_infeasible_columns"] == 0
+    assert result["exact_master"]["rejected_candidates"] == 0
 
 
 @pytest.mark.parametrize("instance_path", RIFKI30_10, ids=lambda p: "Rifki-30-n10")
@@ -93,8 +94,7 @@ def test_stepwise_closures_leave_no_column_behind(instance_path, optimum) -> Non
     assert result["exact_log"]["status"] == "Optimum"
     assert result["value"] == pytest.approx(optimum, abs=1e-6)
     routes = [r[1:-1] for r in routes_to_mamut(result["routes"], loaded.instance.num_customers)]
-    # The master currently sums binary64 column costs.
-    assert_value_close(result["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
+    assert_exact_value(result, exact_duration_cost(loaded.instance, loaded.atfs, routes))
     counters = result["pricing_counters"]
     assert counters["verify_final_runs"] > 0
     assert counters["verify_final_catches"] == 0

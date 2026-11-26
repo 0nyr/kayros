@@ -8,6 +8,7 @@
 #define NETWORKS2019_BP_H
 
 #include <functional>
+#include <optional>
 #include <string>
 
 #include "goc/goc.h"
@@ -28,6 +29,14 @@ class BCP
 public:
 	int cg_optimum_count = 0, cg_certified_count = 0, cg_unresolved_count = 0;
     int cg_infeasible_count = 0, strong_rmp_infeasible_count = 0, unbranched_fractional_count = 0, selected_rmp_infeasible_count = 0;
+	// Integer solutions of the master offered as incumbents (integer nodes and
+	// the freeze heuristic) that select an artificial column, that the exact
+	// evaluation rejects (customers not visited exactly once, fleet limit
+	// exceeded), and that it accepts at a value other than the LP or MIP value.
+	int artificial_candidate_count = 0, rejected_candidate_count = 0, repriced_candidate_count = 0;
+	// Maximum number of routes of a solution, or -1 when the fleet is unbounded.
+	// The master has no fleet row, so only the exact evaluation enforces it.
+	int fleet_limit = -1;
 	goc::Duration time_limit;
 	// Absolute deadline derived from time_limit at Run(). All internal
 	// components and the external pricing_solver take their residual budgets
@@ -44,15 +53,18 @@ public:
 	//	spf: set-partitioning formulation to use (it must include an initial solution).
 	BCP(const goc::Digraph& D, SPF* spf);
 	
-	// Sets an initial upper bound known by the caller (e.g. the
-	// value of warm-start columns added to the SPF), used for pruning from the
-	// start. Must be the value under *this* solver's arithmetic (never an
-	// externally-repriced value — a tighter-by-dust bound could prune the true
-	// optimum). Call before Run(). No incumbent callback fires for it, and no
-	// solution routes are attached: if the BCP proves optimality without
-	// improving on it, Run() reports the value with an empty route set and the
-	// caller keeps its own solution.
-	void SetInitialIncumbent(double value);
+	// Sets an initial upper bound known by the caller: the exact cost of a
+	// solution whose columns are in the SPF (e.g. the warm-start columns), used
+	// for pruning from the start through its nearest binary64 value. Call before
+	// Run(). No incumbent callback fires for it, and no solution routes are
+	// attached: if the BCP proves optimality without improving on it, Run()
+	// reports the value with an empty route set and the caller keeps its own
+	// solution.
+	void SetInitialIncumbent(const ExactCost& value);
+	
+	// Returns: the exact cost of the incumbent, when there is one. The binary64
+	// upper bound of the search is its nearest binary64 value.
+	const std::optional<ExactCost>& ExactIncumbentValue() const { return z_ub_exact; }
 
 	// Cut separation exposed to the pricing driver, so that subset-row
 	// cuts can be separated on the current restricted-master solution before
@@ -99,12 +111,20 @@ private:
 	// The best solution there is an UB to the problem.
 	void FreezeHeuristic();
 	
+	// Evaluates an integer solution of the master exactly, from the exact costs
+	// of its columns, and makes it the incumbent when it is a solution whose
+	// exact cost is strictly below the exact incumbent cost. native_value is
+	// the LP or MIP value, kept for the count of re-priced candidates.
+	// Returns: if the solution became the incumbent.
+	bool AcceptIncumbent(const goc::Valuation& z, double native_value, const std::string& origin);
+	
 	// Separates subset row cuts with n = 3, k = 2.
 	// Returns: if any cut was added.
 	bool SeparateCuts(const goc::Valuation& z);
 	
 	std::priority_queue<Node*, std::vector<Node*>, Node::Comparator> q; // queue of nodes in the BB tree.
-	double z_lb, z_ub; // z_lb = value of the worst open node. z_ub = value of the best int solution
+	double z_lb, z_ub; // z_lb = value of the worst open node. z_ub = nearest binary64 value of z_ub_exact.
+	std::optional<ExactCost> z_ub_exact; // exact cost of the best int solution.
 	goc::Valuation ub; // Best int solution found so far.
 	int node_seq; // number of nodes created.
 	goc::Stopwatch rolex; // Stopwatch to measure the time spent in the algorithm.

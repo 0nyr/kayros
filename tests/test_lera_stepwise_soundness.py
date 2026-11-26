@@ -11,7 +11,7 @@ from mamut_routing_lib.enums import ObjectiveFunction
 from mamut_routing_lib.td import check_td_solution, load_td_instance
 
 from conftest import benchmarks_root, family_instances, instance_path, require_benchmarks
-from exact_reference import assert_value_close, exact_duration_cost
+from exact_reference import assert_exact_value, exact_duration_cost
 
 
 def _pick(paths, name):
@@ -255,8 +255,7 @@ def test_jumpfree_vu2020_certificate_is_not_above_the_truth():
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
     ]
-    # The master currently sums binary64 column costs.
-    assert_value_close(res["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
+    assert_exact_value(res, exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 # --- The reverse-side discriminators (2026-08-05) ---------------------------
@@ -304,8 +303,7 @@ def test_jumpfree_reverse_side_certificate_is_not_above_the_truth(name):
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
     ]
-    # The master currently sums binary64 column costs.
-    assert_value_close(res["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
+    assert_exact_value(res, exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 # --- Regression guards: jump-free family proofs must stay correct/stable -----
@@ -328,8 +326,7 @@ def test_jumpfree_certification_is_warm_start_independent():
     assert warm["exact_log"]["status"] == "Optimum"
     assert cold["value"] == warm["value"]
     # Check the native value against an independent exact evaluation.
-    # The master currently sums binary64 column costs.
-    assert_value_close(cold["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
+    assert_exact_value(cold, exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 def test_jumpfree_certification_is_deterministic():

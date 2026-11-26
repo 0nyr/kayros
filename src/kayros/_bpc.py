@@ -137,10 +137,10 @@ def to_lera_payload(loaded: LoadedTDInstance) -> dict[str, Any]:
         arcs[i2][j2] = 1
         travel_times[i2][j2] = pieces
 
-    # Raw MAMUT data for the bridge's binary64 reference fold.
+    # Raw MAMUT data for the bridge's exact evaluation of the master columns.
     # Lera's preprocessing mutates travel_times/time_windows in place and
     # the tau pieces store y-x (whose re-addition is not bit-exact), so the
-    # reference fold gets the untouched ATF breakpoints verbatim.
+    # exact evaluation gets the untouched ATF breakpoints verbatim.
     mamut_raw = {
         "num_customers": n,
         "num_vehicles": int(getattr(instance, "num_vehicles", -1) or -1),

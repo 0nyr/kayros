@@ -108,7 +108,9 @@ target_include_directories(lera PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include
 )
 target_include_directories(lera SYSTEM PUBLIC ${Boost_INCLUDE_DIRS})
-target_link_libraries(lera PUBLIC ${Boost_LIBRARIES} dl m)
+# The master keeps the exact cost of each column (GMP rationals), and the bridge
+# evaluates every column with the exact header of the library.
+target_link_libraries(lera PUBLIC ${Boost_LIBRARIES} dl m MAMUTRouting::td_exact)
 
 if(LERA_LP_BACKEND STREQUAL "highs")
     # Prefer an installed HiGHS (nix shell, -Dhighs_DIR=...); otherwise fetch
@@ -142,13 +144,11 @@ else()
 endif()
 
 # kayros-owned bridge (bridge/ is not vendored code): MAMUT instance payload
-# -> Lera preprocessing -> VRPInstance -> duration-objective BCP. Links the
-# Link the binary64 reference fold used to reprice master columns.
+# -> Lera preprocessing -> VRPInstance -> duration-objective BCP, with every
+# master column evaluated by the exact header of the library.
 pybind11_add_module(_lera
     bridge/lera_module.cpp
     bridge/lera_bridge.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../pwlf/pwlf.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../core/route_eval.cpp
 )
 target_include_directories(_lera PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge
@@ -196,6 +196,7 @@ set(KAYROS_CPP_TESTS
     partial_dominance
     jump_representation
     exact_slopes
+    exact_master
 )
 if(LERA_LP_BACKEND STREQUAL "cplex")
     list(APPEND KAYROS_CPP_TESTS cplex_variable_domains)
@@ -211,6 +212,11 @@ foreach(name IN LISTS KAYROS_CPP_TESTS)
     target_link_libraries(kayros_test_${name} PRIVATE lera)
     list(APPEND KAYROS_CPP_TEST_RUNS COMMAND kayros_test_${name})
 endforeach()
+# The exact-master test also evaluates columns with the bridge helpers.
+target_include_directories(kayros_test_exact_master PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 # The ordered-valuation test builds its variables with the solver-agnostic
 # MatrixFormulation, which the CPLEX backend does not compile into lera.
 if(LERA_LP_BACKEND STREQUAL "cplex")
