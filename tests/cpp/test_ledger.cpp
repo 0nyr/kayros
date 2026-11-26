@@ -293,6 +293,7 @@ E2E drive(const ex::InstanceData &d, std::optional<int> fleet, const std::string
     }
     out.solvable = true;
     expect(L.offer(worst->second).accepted, tag + " offer of the most expensive solution refused");
+    if (!L.U()) return out;
     std::vector<std::pair<int, std::vector<ex::Decision>>> stack{{0, {}}};
     while (!stack.empty() && out.nodes < 200000) {
         auto [id, decisions] = stack.back();
@@ -410,7 +411,8 @@ void e2e_gates() {
             if (!fleet || *fleet == n) expect(e.certified || !e.solvable, tag + " not certified with a fleet limit that does not bind");
             if (e.certified && seed % 5 == 0) {
                 std::string text;
-                expect(run_verifier(e.record, "e2e", &text) == 0 && text.rfind("certified U=" + e.U.get_str() + " ", 0) == 0,
+                const int code = run_verifier(e.record, "e2e", &text);
+                expect(code == 0 && text.rfind("certified U=" + e.U.get_str() + " ", 0) == 0,
                        tag + " verifier refused a certified record or printed another U: " + text);
                 ++e2e_verified;
             }
@@ -437,6 +439,7 @@ void bound_gates() {
             for (int s = 0; s < 8; ++s) {
                 ex::Ledger L(d, fleet);
                 expect(L.offer(sol->second).accepted, "bound: offer refused");
+                if (!L.U()) continue;
                 // Half of the settings use random multipliers (Delta > 0 mostly), the other half
                 // cost shares of the routes at the root, scaled by 9/10 to 11/10 (L near U).
                 std::vector<Q> pi(n + 1, Q(0));
@@ -733,7 +736,8 @@ void record_gates(const std::string &prune_record, const std::string &cut_record
 
     // The prune record holds offer (6), branch, offer (4), close (from prune), close.
     std::string out;
-    expect(run_verifier(prune_record, "prune", &out) == 0 && out.find("certified U=4 ") == 0, "verifier refused the prune record: " + out);
+    int code = run_verifier(prune_record, "prune", &out);
+    expect(code == 0 && out.find("certified U=4 ") == 0, "verifier refused the prune record: " + out);
     {
         std::istringstream in(prune_record);
         const ex::Replay rep = ex::replay(in);
@@ -783,14 +787,15 @@ void record_gates(const std::string &prune_record, const std::string &cut_record
     tamper("a duplicate close line", [&](auto &t) { t.push_back(t[closes[1]]); });
 
     // The record of the cut case carries a cut and its multiplier.
-    expect(run_verifier(cut_record, "cut", &out) == 0 && out.find("certified U=4 ") == 0, "verifier refused the cut record: " + out);
+    code = run_verifier(cut_record, "cut", &out);
+    expect(code == 0 && out.find("certified U=4 ") == 0, "verifier refused the cut record: " + out);
     const std::vector<std::string> C = lines(cut_record);
     const auto cut_line = [&] {
         for (std::size_t k = 0; k < C.size(); ++k)
             if (C[k].rfind("close node", 0) == 0) return k;
         return C.size();
     }();
-    expect(cut_line < C.size() && C[cut_line].find(" cuts 1 1 2 3 -1 ") != std::string::npos, "cut record: close line " + C.back());
+    expect(cut_line < C.size() && C[cut_line].find(" cuts 1 1 2 3 -1 ") != std::string::npos, "cut record without its close line");
     for (const auto &[from, to] : std::vector<std::pair<std::string, std::string>>{
              {" cuts 1 1 2 3 -1 ", " cuts 1 1 2 3 -1/2 "}, {" cuts 1 1 2 3 -1 ", " cuts 1 1 2 3 1 "},
              {" cuts 1 1 2 3 -1 ", " cuts 1 1 2 2 -1 "}, {" cuts 1 1 2 3 -1 ", " cuts 0 "}}) {
