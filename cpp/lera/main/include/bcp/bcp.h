@@ -17,6 +17,7 @@
 #include "pricing_problem.h"
 #include "spf.h"
 #include "exact/ledger.h"
+#include "bcp/exact_wiring.h"
 
 namespace solver
 {
@@ -68,20 +69,31 @@ public:
 	// and the count of each reason.
 	std::string unresolved_reason;
 	std::map<std::string, int> unresolved_counts;
-	// 1 entry per run of the node loop of section 3.
+	// 1 entry per run of the node loop of section 3, at processing or at a pop.
 	struct ExactNodeVisit {
 		int ledger_id = -1;
+		bool at_pop = false;       // the loop started from the multipliers stored at processing
 		int rounds = 0;            // calls of Ledger::close
 		int negative_rounds = 0;   // closes that returned exactly negative routes
 		int columns_added = 0;     // routes of the ledger added as columns
 		int pivots = 0;            // exact pivots, all rounds
 		double exact_lp_s = 0, exact_pass_s = 0;
-		std::string outcome;       // removed, open, no_incumbent, or the reason of a stop
+		std::string outcome;       // removed, deferred, open, no_incumbent, or the reason of a stop
 	};
 	std::vector<ExactNodeVisit> exact_visits;
 	double exact_lp_time = 0, exact_pass_time = 0;
 	int ledger_offers = 0, ledger_offers_accepted = 0, ledger_removed_by_close = 0, ledger_removed_by_prune = 0;
-	int ledger_branches = 0, pop_retries = 0;
+	int ledger_branches = 0;
+	// Lazy close (S139-D11). The exact pass runs only at a node that would be
+	// removed, i.e. whose exact LP value reaches U. passes_run counts the calls of
+	// Ledger::close, passes_avoided the visits that ended with an incumbent and a
+	// value below U without a pass, closes_at_pop the pops whose stored value
+	// reached U, and closes_at_processing every other close. pop_retries counts
+	// the column generations run again after a close at a pop returned negative
+	// routes, and pop_stale_columns the negative routes of such a close that were
+	// already columns of the master (added at other nodes since).
+	int passes_run = 0, passes_avoided = 0, closes_at_processing = 0, closes_at_pop = 0;
+	int pop_retries = 0, pop_stale_columns = 0;
 	// Arcs that the ledger forbids at a child and that the search had not
 	// forbidden (added to the search's own set), and arcs absent from the
 	// search digraph that only fix columns of the master.
@@ -139,6 +151,10 @@ private:
 		int ledger_id = -1; // id of the node in the ledger (exact mode).
 		std::vector<goc::Arc> A_master; // forbidden by the ledger, absent from D: fix columns only.
 		bool ledger_bound = false; // a close of the ledger finished on the node, so it holds a bound for prune.
+		// The multipliers of the last exact LP solve of the node and their value
+		// (sum of pi and sigma), kept for a close at its pop when U drops to it.
+		std::optional<ExactCost> exact_bound;
+		wiring::Multipliers exact_mult;
 		
 		struct Comparator { inline bool operator() (Node* n1, Node* n2) { return n1->bound > n2->bound; } };
 	};
@@ -169,11 +185,12 @@ private:
 	// ledger (to be queued or branched), or the run stops without claim.
 	enum class Exit { Removed, Open, Stop };
 	// Column generation at the node (forbidden arcs set first), then the node
-	// loop of section 3 while it is CG optimal, then a prune. Used at processing
-	// and when a node without a bound in the ledger is popped.
+	// loop of section 3 while it is CG optimal, then a prune.
 	Exit SolveNodeExact(Node* node);
 	// The node loop of section 3 on a node whose column generation is optimal.
-	Exit ExactLoop(Node* node, goc::CGExecutionLog& cg_log);
+	// With at_pop, the first round closes with the multipliers stored on the
+	// node, whose value reaches U, without column generation or exact LP.
+	Exit ExactLoop(Node* node, goc::CGExecutionLog& cg_log, bool at_pop = false);
 	// Offers the columns (indices of the SPF) as a solution to the ledger, and
 	// sets the incumbent of the search from its U when it accepts.
 	bool OfferColumns(const std::vector<int>& columns, double native_value, const std::string& origin);

@@ -234,19 +234,22 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 			
 			if (ledger)
 			{
-				// In exact mode only the ledger removes the node. A node without a
-				// bound in the ledger (no incumbent when it was solved) is solved
-				// again now, and a node that stays open is branched.
+				// In exact mode only the ledger removes the node. A node whose stored
+				// exact LP value reaches U (U dropped while it waited, or it had no
+				// incumbent when it was solved) is closed now with its stored
+				// multipliers. A node that stays open is branched.
 				bool branch = true;
 				if (!ledger->is_open(bbnode->ledger_id)) branch = false;
 				else
 				{
 					const auto pr = ledger->prune(bbnode->ledger_id);
 					if (pr.removed) { ++ledger_removed_by_prune; branch = false; }
-					else if (!bbnode->ledger_bound && ledger->U())
+					else if (bbnode->exact_bound && ledger->U() && *bbnode->exact_bound >= *ledger->U())
 					{
-						++pop_retries;
-						const Exit e = SolveNodeExact(bbnode);
+						++closes_at_pop;
+						spf->SetForbiddenArcs(bbnode->A, bbnode->A_master);
+						CGExecutionLog cg_log;
+						const Exit e = ExactLoop(bbnode, cg_log, true);
 						if (e != Exit::Open) branch = false;
 					}
 				}
@@ -386,7 +389,7 @@ BCP::Exit BCP::SolveNodeExact(Node* node)
 	return e;
 }
 
-BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
+BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log, bool at_pop)
 {
 	namespace xl = kayros::exact_lp;
 	using clock = std::chrono::steady_clock;
@@ -394,6 +397,9 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 	const wiring::VertexMap map{n};
 	ExactNodeVisit visit;
 	visit.ledger_id = node->ledger_id;
+	visit.at_pop = at_pop;
+	// At a pop, the first round uses the multipliers stored at processing.
+	bool stored = at_pop;
 	auto finish = [&](Exit e, const string& outcome) {
 		visit.outcome = outcome;
 		exact_visits.push_back(visit);
@@ -416,28 +422,42 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 		if (!ledger->is_open(node->ledger_id)) return finish(Exit::Removed, "removed");
 		if (deadline.Reached()) return time_stop();
 		if (MemoryMonitor::Exceeded()) return memory_stop();
-		if (!cg_log.basis.IsSet()) return stop("no_basis");
+		if (!stored)
+		{
+			if (!cg_log.basis.IsSet()) return stop("no_basis");
 
-		// (i) The basis of the last LP solve of the search, solved in rationals.
-		const auto t0 = clock::now();
-		const xl::Master M = spf->ExactMaster();
-		xl::Basis B(cg_log.basis->columns.begin(), cg_log.basis->columns.end());
-		for (int i: cg_log.basis->rows) B.push_back(xl::logical(i));
-		const xl::Solution sol = xl::solve_from_basis(M, B, xl::default_pivot_budget);
-		const double lp_s = std::chrono::duration<double>(clock::now() - t0).count();
-		visit.exact_lp_s += lp_s;
-		exact_lp_time += lp_s;
-		visit.pivots += sol.pivots;
-		if (sol.status != xl::Status::Optimal) return stop(string("exact_lp_") + xl::to_string(sol.reason));
-		const wiring::Multipliers mult = wiring::multipliers_of(sol, n, (int)spf->cuts.size(),
-			[&](int c) { return spf->CutCustomers(c); });
+			// (i) The basis of the last LP solve of the search, solved in rationals.
+			const auto t0 = clock::now();
+			const xl::Master M = spf->ExactMaster();
+			xl::Basis B(cg_log.basis->columns.begin(), cg_log.basis->columns.end());
+			for (int i: cg_log.basis->rows) B.push_back(xl::logical(i));
+			const xl::Solution sol = xl::solve_from_basis(M, B, xl::default_pivot_budget);
+			const double lp_s = std::chrono::duration<double>(clock::now() - t0).count();
+			visit.exact_lp_s += lp_s;
+			exact_lp_time += lp_s;
+			visit.pivots += sol.pivots;
+			if (sol.status != xl::Status::Optimal) return stop(string("exact_lp_") + xl::to_string(sol.reason));
+			node->exact_mult = wiring::multipliers_of(sol, n, (int)spf->cuts.size(),
+				[&](int c) { return spf->CutCustomers(c); });
+			// The value the ledger computes from these multipliers when the pass
+			// finds no negative route (Claim 1 with Delta = 0).
+			ExactCost value = 0;
+			for (const auto& p: node->exact_mult.pi) value += p;
+			for (const auto& g: node->exact_mult.sigma) value += g;
+			node->exact_bound = value;
 
-		// An integral exact primal solution is a candidate. Offered before the
-		// close, so that the close compares with the lowest U known.
-		if (const auto cols = wiring::integral_columns(sol)) OfferColumns(*cols, nearest_binary64(sol.z), "BCP-exact");
-		if (!ledger->U() && node->index == 0 && !freeze_done) FreezeHeuristic();
-		// Close needs an incumbent. The node stays open, without bound.
-		if (!ledger->U()) return finish(Exit::Open, "no_incumbent");
+			// An integral exact primal solution is a candidate. Offered before the
+			// close, so that the close compares with the lowest U known.
+			if (const auto cols = wiring::integral_columns(sol)) OfferColumns(*cols, nearest_binary64(sol.z), "BCP-exact");
+			if (!ledger->U() && node->index == 0 && !freeze_done) FreezeHeuristic();
+			// Close needs an incumbent. The node stays open, without bound.
+			if (!ledger->U()) return finish(Exit::Open, "no_incumbent");
+			// Lazy close (S139-D11). Only a node that would be removed needs the
+			// pass. Below U the node stays open and is branched at its pop, unless
+			// U has dropped to its value by then.
+			if (*node->exact_bound < *ledger->U()) { ++passes_avoided; return finish(Exit::Open, "deferred"); }
+		}
+		const wiring::Multipliers& mult = node->exact_mult;
 
 		// (ii) and (iii) The exact pass of the ledger and its verdict.
 		const double remaining = deadline.Remaining().Amount(DurationUnit::Seconds);
@@ -450,6 +470,8 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 		visit.exact_pass_s += pass_s;
 		exact_pass_time += pass_s;
 		++visit.rounds;
+		++passes_run;
+		if (!stored) ++closes_at_processing;
 		if (close.removed) { ++ledger_removed_by_close; return finish(Exit::Removed, "removed"); }
 		// A close without bound was refused or its pass did not finish.
 		// A pass stopped by the time limit given to it is the time limit of the run.
@@ -462,9 +484,9 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 			return stop("close_refused: " + close.reason);
 		}
 		node->ledger_bound = true;
-		// (v) Without negative route, the exact multipliers are feasible for every
-		// route of the node and their value is below U. The caller queues the
-		// node, which is branched when it is popped and prune refuses.
+		// (v) Without negative route the pass gave Delta = 0, so L is the stored
+		// value, which reached U. The ledger then removed the node, and this exit
+		// is not expected. The node stays open and is branched at its pop.
 		if (close.negative_count == 0) return finish(Exit::Open, "open");
 
 		// (iv) Every negative route enters the master, else no claim.
@@ -478,12 +500,18 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 			switch (admit_route(path, expected))
 			{
 				case Admission::Added: ++visit.columns_added; break;
-				case Admission::Duplicate: return stop("negative_route_already_column");
+				// Stored multipliers can be older than columns added since at other nodes.
+				case Admission::Duplicate:
+					if (!stored) return stop("negative_route_already_column");
+					++pop_stale_columns;
+					break;
 				case Admission::Rejected: return stop("route_rejected_by_column_evaluation");
 				case Admission::CostMismatch: return stop("route_cost_mismatch");
 			}
 		}
 		// The search prices again from the master with the new columns.
+		if (stored) ++pop_retries;
+		stored = false;
 		cg_solver.screen_output = nullptr;
 		cg_solver.time_limit = deadline.Remaining();
 		cg_log = cg_solver.Solve(spf->formulation, {CGOption::IterationsInformation, CGOption::Basis});

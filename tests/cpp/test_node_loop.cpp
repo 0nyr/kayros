@@ -9,6 +9,7 @@
 // exit was reached and the run ends without claim.
 #include <goc/goc.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <set>
@@ -129,7 +130,10 @@ struct Search
 	int admitted = 0;
 
 	Search(int n, long long cap, double depot, double between, const std::vector<GraphPath>& seeds)
-		: n(n), D(n + 2), spf(n + 2), ledger(instance(n, cap, depot, between), std::nullopt)
+		: Search(n, instance(n, cap, depot, between), seeds) {}
+
+	Search(int n, ex::InstanceData data, const std::vector<GraphPath>& seeds)
+		: n(n), D(n + 2), spf(n + 2), ledger(std::move(data), std::nullopt)
 	{
 		for (int i = 0; i <= n; ++i)
 			for (int j = 1; j <= n + 1; ++j)
@@ -206,7 +210,13 @@ static void triangle()
 	require(bcp.ledger_branches >= 1 && s.admitted >= 1, "the triangle branches and admits routes of the exact pass");
 	require(log.root_lp_value.IsSet() && *log.root_lp_value == 1.5, "triangle root LP");
 	require(replays(s.ledger), "the triangle record replays to the same U");
-#else
+	// Lazy close. The root (value 3/2 below U = 2) is branched without a pass.
+	require(!bcp.exact_visits.empty() && bcp.exact_visits.front().outcome == "deferred" && bcp.passes_avoided >= 1,
+	        "the triangle root is deferred without a pass");
+	int rounds = 0;
+	for (const auto& v: bcp.exact_visits) rounds += v.rounds;
+	require(bcp.passes_run == rounds && bcp.passes_run == bcp.closes_at_processing + bcp.closes_at_pop, "pass counters");
+#elif !defined(KAYROS_WIRING_MUTANT_pop_close_skipped)
 	// The broken exit must have been reached on this instance.
 #if defined(KAYROS_WIRING_MUTANT_pop_skip_prune)
 	require(log.nodes_closed >= 1 && bcp.ledger_branches == 0, "the mutated search popped the root and deleted it unbranched");
@@ -214,11 +224,53 @@ static void triangle()
 	require(bcp.ledger_branches >= 1, "the mutated search branched");
 #elif defined(KAYROS_WIRING_MUTANT_open_as_removed)
 	bool open_seen = false;
-	for (const auto& v: bcp.exact_visits) open_seen |= v.outcome == "open";
-	require(open_seen, "a close returned no negative route on an open node");
+	for (const auto& v: bcp.exact_visits) open_seen |= v.outcome == "deferred";
+	require(open_seen, "a node was deferred without a pass");
 #endif
 	require(name(log.status) != "Optimum", "no claim from the broken wiring, status " + name(log.status));
 	require(!s.ledger.certified() && s.ledger.open_count() > 0, "the ledger keeps the dropped node open");
+#else
+	(void)log;
+#endif
+}
+
+// A close at a pop. 3 customers, capacity 2. Every leg from or to the depot
+// takes 1/2, the leg from i to j takes 4/5 when i < j and 0 when i > j. A
+// singleton costs 1, a pair in increasing order 9/5 and in decreasing order 1.
+// The master holds the singletons and the increasing pairs, so its root value
+// is 27/10 (the 3 pairs at 1/2) and the optimum 2 (a decreasing pair and a
+// singleton). The warm start (3 singletons, U = 3) defers the root. When the
+// root is solved, the test offers the optimum to the ledger, as an incumbent
+// found elsewhere in the tree would, so U = 2 when the root is popped. Its
+// stored value 27/10 reaches U, so the root is closed at its pop with its stored
+// multipliers. The pass returns the decreasing pairs, the root is solved again
+// and branched, and the run certifies 2.
+static void pop_close()
+{
+	ex::InstanceData d = instance(3, 2, 0.5, 0.0);
+	for (auto& a: d.arcs)
+		if (a.from != 0 && a.to != 0 && a.from < a.to) a.ys = {0.8, 100.8};
+	Search s(3, d, {{0, 1, 4}, {0, 2, 4}, {0, 3, 4}, {0, 1, 2, 4}, {0, 2, 3, 4}, {0, 1, 3, 4}});
+	solver::BCP bcp(s.D, &s.spf);
+	bcp.ledger = &s.ledger;
+	require(bcp.OfferInitialRoutes({{1}, {2}, {3}}), "pop case: warm start");
+	bcp.on_bound = [&](Duration, double, const std::string& what) {
+		if (what == "root_complete") require(s.ledger.offer({{2, 1}, {3}}).accepted && *s.ledger.U() == 2, "pop case: U lowered to 2");
+	};
+	VRPSolution solution(INFTY, {});
+	auto log = s.Run(bcp, &solution);
+	std::clog << "pop case: status " << name(log.status) << ", closes at pop " << bcp.closes_at_pop << ", pop retries " << bcp.pop_retries
+	          << ", passes " << bcp.passes_run << ", avoided " << bcp.passes_avoided << ", reason '" << bcp.unresolved_reason << "'\n";
+#ifndef KAYROS_WIRING_MUTANT_TEST
+	require(log.root_lp_value.IsSet() && std::abs(*log.root_lp_value - 2.7) < 1e-9, "pop case root LP");
+	require(name(log.status) == "Optimum" && s.ledger.certified() && *s.ledger.U() == 2, "pop case certified at 2");
+	require(bcp.closes_at_pop >= 1 && bcp.pop_retries >= 1 && s.admitted >= 1, "pop case: the root was closed at its pop and solved again");
+	require(replays(s.ledger), "the pop case record replays");
+#elif defined(KAYROS_WIRING_MUTANT_pop_close_skipped)
+	require(bcp.closes_at_pop >= 1 && bcp.ledger_branches == 0, "the mutated search reached a pop whose value reaches U");
+	require(name(log.status) != "Optimum" && !s.ledger.certified() && s.ledger.open_count() > 0, "no claim when the pop close is skipped");
+#else
+	(void)log;
 #endif
 }
 
@@ -311,6 +363,7 @@ int main()
 	refusals();
 #endif
 	triangle();
+	pop_close();
 #ifdef KAYROS_WIRING_MUTANT_TEST
 	if (failures == 0) { std::cout << "node loop mutant: caught (no claim)\n"; return 0; }
 	std::cerr << "node loop mutant: NOT caught\n";

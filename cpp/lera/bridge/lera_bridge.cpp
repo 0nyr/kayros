@@ -582,7 +582,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         result["ledger"] = L;
         nlohmann::json visits = nlohmann::json::array();
         for (const auto& v : bcp.exact_visits)
-            visits.push_back({{"node", v.ledger_id}, {"rounds", v.rounds}, {"negative_rounds", v.negative_rounds},
+            visits.push_back({{"node", v.ledger_id}, {"at_pop", v.at_pop}, {"rounds", v.rounds}, {"negative_rounds", v.negative_rounds},
                 {"columns_added", v.columns_added}, {"pivots", v.pivots}, {"exact_lp_s", v.exact_lp_s},
                 {"exact_pass_s", v.exact_pass_s}, {"outcome", v.outcome}});
         std::string reason = bcp.unresolved_reason;
@@ -594,6 +594,9 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
             {"ledger_columns", ledger_columns}, {"offers", bcp.ledger_offers}, {"offers_accepted", bcp.ledger_offers_accepted},
             {"removed_by_close", bcp.ledger_removed_by_close}, {"removed_by_prune", bcp.ledger_removed_by_prune},
             {"branches", bcp.ledger_branches}, {"pop_retries", bcp.pop_retries},
+            {"passes_run", bcp.passes_run}, {"passes_avoided", bcp.passes_avoided},
+            {"closes_at_processing", bcp.closes_at_processing}, {"closes_at_pop", bcp.closes_at_pop},
+            {"pop_stale_columns", bcp.pop_stale_columns},
             {"ledger_arcs_added_to_search", bcp.ledger_arcs_added_to_search},
             {"ledger_arcs_master_only", bcp.ledger_arcs_master_only},
             {"visits", visits}};

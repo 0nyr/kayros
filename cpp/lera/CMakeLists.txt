@@ -261,10 +261,15 @@ kayros_wiring_mutant(pop_skip_prune
     "branch = false; if (false) {}")
 # The right child of a branching is never solved.
 kayros_wiring_mutant(drop_child "ProcessNode(new Node(c));" "if (&c == &children[0]) ProcessNode(new Node(c));")
-# A node whose exact pass returns no negative route is deleted as if closed.
+# A node left open by the node loop is deleted as if closed. Under the lazy close
+# the open exit that is reached is the node deferred without a pass (value below U).
 kayros_wiring_mutant(open_as_removed
-    "if (close.negative_count == 0) return finish(Exit::Open, \"open\");"
-    "if (close.negative_count == 0) return finish(Exit::Removed, \"open\");")
+    "{ ++passes_avoided; return finish(Exit::Open, \"deferred\"); }"
+    "{ ++passes_avoided; return finish(Exit::Removed, \"deferred\"); }")
+# A popped node whose stored value reaches U is deleted without the close of the ledger.
+kayros_wiring_mutant(pop_close_skipped
+    "const Exit e = ExactLoop(bbnode, cg_log, true);"
+    "const Exit e = Exit::Removed;")
 
 add_custom_target(kayros_cpp_tests ${KAYROS_CPP_TEST_RUNS}
     COMMENT "Running the C++ unit tests of the exact component"
