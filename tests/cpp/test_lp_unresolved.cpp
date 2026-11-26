@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "goc/linear_programming/colgen/colgen.h"
+
 #include "bcp/bcp.h"
 #include "bcp/spf.h"
 
