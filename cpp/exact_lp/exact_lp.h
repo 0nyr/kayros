@@ -8,9 +8,9 @@
 // verified directly on the data, or the status unresolved with its reason. It
 // never returns a multiplier vector that failed the verification.
 //
-// The component is not trusted by the proof (Claim 10): the leaf bound holds for
-// any multipliers. It decides only whether the bound is good. It has no phase 1:
-// a basis that is singular or not exactly primal feasible is unresolved, as is a
+// The component is not trusted by the proof (Claim 10), since the leaf bound
+// holds for any multipliers. It decides only whether the bound is good. It has
+// no phase 1. A basis that is singular or not exactly primal feasible is unresolved, as is a
 // basis that needs more pivots than the budget. The master keeps artificial
 // columns (Claim 11) and the backend provides a basis at every round, so neither
 // case is expected in the search.
@@ -80,9 +80,10 @@ struct Solution {
 // 139 for the measurements it is chosen from.
 constexpr int default_pivot_budget = 100;
 
-// Solves the master exactly from the start basis. Entering variable: most
-// negative reduced cost. Leaving variable: minimum ratio, a basic fixed
-// variable (fixed column or logical of an "=" row) leaving at ratio 0. Ties go
+// Solves the master exactly from the start basis. The entering variable has
+// the most negative reduced cost. The leaving variable has the minimum ratio,
+// and a basic fixed variable (fixed column or logical of an "=" row) leaves at
+// ratio 0. Ties go
 // to the first variable in the order columns by index, then logicals by row.
 // The budget bounds the number of pivots, so the call always ends, cycling
 // included. The answer is verified by verify() before it is returned.

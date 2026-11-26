@@ -84,7 +84,7 @@ void hand_built() {
     mpq_class dual_value = 0;
     for (int i = 0; i < M.rows(); ++i) dual_value += M.rhs[i] * s.duals[i];
     require(dual_value == Q("17/3"), "hand-built dual value");
-    // Start from a basis that is primal feasible and not optimal: singletons {1}, {2}, {3}, value 23/3.
+    // Start from the singletons {1}, {2}, {3} (value 23/3), a basis that is primal feasible and not optimal.
     Solution p = solve_from_basis(M, {0, 1, 2, logical(0), logical(4)});
     require_optimal(M, p, Q("17/3"), "hand-built from singletons");
     require(p.pivots >= 1, "hand-built from singletons needs a pivot");
@@ -100,9 +100,9 @@ void unresolved_outcomes() {
     require(solve_from_basis(M, {0, 1, 99, logical(0), logical(4)}).reason == Reason::InvalidBasis, "unknown column");
     // {1}, {2} and {1,2} are linearly dependent.
     require(solve_from_basis(M, {0, 1, 3, logical(0), logical(4)}).reason == Reason::Singular, "singular basis");
-    // {2}, {1,2}, {2,3}: row 1 gives {1,2} = 1, row 3 gives {2,3} = 1, row 2 then gives {2} = -1.
+    // With {2}, {1,2}, {2,3}, row 1 gives {1,2} = 1, row 3 gives {2,3} = 1, row 2 then gives {2} = -1.
     require(solve_from_basis(M, {1, 3, 4, logical(0), logical(4)}).reason == Reason::PrimalInfeasible, "primal infeasible basis");
-    // An equality logical basic at a nonzero value is primal infeasible: drop column 2 ({3}) for the logical of row 3.
+    // An equality logical basic at a nonzero value is primal infeasible (the logical of row 3 instead of {3}).
     require(solve_from_basis(M, {0, 1, logical(3), logical(0), logical(4)}).reason == Reason::PrimalInfeasible,
             "equality logical at a nonzero value");
 }
@@ -113,12 +113,12 @@ void cut_row_sign() {
     const int cut = 5;
     M.columns = {col(Q("3"), {1}), col(Q("3"), {2}), col(Q("3"), {3}), col(Q("2"), {1, 2, cut}),
                  col(Q("2"), {2, 3, cut}), col(Q("2"), {1, 3, cut})};
-    // Without the cut the optimum is 3 (each pair at 1/2). With it: at most 1 pair, optimum 2 + 3 = 5.
+    // Without the cut the optimum is 3 (each pair at 1/2). With it at most 1 pair is used, optimum 2 + 3 = 5.
     Solution s = solve_from_basis(M, with_logicals(M, {0, 1, 2}, {1, 2, 3}));
     require_optimal(M, s, Q("5"), "cut master from singletons");
     require(sgn(s.duals[cut]) <= 0, "cut multiplier <= 0");
     require(sgn(s.duals[cut]) < 0, "the cut is binding: negative multiplier");
-    // With right-hand side 2 the cut is loose: the pairs come back at 1/2 and the slack is basic.
+    // With right-hand side 2 the cut is loose. The pairs come back at 1/2 and the slack is basic.
     Master loose = M;
     loose.rhs[cut] = 2;
     Solution l = solve_from_basis(loose, with_logicals(loose, {0, 1, 2}, {1, 2, 3}));
@@ -136,23 +136,23 @@ void artificial_columns() {
     Basis art = with_logicals(M, {0, 1, 2}, {1, 2, 3});
     Solution f = solve_from_basis(feasible, art);
     require_optimal(feasible, f, U, "artificials, feasible master, from the all-artificial basis");
-    // Customer 1 uncovered by the routes: only its artificial covers it.
+    // Customer 1 uncovered by the routes, so that only its artificial covers it.
     Master infeasible = M;
     for (const Column &c : three_customers().columns)
         if (c.entries.front().row != 1) infeasible.columns.push_back(c);
     Solution g = solve_from_basis(infeasible, art);
-    // Best: artificial of 1 and the route {2,3} (cost 4).
+    // The best is the artificial of 1 and the route {2,3} (cost 4).
     require_optimal(infeasible, g, big + 4, "artificials, customer 1 uncovered");
     require(g.z >= big, "z >= M when a customer is uncovered");
 }
 
-// Fixed columns (forbidden arcs at a node): they never enter, and a basic fixed column at 0 can leave.
+// Fixed columns (forbidden arcs at a node) never enter, and a basic fixed column at 0 can leave.
 void fixed_columns() {
     Master M = three_customers();
-    M.columns[3].fixed_at_zero = true;  // {1,2} forbidden: optimum {1} + {2,3} = 8/3 + 4 = 20/3
+    M.columns[3].fixed_at_zero = true;  // {1,2} forbidden, optimum {1} + {2,3} = 8/3 + 4 = 20/3
     Solution s = solve_from_basis(M, {0, 1, 2, logical(0), logical(4)});
     require_optimal(M, s, Q("20/3"), "fixed column never enters");
-    // Start {1}, {2,3}, {1,2} (fixed): row 3 gives {2,3} = 1, row 2 gives {1,2} = 0, row 1 gives {1} = 1. The fixed
+    // From the start {1}, {2,3}, {1,2} (fixed), row 3 gives {2,3} = 1, row 2 gives {1,2} = 0, row 1 gives {1} = 1. The fixed
     // column is basic at 0, {3} enters and the fixed column leaves at ratio 0.
     Solution t = solve_from_basis(M, {0, 4, 3, logical(0), logical(4)});
     require_optimal(M, t, Q("20/3"), "fixed column basic at 0");
@@ -218,7 +218,7 @@ void brute_force() {
             cost.canonicalize();
             M.columns.push_back(col(cost, rows, rng() % 7 == 0));
         }
-        // All variable ids: columns, then logicals.
+        // All variable ids, columns first, then logicals.
         std::vector<int> ids;
         for (int j = 0; j < (int)M.columns.size(); ++j) ids.push_back(j);
         for (int i = 0; i < M.rows(); ++i) ids.push_back(logical(i));
@@ -313,7 +313,9 @@ void file_format() {
     for (const char *bad : {"kayros-exact-lp-master 2\n", "kayros-exact-lp-master 1\nrows 1\nG 1\ncolumns 0\n",
                             "kayros-exact-lp-master 1\nrows 1\nE 1/0\ncolumns 0\n",
                             "kayros-exact-lp-master 1\nrows 1\nE 1\ncolumns 1\n1 0x1p+0 inf 1 1:1\n",
-                            "kayros-exact-lp-master 1\nrows 2\nE 1\nE 1\ncolumns 1\n1 0x1p+0 inf 2 1:1 0:1\n"}) {
+                            "kayros-exact-lp-master 1\nrows 2\nE 1\nE 1\ncolumns 1\n1 0x1p+0 inf 2 1:1 0:1\n",
+                            "kayros-exact-lp-master 1\nrows 1\nE 1\ncolumns 1\n1 0x1p+0 inf 1 a:1\n",
+                            "kayros-exact-lp-master 1\nrows 1\nE 1\ncolumns 1\n1 0x1p+0 inf 1 0:1x\n"}) {
         std::istringstream in(bad);
         bool threw = false;
         try {

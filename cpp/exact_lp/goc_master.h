@@ -13,7 +13,7 @@
 namespace kayros::exact_lp {
 
 // The formulation of the first `count` columns of the master, built as SPF
-// builds the restricted master: minimisation, rows "=" or "<=", columns Binary
+// builds the restricted master, with minimisation, rows "=" or "<=", columns Binary
 // on [0, inf) or [0, 0] when fixed, with the binary64 costs. The caller owns it.
 inline goc::Formulation *to_formulation(const Master &M, const std::vector<double> &binary64_cost, long count) {
     goc::Formulation *f = goc::LPSolver::NewFormulation();

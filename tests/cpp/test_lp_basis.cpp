@@ -110,8 +110,8 @@ std::string read_file(const std::string &path) {
     return s.str();
 }
 
-// Real root masters (fixtures.txt: name, recorded exact value, optional column count K): the backend basis on the
-// full master and, when K is given, the backend basis of the first K columns.
+// Real root masters, listed in fixtures.txt with the name, the recorded exact value and an optional column count K.
+// The backend basis on the full master and, when K is given, the backend basis of the first K columns.
 void fixtures() {
     const std::string dir = KAYROS_EXACT_LP_DATA;
     std::istringstream list(read_file(dir + "/fixtures.txt"));

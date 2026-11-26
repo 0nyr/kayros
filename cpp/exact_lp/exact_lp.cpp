@@ -27,7 +27,7 @@ bool is_fixed(const Master &M, int id) {
 
 mpq_class cost_of(const Master &M, int id) { return id >= 0 ? M.columns[id].cost : mpq_class(0); }
 
-// Order of the ties: columns by index, then logicals by row.
+// Order of the ties, columns by index and then logicals by row.
 long key(const Master &M, int id) { return id >= 0 ? id : (long)M.columns.size() + (-1 - id); }
 
 std::vector<mpq_class> dense_column(const Master &M, int id) {
@@ -168,7 +168,7 @@ Solution solve_from_basis(const Master &M, const Basis &start, int pivot_budget)
         for (int k = 0; k < m; ++k) cB[k] = cost_of(M, B[k]);
         y = solve_transposed(F, cB);
 
-        // Entering variable: the most negative reduced cost, compared as
+        // The entering variable has the most negative reduced cost, compared as
         // T / den(cost) since D is common to all candidates.
         ScaledDuals S(y);
         int enter = 0;
@@ -312,7 +312,15 @@ MasterFile read_master(std::istream &in) {
             if (!(line >> item)) throw std::runtime_error("bad column entries");
             size_t colon = item.find(':');
             if (colon == std::string::npos) throw std::runtime_error("bad column entry: " + item);
-            Entry entry{std::stoi(item.substr(0, colon)), std::stol(item.substr(colon + 1))};
+            Entry entry;
+            try {
+                size_t used_row = 0, used_coefficient = 0;
+                entry.row = std::stoi(item.substr(0, colon), &used_row);
+                entry.coefficient = std::stol(item.substr(colon + 1), &used_coefficient);
+                if (used_row != colon || used_coefficient != item.size() - colon - 1) throw std::invalid_argument(item);
+            } catch (const std::logic_error &) {
+                throw std::runtime_error("bad column entry: " + item);
+            }
             if (entry.row < 0 || entry.row >= M.rows() || entry.coefficient == 0 ||
                 (!c.entries.empty() && entry.row <= c.entries.back().row))
                 throw std::runtime_error("bad column entry: " + item);

@@ -1,4 +1,4 @@
-// Driver of the exact LP component on a master file: solves the master with the
+// Driver of the exact LP component on a master file. It solves the master with the
 // configured LP backend of the Lera BPC (HiGHS or CPLEX) through goc, as SPF
 // builds it (to_formulation of goc_master.h),
 // takes the optimal basis of the backend and solves it exactly with
