@@ -18,8 +18,11 @@
 
 namespace goc
 {
-// All the status that can result from a simplex execution.
-enum class LPStatus { DidNotStart, Infeasible, Unbounded, TimeLimitReached, MemoryLimitReached, Optimum };
+// All the status that can result from a simplex execution. Unresolved is any
+// outcome of the backend that is none of the others, or an Optimum whose
+// objective value, requested duals or requested solution are not available.
+// It carries no value, no duals and no solution.
+enum class LPStatus { DidNotStart, Infeasible, Unbounded, TimeLimitReached, MemoryLimitReached, Optimum, Unresolved };
 
 // This class stores information about the execution of a LP relaxation solver.
 // It is compatible with the Kaleidoscope kd_type "lp".

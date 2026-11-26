@@ -42,7 +42,8 @@ ostream& operator<<(ostream& os, CGStatus status)
 											  {CGStatus::Unbounded, "Unbounded"},
 											  {CGStatus::TimeLimitReached, "TimeLimitReached"},
 											  {CGStatus::MemoryLimitReached, "MemoryLimitReached"},
-											  {CGStatus::Optimum, "Optimum"}};
+											  {CGStatus::Optimum, "Optimum"},
+											  {CGStatus::Unresolved, "Unresolved"}};
 	return os << mapper[status];
 }
 } // namespace goc

@@ -255,9 +255,15 @@ LPExecutionLog solve_lp(MatrixFormulation* formulation, ostream* screen_output, 
 		{HighsModelStatus::kUnbounded, LPStatus::Unbounded},
 		{HighsModelStatus::kTimeLimit, LPStatus::TimeLimitReached},
 		{HighsModelStatus::kMemoryLimit, LPStatus::MemoryLimitReached}};
-	execution_log.status = status_mapper[solver.getModelStatus()];
-
 	const HighsSolution& solution = solver.getSolution();
+	auto mapped = status_mapper.find(solver.getModelStatus());
+	LPStatus status = mapped == status_mapper.end() ? LPStatus::Unresolved : mapped->second;
+	// An optimum is only usable with its value and the requested duals.
+	if (status == LPStatus::Optimum && (!solution.value_valid || (includes(options, LPOption::Duals) && !solution.dual_valid)))
+		status = LPStatus::Unresolved;
+	execution_log.status = status;
+	if (status == LPStatus::Unresolved) return execution_log;
+
 	if (solution.value_valid)
 	{
 		execution_log.incumbent_value = solver.getInfo().objective_function_value;
