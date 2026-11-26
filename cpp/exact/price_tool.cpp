@@ -104,6 +104,7 @@ int main(int argc, char **argv) {
         if (o == "--no-dom") opt.dominance = false;
         else if (o == "--node-limit") opt.label_limit = std::atoll(argv[++i]);
         else if (o == "--time-limit") opt.time_limit = std::atof(argv[++i]);
+        else if (o == "--memory-limit") opt.memory_limit = std::atoll(argv[++i]);
         else if (o == "--neg-cap") opt.negative_cap = std::atoi(argv[++i]);
         else if (o == "--dump-routes") dump_path = argv[++i];
         else if (o == "--eval-paths") eval_path = argv[++i];

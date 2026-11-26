@@ -428,7 +428,43 @@ void limit_gates(Tally &t) {
             }
         }
     }
-    std::cout << "limits: " << unresolved << " unresolved passes, " << negatives << " negative routes checked\n";
+    // A memory limit of 1 byte stops every pass that reaches its 256th label, and a
+    // limit far above the process changes nothing. The pass without dominance on 6
+    // or 7 customers without window or load creates more than 256 labels.
+    long long memory_stops = 0;
+    if (ex::resident_bytes() <= 0) t.fail("/proc/self/statm unreadable, the memory limit cannot trip");
+    for (int seed = 1; seed <= 12; ++seed) {
+        Rng r{static_cast<std::uint64_t>(seed) * 7919ULL};
+        const int n = 6 + seed % 2;
+        Data d = random_instance(r, n, seed % 2 == 0, seed % 3 == 0);
+        d.cap = n, d.lo = 0, d.hi = 128, d.close.reset();
+        for (ex::CustomerInput &c : d.cust) c.window.reset(), c.demand = 0;
+        const ex::Instance I = build(d);
+        const Brute b = brute_force(d);
+        const ex::Duals D = random_duals(r, n);
+        const Reference ref = reference(b, D);
+        ex::Options o;
+        o.dominance = false;
+        const ex::Result free = ex::price(I, D, o);
+        o.memory_limit = 1LL << 62;
+        const ex::Result high = ex::price(I, D, o);
+        ++t.checks;
+        if (high.status != free.status || high.min_rc != free.min_rc || high.counters.created != free.counters.created)
+            t.fail("a memory limit that does not trip changed the pass");
+        if (free.counters.created < 256) continue;
+        o.memory_limit = 1;
+        const ex::Result res = ex::price(I, D, o);
+        ++memory_stops;
+        if (res.status != ex::Status::unresolved || res.min_rc || !res.best_route.empty() || res.counters.created != 256)
+            t.fail("a pass stopped by its memory limit must be unresolved without a minimum, at its 256th label");
+        for (const auto &[route, rc] : res.negatives) {
+            auto it = ref.rc.find(route);
+            if (it == ref.rc.end() || it->second != rc) t.fail("pass stopped by memory returned a wrong negative route");
+        }
+    }
+    if (memory_stops == 0) t.fail("no pass reached 256 labels, the memory limit was never read");
+    std::cout << "limits: " << unresolved << " unresolved passes, " << negatives << " negative routes checked, "
+              << memory_stops << " passes stopped by memory\n";
 }
 
 }  // namespace

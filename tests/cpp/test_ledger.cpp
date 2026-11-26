@@ -691,6 +691,42 @@ void hand_gates(std::string *prune_record, std::string *cut_record) {
         expect(!c.removed && c.reason == "exact pass unresolved" && !c.bound && s.same(L), "unresolved pass accepted: " + c.reason);
         expect(!L.prune(0).removed && s.same(L), "unresolved pass stored a bound");
     }
+    // A memory limit of 1 byte leaves the pass unresolved. The limit is read every
+    // 256 labels, so the instance (7 customers, no window, no load) is checked to
+    // create at least 256 labels without the limit.
+    {
+        Rng r{4242};
+        ex::InstanceData d = random_instance(r, 7, true, false);
+        d.capacity = 7, d.lo = 0, d.hi = 128, d.depot_close.reset();
+        for (ex::CustomerInput &c : d.customers) c.window.reset(), c.demand = 0;
+        const Brute b = brute_force(d);
+        const auto opt = partition(b, b.routes, 7, true);
+        expect(opt.has_value(), "memory case: the instance has a solution");
+        if (opt) {
+            ex::Ledger L(d, std::nullopt);
+            L.offer(opt->second);
+            // Large multipliers make dominance rare (Claim 7 shifts by their difference)
+            // and keep the bound far below U, so no close below removes the node.
+            std::vector<Q> pi(8, Q(100));
+            pi[0] = 0;
+            const ex::Result free = ex::price(L.instance(), ex::Duals{pi, {}, {}, {}});
+            expect(free.status == ex::Status::finished && free.counters.created >= 256,
+                   "memory case: the pass creates " + std::to_string(free.counters.created) + " labels, fewer than 256");
+            expect(ex::resident_bytes() > 0, "memory case: /proc/self/statm unreadable, the limit cannot trip");
+            const Snapshot s(L);
+            ex::Limits lim;
+            lim.memory_limit = 1;
+            const ex::CloseOutcome c = L.close(0, {}, pi, {}, lim);
+            expect(!c.removed && c.reason == "exact pass unresolved" && !c.bound && s.same(L), "memory limit: pass accepted: " + c.reason);
+            expect(!L.prune(0).removed && s.same(L), "memory limit: unresolved pass stored a bound");
+            // A limit far above the process changes nothing.
+            lim.memory_limit = 1LL << 62;
+            const ex::CloseOutcome h = L.close(0, {}, pi, {}, lim);
+            const ex::CloseOutcome z = L.close(0, {}, pi, {});
+            expect(h.bound && z.bound && *h.bound == *z.bound && h.removed == z.removed && h.negative_count == z.negative_count,
+                   "memory limit: a limit that does not trip changed the close");
+        }
+    }
     {
         ex::Ledger L(three(), std::nullopt);
         expect(L.offer({{1, 2, 3}}).accepted && L.U() == Q(4), "cut case: offer");

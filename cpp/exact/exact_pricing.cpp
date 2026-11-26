@@ -6,9 +6,14 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 #include <string>
+
+#ifdef __linux__
+#include <unistd.h>
+#endif
 
 namespace kayros::exact {
 
@@ -233,6 +238,10 @@ struct Pricer {
         const long long created = res.counters.created;
         if (opt.label_limit > 0 && created >= opt.label_limit) return limit_hit = true;
         if ((created & 255) == 0 && opt.time_limit > 0 && elapsed() > opt.time_limit) return limit_hit = true;
+        // Same place and frequency as the time limit. A stop only makes the pass
+        // unresolved, so this test can turn a finished pass into an unresolved one
+        // and can never change a minimum that the pass returns.
+        if ((created & 255) == 0 && opt.memory_limit > 0 && resident_bytes() >= opt.memory_limit) return limit_hit = true;
         return false;
     }
 
@@ -358,6 +367,20 @@ bool curve_dominated(const Map &f, const Map &g, const Q &delta, long long *scan
 }
 
 bool shadow_rejects(const Map &f, const Map &g, const Q &delta) { return shadow_rejects(shadow(f), shadow(g), down(delta)); }
+
+long long resident_bytes() {
+#ifdef __linux__
+    std::FILE *f = std::fopen("/proc/self/statm", "r");
+    if (!f) return 0;
+    long long size = 0, resident = 0;
+    const int read = std::fscanf(f, "%lld %lld", &size, &resident);
+    std::fclose(f);
+    if (read != 2) return 0;
+    return resident * static_cast<long long>(sysconf(_SC_PAGESIZE));
+#else
+    return 0;
+#endif
+}
 
 Result price(const Instance &instance, const Duals &duals, const Options &options) {
     Pricer P(instance, duals, options);

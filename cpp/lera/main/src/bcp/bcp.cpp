@@ -407,11 +407,15 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 		log.status = BCStatus::TimeLimitReached;
 		return finish(Exit::Stop, "time_limit");
 	};
+	auto memory_stop = [&]() {
+		log.status = BCStatus::MemoryLimitReached;
+		return finish(Exit::Stop, "memory_limit");
+	};
 	while (true)
 	{
 		if (!ledger->is_open(node->ledger_id)) return finish(Exit::Removed, "removed");
 		if (deadline.Reached()) return time_stop();
-		if (MemoryMonitor::Exceeded()) { log.status = BCStatus::MemoryLimitReached; return finish(Exit::Stop, "memory_limit"); }
+		if (MemoryMonitor::Exceeded()) return memory_stop();
 		if (!cg_log.basis.IsSet()) return stop("no_basis");
 
 		// (i) The basis of the last LP solve of the search, solved in rationals.
@@ -439,7 +443,9 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 		const double remaining = deadline.Remaining().Amount(DurationUnit::Seconds);
 		if (remaining <= 0) return time_stop();
 		const auto t1 = clock::now();
-		const auto close = ledger->close(node->ledger_id, mult.cuts, mult.pi, mult.sigma, {0, remaining});
+		// The pass gets the remaining time and the memory limit of the run (the
+		// resident bytes of the process, as MemoryMonitor reads them).
+		const auto close = ledger->close(node->ledger_id, mult.cuts, mult.pi, mult.sigma, {0, remaining, std::max<int64_t>(0, MemoryMonitor::LimitBytes())});
 		const double pass_s = std::chrono::duration<double>(clock::now() - t1).count();
 		visit.exact_pass_s += pass_s;
 		exact_pass_time += pass_s;
@@ -447,7 +453,14 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 		if (close.removed) { ++ledger_removed_by_close; return finish(Exit::Removed, "removed"); }
 		// A close without bound was refused or its pass did not finish.
 		// A pass stopped by the time limit given to it is the time limit of the run.
-		if (!close.delta) return deadline.Reached() || pass_s >= remaining ? time_stop() : stop("close_refused: " + close.reason);
+		// The pass has no other limit than time and memory, so an unresolved pass
+		// that did not run out of time ran out of memory.
+		if (!close.delta)
+		{
+			if (deadline.Reached() || pass_s >= remaining) return time_stop();
+			if (close.reason == "exact pass unresolved" && MemoryMonitor::LimitBytes() > 0) return memory_stop();
+			return stop("close_refused: " + close.reason);
+		}
 		node->ledger_bound = true;
 		// (v) Without negative route, the exact multipliers are feasible for every
 		// route of the node and their value is below U. The caller queues the
@@ -476,7 +489,7 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 		cg_log = cg_solver.Solve(spf->formulation, {CGOption::IterationsInformation, CGOption::Basis});
 		*log.lp_time += cg_log.lp_time;
 		if (cg_log.status == CGStatus::TimeLimitReached) return time_stop();
-		if (cg_log.status == CGStatus::MemoryLimitReached) { log.status = BCStatus::MemoryLimitReached; return finish(Exit::Stop, "memory_limit"); }
+		if (cg_log.status == CGStatus::MemoryLimitReached) return memory_stop();
 		if (cg_log.status == CGStatus::Infeasible) { ++cg_infeasible_count; return stop("cg_infeasible"); }
 		if (cg_log.status != CGStatus::Optimum) return stop("cg_unresolved");
 		node->bound = cg_log.incumbent_value;

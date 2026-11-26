@@ -83,6 +83,10 @@ struct Options {
     bool dominance = true;
     long long label_limit = 0;  // 0: none
     double time_limit = 0;      // seconds, 0: none
+    // Bytes of resident memory of the whole process (/proc/self/statm), 0: none.
+    // Read where the time limit is read. Like the other limits it can only stop
+    // the pass, which then returns no minimum, so it never changes a minimum.
+    long long memory_limit = 0;
     std::size_t negative_cap = 10000;
     // Called on every completed route: customers, exact duration, exact reduced cost.
     std::function<void(const std::vector<int> &, const Q &, const Q &)> on_route;
@@ -107,6 +111,10 @@ struct Result {
 };
 
 Result price(const Instance &instance, const Duals &duals, const Options &options = {});
+
+// Resident set size of the process in bytes, 0 when /proc/self/statm cannot be
+// read (then the memory limit never stops the pass).
+long long resident_bytes();
 
 // Building blocks, exposed for the tests.
 

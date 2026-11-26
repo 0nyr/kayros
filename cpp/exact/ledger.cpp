@@ -165,6 +165,7 @@ CloseOutcome Ledger::close(int node, const std::vector<std::array<int, 3>> &cuts
     Options options;
     options.label_limit = limits.label_limit;
     options.time_limit = limits.time_limit;
+    options.memory_limit = limits.memory_limit;
     Result res = price(instance_, duals, options);
     c.negative_count = res.negative_count;
     c.negatives = std::move(res.negatives);

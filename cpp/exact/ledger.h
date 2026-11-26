@@ -3,8 +3,8 @@
 // the exact pass, the incumbent, the open nodes of the search tree and the record
 // of the operations that changed its state. Every number it decides on is a GMP
 // rational. The only binary64 values it reads are the instance inputs, which the
-// profile defines as binary64, and the optional time limit of close, which can
-// only make the pass unresolved and the close refused.
+// profile defines as binary64, and the optional time and memory limits of close,
+// which can only make the pass unresolved and the close refused.
 //
 // Operations. Each either succeeds or changes nothing, and a refused operation is
 // never recorded.
@@ -106,6 +106,7 @@ struct PruneOutcome {
 struct Limits {
     long long label_limit = 0;  // 0: none
     double time_limit = 0;      // seconds, 0: none
+    long long memory_limit = 0; // bytes of resident memory of the process, 0: none
 };
 
 class Ledger {
