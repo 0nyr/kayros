@@ -12,7 +12,9 @@ The name is a nod to [*Kairos*](https://en.wikipedia.org/wiki/Kairos), the ancie
 
 ## Install
 
-The published 1.7.1 release is available with `pip install kayros==1.7.1`. To reproduce published runs with that release, use `mamut-routing-lib==0.11.0` and the [archived benchmark layout](https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11).
+**MAMUT-routing edition r1** (`mamut-routing/0.1`) requires the 2.0 reader. Until Kayros 2.0.0 is released on PyPI, install Kayros from the `main` branch using the source instructions below.
+
+The latest [PyPI release, Kayros 1.7.1](https://pypi.org/project/kayros/1.7.1/), requires `mamut-routing-lib>=0.6.0,<0.12` and reads the historical layout. To reproduce published runs, install `kayros==1.7.1` with `mamut-routing-lib==0.11.0` and use the [archived benchmarks](https://github.com/ANR-MAMUT/MAMUT-routing-archive-2026-11).
 
 For the 2.0 development version, build a wheel of the pinned MAMUT library with pip 25.1 or later. The directory must also be visible to pip's isolated build environment when it installs Kayros from a checkout or a source distribution.
 
