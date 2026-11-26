@@ -63,7 +63,7 @@ function(kayros_exact_mutant name from to)
     set(KAYROS_EXACT_TEST_RUNS ${KAYROS_EXACT_TEST_RUNS} COMMAND kayros_exact_mutant_test_${name} PARENT_SCOPE)
     set(KAYROS_EXACT_MUTANTS ${KAYROS_EXACT_MUTANTS} ${name} PARENT_SCOPE)
 endfunction()
-kayros_exact_mutant(cut_penalty "pen += w[c];" ";")
+kayros_exact_mutant(cut_penalty "pen += w[c];" "{}")
 kayros_exact_mutant(set_inclusion "(M.U & ~L.U).any() || " "")
 kayros_exact_mutant(right_limit "if (k + 1 < bp.size() && G(bp[k], true) > eval(f, bp[k], true)) return false;" "")
 

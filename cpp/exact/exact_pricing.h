@@ -90,6 +90,7 @@ struct Options {
 
 struct Counters {
     long long created = 0, dominated = 0, extended = 0, completed = 0, dom_tests = 0, dom_scans = 0, empty = 0;
+    long long shadow_rejections = 0;  // dominance tests rejected by the binary64 shadow
     std::size_t max_knots = 0;
 };
 
@@ -120,5 +121,9 @@ std::optional<Q> path_duration(const Instance &I, const std::vector<int> &custom
 // g(max(y, first x of g)) <= f(x) for every x of the domain of f. f is the curve
 // of the dominated label L, g that of the dominator M. scans counts merge scans.
 bool curve_dominated(const Map &f, const Map &g, const Q &delta, long long *scans = nullptr);
+
+// The binary64 shadow test on the same arguments. It may only reject: when it
+// returns true, curve_dominated(f, g, delta) returns false.
+bool shadow_rejects(const Map &f, const Map &g, const Q &delta);
 
 }  // namespace kayros::exact

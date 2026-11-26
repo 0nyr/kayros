@@ -147,7 +147,7 @@ int main(int argc, char **argv) {
           << ",\"best_path\":" << json_path(r.best_route) << ",\"negative_count\":" << r.negative_count
           << ",\"labels_created\":" << s.created << ",\"labels_dominated\":" << s.dominated
           << ",\"labels_extended\":" << s.extended << ",\"labels_empty\":" << s.empty
-          << ",\"completed\":" << s.completed << ",\"dom_tests\":" << s.dom_tests << ",\"dom_scans\":" << s.dom_scans
+          << ",\"completed\":" << s.completed << ",\"dom_tests\":" << s.dom_tests << ",\"dom_scans\":" << s.dom_scans << ",\"shadow_rejections\":" << s.shadow_rejections
           << ",\"max_knots\":" << s.max_knots
           << ",\"wall_s\":" << r.seconds << ",\"read_s\":" << read_s << ",\"peak_rss_kb\":" << peak_rss_kb() << ",\"negatives\":[";
         for (std::size_t k = 0; k < r.negatives.size(); ++k)

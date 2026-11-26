@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -88,6 +90,52 @@ void check_strict(const Map &f) {
         if (!(f[i - 1].x < f[i].x)) throw std::runtime_error("curve abscissas not strictly increasing");
 }
 
+// Binary64 shadow of a curve: for each knot, bounds lo <= x <= hi and lo <= at <= hi.
+// It is used only to reject a dominance test early (see shadow_rejects).
+struct Shadow {
+    std::vector<double> x_lo, x_hi, at_lo, at_hi;
+};
+
+constexpr double inf = std::numeric_limits<double>::infinity();
+
+// mpq_get_d truncates towards zero, so 1 step outwards gives a bound.
+double down(const Q &q) {
+    const double d = q.get_d();
+    return std::isfinite(d) ? std::nextafter(d, -inf) : -inf;
+}
+double up(const Q &q) {
+    const double d = q.get_d();
+    return std::isfinite(d) ? std::nextafter(d, inf) : inf;
+}
+
+Shadow shadow(const Map &f) {
+    Shadow s;
+    for (const td::Knot &k : f) {
+        s.x_lo.push_back(down(k.x)), s.x_hi.push_back(up(k.x));
+        s.at_lo.push_back(down(k.at)), s.at_hi.push_back(up(k.at));
+    }
+    return s;
+}
+
+// True only if the exact test curve_dominated(f, g, delta) returns false. It looks for
+// a knot x_i of f and a knot x_j of g with x_j <= x_i + delta and g_j.at > f_i.at, both
+// certified by the bounds. Then either x_i + delta is beyond the last x of g, or, since g
+// is nondecreasing (Claim 6), g(x_i + delta) >= g_j.at > f(x_i) at the breakpoint x_i,
+// which the exact scan compares. A rejection is never turned into an acceptance.
+bool shadow_rejects(const Shadow &f, const Shadow &g, double delta_lo) {
+    std::size_t j = 0;
+    bool have = false;  // g.x_hi[j] <= current lower bound of x_i + delta
+    for (std::size_t i = 0; i < f.x_lo.size(); ++i) {
+        // Round to nearest errs by at most half an ulp, so 1 step down bounds the sum.
+        const double y = std::nextafter(f.x_lo[i] + delta_lo, -inf);
+        if (!have && g.x_hi[0] <= y) have = true;
+        if (!have) continue;
+        while (j + 1 < g.x_hi.size() && g.x_hi[j + 1] <= y) ++j;
+        if (g.at_lo[j] > f.at_hi[i]) return true;
+    }
+    return false;
+}
+
 struct Label {
     int v, parent, nvis;
     bool alive = true;
@@ -96,6 +144,7 @@ struct Label {
     Q p, cp;
     std::vector<unsigned char> cnt;
     Map f;
+    Shadow s;  // set when dominance is on
 };
 
 struct Pricer {
@@ -161,6 +210,7 @@ struct Pricer {
         for (std::size_t c = 0; c < cuts.size(); ++c)
             if (M.cnt[c] == 1 && L.cnt[c] != 1) pen += w[c];
         const Q delta = (L.p - L.cp) - (M.p - M.cp - pen);
+        if (shadow_rejects(L.s, M.s, down(delta))) { ++res.counters.shadow_rejections; return false; }
         return curve_dominated(L.f, M.f, delta, &res.counters.dom_scans);
     }
 
@@ -217,6 +267,7 @@ struct Pricer {
                     st.max_knots = std::max(st.max_knots, N.f.size());
                     set_unreachable(N);
                     if (opt.dominance) {
+                        N.s = shadow(N.f);
                         bool out = false;
                         for (int s : bucket[x])
                             if (L[s].alive && dominates(L[s], N)) { out = true; break; }
@@ -225,7 +276,7 @@ struct Pricer {
                         std::size_t keep = 0;
                         for (int s : B) {
                             if (!L[s].alive) continue;
-                            if (dominates(N, L[s])) { L[s].alive = false, Map().swap(L[s].f), ++st.dominated; continue; }
+                            if (dominates(N, L[s])) { L[s].alive = false, Map().swap(L[s].f), L[s].s = {}, ++st.dominated; continue; }
                             B[keep++] = s;
                         }
                         B.resize(keep);
@@ -305,6 +356,8 @@ bool curve_dominated(const Map &f, const Map &g, const Q &delta, long long *scan
     }
     return true;
 }
+
+bool shadow_rejects(const Map &f, const Map &g, const Q &delta) { return shadow_rejects(shadow(f), shadow(g), down(delta)); }
 
 Result price(const Instance &instance, const Duals &duals, const Options &options) {
     Pricer P(instance, duals, options);

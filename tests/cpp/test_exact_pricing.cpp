@@ -357,6 +357,46 @@ void curve_gates(Tally &t) {
     std::cout << "curves: 2 cases\n";
 }
 
+// The shadow may only reject: on curves of random open paths and shifts delta near the
+// critical values, shadow_rejects implies that the exact test refuses.
+void shadow_gates(Tally &t) {
+    long long pairs = 0, rejected = 0, refused = 0;
+    for (int seed = 1; seed <= 24; ++seed) {
+        Rng r{static_cast<std::uint64_t>(seed) * 7919ULL};
+        const int n = 4 + seed % 3;
+        const Data d = random_instance(r, n, seed % 3 != 0, seed % 2 == 0);
+        const ex::Instance I = build(d);
+        std::vector<std::vector<ex::Map>> at(n + 1);  // curves of open paths, by last vertex
+        for (int k = 0; k < 300; ++k) {
+            ex::Map f = ex::initial_curve(I);
+            int v = 0;
+            std::vector<bool> seen(n + 1, false);
+            for (int len = r.uni(1, n); len > 0 && !f.empty(); --len) {
+                const int w = r.uni(1, n);
+                if (seen[w] || !I.a(v, w) || !ex::extend_curve(I, f, v, w)) break;
+                seen[w] = true, v = w;
+                at[w].push_back(f);
+            }
+        }
+        for (int v = 1; v <= n; ++v)
+            for (std::size_t a = 0; a < at[v].size() && a < 40; ++a)
+                for (std::size_t b = 0; b < at[v].size() && b < 40; ++b) {
+                    const ex::Map &f = at[v][a], &g = at[v][b];
+                    // Shifts that make the comparison tight: differences of abscissas, and small offsets.
+                    const Q base = f.back().x - g.back().x;
+                    const std::vector<Q> deltas{Q(0), Q(-base), base, Q(-base + Q(1, 1024)), Q(-base - Q(1, 1024)), Q(r.uni(-40, 40))};
+                    for (const Q &delta : deltas) {
+                        ++pairs, ++t.checks;
+                        const bool rej = ex::shadow_rejects(f, g, delta);
+                        const bool dom = ex::curve_dominated(f, g, delta);
+                        rejected += rej, refused += !dom;
+                        if (rej && dom) t.fail("shadow rejected a dominance that the exact test accepts");
+                    }
+                }
+    }
+    std::cout << "shadow: " << pairs << " curve pairs, exact refusals " << refused << ", shadow rejections " << rejected << '\n';
+}
+
 }  // namespace
 
 int main() {
@@ -364,6 +404,7 @@ int main() {
     try {
 #ifndef KAYROS_EXACT_MUTANT_TEST  // the mutation check counts minima only (criterion 2)
         curve_gates(t);
+        shadow_gates(t);
 #endif
         hand_gates(t);
         random_gates(t);
