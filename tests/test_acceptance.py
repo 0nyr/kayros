@@ -9,7 +9,7 @@ from mamut_routing_lib.exact_types import ExactRouteError
 import kayros
 from kayros.solve import _Acceptance
 
-from conftest import family_instances, require_benchmarks
+from conftest import family_instances, instance_path, require_benchmarks
 
 
 def invalid():
@@ -93,6 +93,47 @@ def test_real_search_restarts_only_from_an_accepted_incumbent():
     assert published == [proposals[1]]
     assert result.routes == proposals[1]
     assert result.value == kayros._core.solution_cost(core, result.routes)
+
+
+@pytest.mark.parametrize("search_mode", ["binary64", "exact"])
+@pytest.mark.parametrize("acceptance_mode", ["each_incumbent", "final_only"])
+@pytest.mark.parametrize("receiver,donor,expected", [
+    pytest.param([3, 13, 16, 5], [2, 12], 12798, id="before"),
+    pytest.param([2, 3, 13, 16, 5], [12], 12778, id="after"),
+])
+def test_rifki13_relocation_checked_cost(receiver, donor, expected, search_mode, acceptance_mode):
+    from kayros.io import load_instance
+    from mamut_routing_lib.exact_td import prepare_td
+
+    path = instance_path("TDVRPTW", "Rifki2020", "n=20", "Rifki-13")
+    if not path.is_file():
+        pytest.skip("Rifki-13 n=20 is not installed")
+    loaded = load_instance(path, verify=True)
+    singletons = [[c] for c in range(1, 21) if c not in receiver and c not in donor]
+    routes = [receiver, donor, *singletons]
+    oracle = prepare_td(loaded.instance, loaded.atfs, objective_function="Duration", backend="python")
+    checked = oracle.evaluate(routes)
+    assert checked.cost == expected
+
+    # Let the deadline expire at initialization to exercise publication of this particular seed.
+    events = []
+    params = kayros.Params(search_mode=search_mode, acceptance_mode=acceptance_mode)
+    result = kayros.solve(loaded, params, initial_routes=routes, time_limit=1e-12,
+                          on_incumbent=lambda event, published: events.append((event, published)))
+    assert result.routes == routes
+    assert result.exact_cost == checked.cost and result.cost == checked.display_cost
+    witness = dict(zip(checked.routes, checked.route_evaluations))
+    assert result.exact_route_durations == [witness[tuple(r)].duration for r in result.routes]
+    assert result.exact_route_departures == [witness[tuple(r)].departure_time for r in result.routes]
+
+    (event, published), = events
+    assert published == routes and event.origin == "warm_start"
+    if search_mode == "binary64" and acceptance_mode == "final_only":
+        assert event.exact_cost is None and event.value == event.search_value
+    else:
+        assert event.exact_cost == checked.cost and event.value == checked.display_cost
+    if search_mode == "exact":
+        assert event.search_value is None and result.search_value is None
 
 
 def test_public_api_recovers_a_prior_incumbent(monkeypatch, caplog):
