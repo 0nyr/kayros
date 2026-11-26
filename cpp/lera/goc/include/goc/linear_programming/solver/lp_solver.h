@@ -25,7 +25,9 @@ namespace goc
 //					advantage: if model has many constraints, getting them is linear in that size.
 // - Incumbent:		if not included {incumbent} will not be filled.
 //					advantage: if solution has many variables, getting it is linear in that size.
-enum class LPOption { ScreenOutput, Duals, Incumbent };
+// - Basis:			if not included {basis} will not be filled. The exact layer solves
+//					this basis in rationals (exact LP multipliers of the master).
+enum class LPOption { ScreenOutput, Duals, Incumbent, Basis };
 
 // Class representing a solver for the lp relaxation. Its purpose is to abstract the
 // specific solver implementations from the algorithms.
