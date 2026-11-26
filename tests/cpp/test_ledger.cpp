@@ -18,7 +18,7 @@
 // and the routes of a node are selected by a predicate on the route written from
 // Claim 2, not from the forbidden arcs of the ledger.
 //
-// Exit code: 0 when every check passes. Built against a mutated copy of the ledger
+// The exit code is 0 when every check passes. Built against a mutated copy of the ledger
 // (KAYROS_LEDGER_MUTANT_TEST) it exits 0 only when some check fails, i.e. when
 // the tests catch the mutant.
 #include "exact/ledger.h"
@@ -79,6 +79,13 @@ struct Rng {
     int uni(int a, int b) { return a + static_cast<int>(next() % static_cast<std::uint64_t>(b - a + 1)); }
     bool coin(int percent) { return uni(1, 100) <= percent; }
 };
+
+// Random fraction num/den, with the 2 draws in a fixed order.
+Q rfrac(Rng &r, int a, int b, int c, int d) {
+    const int num = r.uni(a, b);
+    const int den = r.uni(c, d);
+    return frac(num, den);
+}
 
 double val(Rng &r, int a, int b, bool dyadic) { return dyadic ? r.uni(4 * a, 4 * b) / 4.0 : r.uni(3 * a, 3 * b) / 3.0; }
 
@@ -201,7 +208,7 @@ std::optional<std::pair<Q, Routes>> partition(const Brute &b, const std::map<std
     return out;
 }
 
-// Claim 2 as a predicate on a route: left forbids traversing i -> j, right asks
+// Claim 2 as a predicate on a route. Left forbids traversing i -> j, right asks
 // that the vertex after i is j and the vertex before j is i whenever i or j is on
 // the route (the depot counts as a vertex before the first and after the last).
 bool allowed(const std::vector<int> &r, const std::vector<ex::Decision> &decisions) {
@@ -268,6 +275,7 @@ struct E2E {
     bool solvable = false, gave_up = false, certified = false;
     long long nodes = 0;
     std::string record;  // the written record of a certified run
+    Q U;
 };
 
 E2E drive(const ex::InstanceData &d, std::optional<int> fleet, const std::string &tag) {
@@ -315,7 +323,7 @@ E2E drive(const ex::InstanceData &d, std::optional<int> fleet, const std::string
         if (std::all_of(count.begin() + 1, count.end(), [](int x) { return x == 1; })) {
             Routes X;
             for (const auto &[r, cost] : R) X.push_back(r);
-            if (static_cast<int>(X.size()) > K) {  // the bound ignores the fleet: the driver gives up
+            if (static_cast<int>(X.size()) > K) {  // the bound ignores the fleet, so the driver gives up
                 out.gave_up = true;
                 expect(!L.certified(), tag + " certified after the driver gave up");
                 return out;
@@ -352,6 +360,7 @@ E2E drive(const ex::InstanceData &d, std::optional<int> fleet, const std::string
         std::ostringstream s;
         L.write(s);
         out.record = s.str();
+        out.U = *L.U();
     } else {
         expect(!stack.empty() || L.open_count() > 0, tag + " not certified with an empty stack");
     }
@@ -401,7 +410,8 @@ void e2e_gates() {
             if (!fleet || *fleet == n) expect(e.certified || !e.solvable, tag + " not certified with a fleet limit that does not bind");
             if (e.certified && seed % 5 == 0) {
                 std::string text;
-                expect(run_verifier(e.record, "e2e", &text) == 0, tag + " verifier refused a certified record: " + text);
+                expect(run_verifier(e.record, "e2e", &text) == 0 && text.rfind("certified U=" + e.U.get_str() + " ", 0) == 0,
+                       tag + " verifier refused a certified record or printed another U: " + text);
                 ++e2e_verified;
             }
         }
@@ -427,10 +437,10 @@ void bound_gates() {
             for (int s = 0; s < 8; ++s) {
                 ex::Ledger L(d, fleet);
                 expect(L.offer(sol->second).accepted, "bound: offer refused");
-                // Half of the settings: random multipliers (Delta > 0 mostly). The other half: the
+                // Half of the settings use random multipliers (Delta > 0 mostly), the other half
                 // cost shares of the routes at the root, scaled by 9/10 to 11/10 (L near U).
                 std::vector<Q> pi(n + 1, Q(0));
-                for (int v = 1; v <= n; ++v) pi[v] = frac(r.uni(0, 4000), r.uni(1, 97));
+                for (int v = 1; v <= n; ++v) pi[v] = rfrac(r, 0, 4000, 1, 97);
                 if (s % 2 == 1) {
                     std::vector<bool> covered(n + 1, false);
                     for (const auto &[route, cost] : b.routes)
@@ -448,7 +458,7 @@ void bound_gates() {
                     std::array<int, 3> S;
                     do S = {r.uni(1, n), r.uni(1, n), r.uni(1, n)};
                     while (S[0] == S[1] || S[0] == S[2] || S[1] == S[2]);
-                    cuts.push_back(S), sigma.push_back(frac(-r.uni(0, 300), r.uni(1, 13)));
+                    cuts.push_back(S), sigma.push_back(rfrac(r, -300, 0, 1, 13));
                 }
                 const Reference ref = reference(b.routes, n, kappa, pi, cuts, sigma);
                 const ex::CloseOutcome c = L.close(0, cuts, pi, sigma);
@@ -482,7 +492,21 @@ ex::InstanceData two(bool chain, long long capacity = 10) {
 
 std::vector<Q> P(std::initializer_list<Q> v) { return v; }
 
-void hand_gates(std::string *prune_record) {
+// 3 customers, every travel 1, so a route of k customers costs k + 1 and the
+// optimum is 1 route of cost 4. With the cut {1, 2, 3}, sigma = -1 and pi_i = 5/3,
+// every reduced cost is at least 0 (1/3, 2/3 and 0 for 1, 2 and 3 customers) and
+// L = 5 - 1 = 4 = U, so the close removes the root.
+ex::InstanceData three() {
+    ex::InstanceData d;
+    d.capacity = 10, d.lo = 0, d.hi = 100;
+    d.customers.assign(3, ex::CustomerInput{std::nullopt, 0, 1});
+    for (int i = 0; i <= 3; ++i)
+        for (int j = 0; j <= 3; ++j)
+            if (i != j) d.arcs.push_back(flat(i, j, 1));
+    return d;
+}
+
+void hand_gates(std::string *prune_record, std::string *cut_record) {
     // Construction.
     for (int K : {0, -1}) {
         bool threw = false;
@@ -499,6 +523,15 @@ void hand_gates(std::string *prune_record) {
         threw = false;
         try { ex::Ledger L(d, std::nullopt); } catch (const std::invalid_argument &) { threw = true; }
         expect(threw, "demand above the capacity accepted at construction");
+    }
+    {
+        ex::InstanceData d;
+        d.capacity = 10, d.lo = 0, d.hi = 100;
+        d.customers.assign(ex::max_customers + 1, ex::CustomerInput{std::nullopt, 0, 1});
+        d.arcs = {flat(0, 1, 1), flat(1, 0, 1)};
+        bool threw = false;
+        try { ex::Ledger L(d, std::nullopt); } catch (const std::invalid_argument &) { threw = true; }
+        expect(threw, "more than max_customers customers accepted at construction");
     }
     // Offers.
     {
@@ -529,7 +562,7 @@ void hand_gates(std::string *prune_record) {
         expect(C.offer({{1}, {2}}).accepted, "offer without a fleet limit refused");
     }
     {
-        // Time-infeasible route: customer 2 closes at 1, before any arrival.
+        // Time-infeasible route. Customer 2 closes at 1, before any arrival.
         ex::InstanceData d = two(true);
         d.customers[1].window = std::make_pair(0.0, 1.0);
         ex::Ledger L(d, std::nullopt);
@@ -576,7 +609,7 @@ void hand_gates(std::string *prune_record) {
         expect(!L.branch(0, 1, 2).accepted && !L.close(0, {}, P({0, 2, 4}), {}).removed && !L.prune(0).removed && t.same(L),
                "operation on a removed node");
     }
-    // A node never closed: not certified.
+    // A node never closed leaves the ledger not certified.
     {
         ex::Ledger L(two(true), std::nullopt);
         L.offer({{1, 2}});
@@ -648,18 +681,28 @@ void hand_gates(std::string *prune_record) {
         expect(!o.removed && o.reason == "cut customers not distinct" && s.same(L), "cut with a repeated customer accepted: " + o.reason);
         o = L.close(0, {{1, 2, 6}}, pi, P({-1}));
         expect(!o.removed && o.reason == "cut vertex not a customer" && s.same(L), "cut customer above n accepted: " + o.reason);
-        // A tiny label limit leaves the pass unresolved: nothing changes, no bound is stored.
+        // A tiny label limit leaves the pass unresolved. Nothing changes and no bound is stored.
         ex::Limits lim;
         lim.label_limit = 1;
         const ex::CloseOutcome c = L.close(0, {}, pi, {}, lim);
         expect(!c.removed && c.reason == "exact pass unresolved" && !c.bound && s.same(L), "unresolved pass accepted: " + c.reason);
         expect(!L.prune(0).removed && s.same(L), "unresolved pass stored a bound");
     }
+    {
+        ex::Ledger L(three(), std::nullopt);
+        expect(L.offer({{1, 2, 3}}).accepted && L.U() == Q(4), "cut case: offer");
+        const Q t = frac(5, 3);
+        const ex::CloseOutcome c = L.close(0, {{1, 2, 3}}, P({0, t, t, t}), P({-1}));
+        expect(c.removed && c.delta == Q(0) && c.bound == Q(4) && L.certified(), "cut case: close with a cut did not remove the root");
+        std::ostringstream w;
+        L.write(w);
+        *cut_record = w.str();
+    }
     std::cout << "hand-made: done\n";
 }
 
 // ---------- REC ----------
-void record_gates(const std::string &prune_record) {
+void record_gates(const std::string &prune_record, const std::string &cut_record) {
     // Binary64 and rational text forms.
     Rng r{12345};
     long long doubles = 0;
@@ -688,7 +731,7 @@ void record_gates(const std::string &prune_record) {
     }
     expect(ex::parse_rational("-7/3") == frac(-7, 3), "rational -7/3");
 
-    // The prune record: offer (6), branch, offer (4), close (from prune), close.
+    // The prune record holds offer (6), branch, offer (4), close (from prune), close.
     std::string out;
     expect(run_verifier(prune_record, "prune", &out) == 0 && out.find("certified U=4 ") == 0, "verifier refused the prune record: " + out);
     {
@@ -738,16 +781,35 @@ void record_gates(const std::string &prune_record) {
     tamper("the fleet set to 0", [&](auto &t) { expect(replace(t[1], "fleet none", "fleet 0"), "tamper fleet"); });
     tamper("a trailing token", [&](auto &t) { t[closes[1]] += " 1"; });
     tamper("a duplicate close line", [&](auto &t) { t.push_back(t[closes[1]]); });
-    std::cout << "record: " << doubles << " binary64 round trips, verifier and 14 tampered records\n";
+
+    // The record of the cut case carries a cut and its multiplier.
+    expect(run_verifier(cut_record, "cut", &out) == 0 && out.find("certified U=4 ") == 0, "verifier refused the cut record: " + out);
+    const std::vector<std::string> C = lines(cut_record);
+    const auto cut_line = [&] {
+        for (std::size_t k = 0; k < C.size(); ++k)
+            if (C[k].rfind("close node", 0) == 0) return k;
+        return C.size();
+    }();
+    expect(cut_line < C.size() && C[cut_line].find(" cuts 1 1 2 3 -1 ") != std::string::npos, "cut record: close line " + C.back());
+    for (const auto &[from, to] : std::vector<std::pair<std::string, std::string>>{
+             {" cuts 1 1 2 3 -1 ", " cuts 1 1 2 3 -1/2 "}, {" cuts 1 1 2 3 -1 ", " cuts 1 1 2 3 1 "},
+             {" cuts 1 1 2 3 -1 ", " cuts 1 1 2 2 -1 "}, {" cuts 1 1 2 3 -1 ", " cuts 0 "}}) {
+        if (cut_line == C.size()) break;
+        std::vector<std::string> t = C;
+        expect(replace(t[cut_line], from, to), "tamper cut");
+        std::string o;
+        expect(run_verifier(join(t), "tamper", &o) != 0, "verifier accepted the cut record with '" + to + "'");
+    }
+    std::cout << "record: " << doubles << " binary64 round trips, verifier on 2 records, 14 + 4 tampered records\n";
 }
 
 }  // namespace
 
 int main() {
-    std::string prune_record;
+    std::string prune_record, cut_record;
     const std::vector<std::pair<std::string, std::function<void()>>> groups{
-        {"hand", [&] { hand_gates(&prune_record); }},
-        {"record", [&] { record_gates(prune_record); }},
+        {"hand", [&] { hand_gates(&prune_record, &cut_record); }},
+        {"record", [&] { record_gates(prune_record, cut_record); }},
         {"bound", bound_gates},
         {"e2e", e2e_gates}};
     for (const auto &[name, f] : groups) {

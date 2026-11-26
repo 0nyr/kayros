@@ -189,7 +189,7 @@ CloseOutcome Ledger::close(int node, const std::vector<std::array<int, 3>> &cuts
         c.removed = true;
         return c.reason = "bound at least U", c;
     }
-    // Not removed: keep the largest bound for a later prune. Nothing is recorded.
+    // The node stays open. Keep the largest bound for a later prune, record nothing.
     Node &nd = it->second;
     if (!nd.best || L > *nd.best->bound) nd.best = cert;
     return c.reason = "bound below U", c;
@@ -200,7 +200,7 @@ PruneOutcome Ledger::prune(int node) {
     auto it = open_.find(node);
     if (it == open_.end()) return p.reason = "node not open", p;
     if (!it->second.best) return p.reason = "no stored bound", p;
-    if (!U_) return p.reason = "no incumbent", p;  // unreachable: a stored bound needs an incumbent
+    if (!U_) return p.reason = "no incumbent", p;  // never true, a stored bound needs an incumbent
     if (!reaches(*it->second.best->bound)) return p.reason = "stored bound below U", p;
     const Certificate cert = *it->second.best;
     remove(node, cert);

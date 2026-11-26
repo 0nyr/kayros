@@ -4,9 +4,9 @@
 // every bound. It links the exact library only (exact pass, ledger, the exact
 // header of MAMUT-routing-lib and GMP), nothing of the search and no LP backend.
 //
-// Usage: kayros_ledger_verify RECORD
-// Prints "certified U=<exact fraction>" and exits 0 iff the replay certifies,
-// else prints "not certified: <reason>" and exits 1 (2 on a usage error).
+// Usage is kayros_ledger_verify RECORD. The program prints "certified U=<exact
+// fraction>" and exits 0 iff the replay certifies, else it prints "not certified"
+// with the reason and exits 1 (2 on a usage error).
 #include "exact/ledger.h"
 
 #include <fstream>

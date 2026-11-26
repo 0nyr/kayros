@@ -83,7 +83,7 @@ if(NOT KAYROS_VERIFY_LINKS STREQUAL "kayros_exact" OR NOT KAYROS_EXACT_LINKS STR
 endif()
 
 # Tests of the ledger, and the mutation check of the ledger in the same style as
-# that of the pass: each mutant is a copy of ledger.cpp with 1 piece of text
+# that of the pass. Each mutant is a copy of ledger.cpp with 1 piece of text
 # replaced, linked with the unmutated pass. The test built with
 # KAYROS_LEDGER_MUTANT_TEST exits 0 only when some check fails on the mutant.
 set(KAYROS_LEDGER_TEST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/cpp/test_ledger.cpp)

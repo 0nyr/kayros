@@ -8,19 +8,21 @@
 //
 // Operations. Each either succeeds or changes nothing, and a refused operation is
 // never recorded.
-// - offer(routes): Claim 3 needs U to be the exact cost of a solution.
-// - branch(node, i, j): replaces the node by its 2 children of Claim 2.
-// - close(node, cuts, pi, sigma): runs the exact pass (Claim 9) and computes the
+// - offer(routes) evaluates the routes exactly and makes them the incumbent when
+//   they form a solution of exact cost below U. Claim 3 needs U to be the exact
+//   cost of a solution.
+// - branch(node, i, j) replaces the node by its 2 children of Claim 2.
+// - close(node, cuts, pi, sigma) runs the exact pass (Claim 9) and computes the
 //   bound of Claim 1. The node is removed iff it has no feasible route or L >= U.
-// - prune(node): removes the node iff the largest bound stored by an earlier close
+// - prune(node) removes the node iff the largest bound stored by an earlier close
 //   is at least the current U. Claim 1 does not depend on U.
-// certified() is Claim 3: no open node and an incumbent.
+// certified() is Claim 3, true iff no node is open and an incumbent exists.
 //
-// Node identity: an integer handed out by the ledger, root 0, the children of a
-// branching get the next 2 unused integers (left first). An id is never reused,
+// A node is named by an integer handed out by the ledger, root 0, the children of
+// a branching get the next 2 unused integers (left first). An id is never reused,
 // so a removed or never issued id is refused.
 //
-// Record: 1 line per accepted offer and branch, and 1 close line per node removed
+// The record holds 1 line per accepted offer and branch, and 1 close line per node removed
 // by close or prune. write() serialises it with a header that rebuilds the
 // instance, and replay() rebuilds a new ledger from such a file and replays it
 // (criterion 6, program ledger_verify).
