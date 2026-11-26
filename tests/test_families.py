@@ -1,15 +1,12 @@
 """Check exact feasibility, binary64 duration and short public solves on Ari2018, Vu2020 and Rifki2020, with and without windows. The Dabia2013 routes are covered by test_checker_equivalence. Rifki2020 exercises vertical jumps in the arrival functions."""
 
-import random
-import zlib
-
 import pytest
 from mamut_routing_lib.td import load_td_instance
 
 import kayros
 from kayros.io import to_core
 
-from conftest import family_instances
+from conftest import corpus_rng, family_instances
 from exact_reference import assert_route_agrees
 from test_checker_equivalence import random_routes
 
@@ -44,7 +41,7 @@ ALL_CASES = list(cases())
 def test_family_checker_equivalence(instance_path) -> None:
     loaded = load_td_instance(instance_path)
     core = to_core(loaded)
-    rng = random.Random(zlib.crc32(str(instance_path).encode()))
+    rng = corpus_rng(instance_path)
     feasible_routes = 0
     for _ in range(EQUIVALENCE_DRAWS):
         for route in random_routes(rng, loaded.instance):

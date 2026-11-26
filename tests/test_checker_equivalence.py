@@ -1,7 +1,6 @@
 """Compare fast route pricing with the MAMUT exact evaluation. Feasibility must agree. The binary64 duration must meet the bound in exact_reference.TOL."""
 
 import random
-import zlib
 
 import pytest
 from mamut_routing_lib.enums import ObjectiveFunction
@@ -10,7 +9,7 @@ from mamut_routing_lib.models import BenchmarkSolution
 
 from kayros.io import to_core
 
-from conftest import family_instances
+from conftest import corpus_rng, family_instances
 from exact_reference import assert_close, assert_route_agrees, exact_routes_cost
 
 ROUTES_PER_INSTANCE = 30
@@ -51,7 +50,7 @@ def random_routes(rng: random.Random, instance) -> list[list[int]]:
 def assert_instance_equivalence(instance_path) -> None:
     loaded = load_td_instance(instance_path)
     core = to_core(loaded)
-    rng = random.Random(zlib.crc32(str(instance_path).encode()))
+    rng = corpus_rng(instance_path)
 
     feasible_routes = 0
     for _ in range(ROUTES_PER_INSTANCE):

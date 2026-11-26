@@ -9,6 +9,8 @@ silently wrong gate.
 """
 
 import os
+import random
+import zlib
 from pathlib import Path
 
 import pytest
@@ -27,6 +29,14 @@ def benchmarks_root() -> Path | None:
     if os.environ.get("KAYROS_REQUIRE_BENCHMARKS") == "1":
         raise pytest.UsageError("CI requires a MAMUT-routing benchmarks tree")
     return None
+
+
+def corpus_rng(path: Path, prefix: str = "") -> random.Random:
+    """Seed route samples from the instance path relative to the benchmarks root."""
+    root = benchmarks_root()
+    assert root is not None
+    key = prefix + path.relative_to(root).as_posix()
+    return random.Random(zlib.crc32(key.encode("utf-8")))
 
 
 def instance_path(problem_type: str, family: str, size_dir: str, name: str) -> Path:

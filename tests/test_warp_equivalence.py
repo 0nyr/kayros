@@ -4,7 +4,6 @@ from bisect import bisect_left
 from fractions import Fraction
 import math
 import random
-import zlib
 
 import pytest
 from mamut_routing_lib.exact_td import prepare_td
@@ -14,7 +13,7 @@ from kayros import _core
 from kayros.io import to_core
 
 import warp_reference as ref
-from conftest import family_instances
+from conftest import corpus_rng, family_instances
 from exact_reference import assert_close, exact_route, exact_routes_cost
 from test_checker_equivalence import random_routes
 from test_pwlf_equivalence import random_ndcpwlf
@@ -174,7 +173,7 @@ def test_warp_gate_random_routes(instance_path) -> None:
     core = to_core(loaded)
     t_end = core.warp_horizon()
     assert t_end == ref.warp_horizon(loaded.instance, loaded.atfs), instance_path
-    rng = random.Random(zlib.crc32(b"warp:" + str(instance_path).encode()))
+    rng = corpus_rng(instance_path, "warp:")
 
     outcomes = {"feasible": 0, "warped": 0, "walled": 0}
     for _ in range(EQUIVALENCE_DRAWS):
@@ -233,7 +232,7 @@ def test_warp_gate_bks_and_deadline_riders(instance_path) -> None:
     assert exact is not None and reference.routing_cost == float(exact)
     assert_close(loaded, total, exact, (instance_path, "BKS total"))
 
-    rng = random.Random(zlib.crc32(b"riders:" + str(instance_path).encode()))
+    rng = corpus_rng(instance_path, "riders:")
     for route in bks.routes:
         if len(route) < 2:
             continue

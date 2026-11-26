@@ -1,13 +1,14 @@
 """Exact route acceptance and witnesses through the shared MAMUT C++ header."""
 
 from fractions import Fraction
+from math import ulp
 
 import pytest
 from mamut_routing_lib.exact_td import prepare_td
 from mamut_routing_lib.td import load_td_instance
 
 import kayros
-from conftest import family_instances
+from conftest import family_instances, instance_path
 from kayros import _core
 from kayros.io import to_core
 
@@ -59,6 +60,32 @@ def test_rifki_jump_witness_survives_public_warm_start(path, mode):
     assert (result.exact_route_durations[i], result.exact_route_departures[i]) == (timing.duration, timing.departure_time)
     assert result.route_departures[i] == float(timing.departure_time)
     assert result.exact_cost == Fraction(*native.solution_cost(result.routes)) == gold.evaluate(result.routes).cost
+
+
+def test_rifki_1_unwindowed_stepwise_minimum():
+    path = instance_path("TDVRP", "Rifki2020", "n=30", "Rifki-1")
+    if not path.is_file():
+        pytest.skip(f"missing benchmark instance: {path}")
+    loaded = load_td_instance(path)
+    core = to_core(loaded)
+    assert not core.has_time_windows
+    route = [24, 12, 1, 8, 15]
+    oracle = prepare_td(loaded.instance, loaded.atfs, backend="python", objective_function="Duration")
+    timing = oracle.route_timing(route)
+    assert (timing.duration, timing.departure_time) == (2507, 2253)
+    native = _core.ExactRoutePricer(core).route_timing(route)
+    assert tuple(Fraction(*q) for q in native) == (timing.duration, timing.departure_time)
+
+    # Replay the fold's chosen departure directly on the original arc knots.
+    feasible, duration, departure = core.evaluate_route(route)
+    assert feasible
+    assert loaded.instance.horizon[0] <= departure <= loaded.instance.horizon[1]
+    ready = Fraction(departure)
+    for tail, head in zip([0, *route], [*route, 0]):
+        ready = loaded.atfs.arcs[tail, head].evaluate_exact(ready) + Fraction(loaded.instance.service_times[head])
+    attained = ready - Fraction(departure)
+    assert abs(Fraction(duration) - attained) <= ulp(duration)
+    assert 0 <= attained - timing.duration <= 5
 
 
 @pytest.mark.parametrize("path", [p for p in family_instances("TDVRP", "Rifki2020", ["n=30"])
