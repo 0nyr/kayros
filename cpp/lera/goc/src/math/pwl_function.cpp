@@ -118,7 +118,10 @@ void PWLFunction::AddPiece(const LinearFunction& piece)
         {
             double right_val = pieces_.back().Value(max(dom(pieces_.back())));
             double left_val = piece.Value(min(dom(piece)));
-            is_continuation_of_last_piece = epsilon_equal(left_val, right_val) && (pieces_.back().domain.IsPoint() || epsilon_equal(pieces_.back().slope, piece.slope));
+            // Only exactly equal slopes merge. The merged piece takes the
+            // line of the incoming one, so a slope tolerance would move the
+            // values of the earlier span.
+            is_continuation_of_last_piece = epsilon_equal(left_val, right_val) && (pieces_.back().domain.IsPoint() || pieces_.back().slope == piece.slope);
         }
     }
     
@@ -679,7 +682,7 @@ bool PWLFunction::check_normalization() const {
     {
         if (epsilon_equal(pieces_[i-1].domain.right, pieces_[i].domain.left) &&
             epsilon_equal(pieces_[i-1].Value(pieces_[i-1].domain.right), pieces_[i].Value(pieces_[i].domain.left)) &&
-            epsilon_equal(pieces_[i-1].slope, pieces_[i].slope))
+            pieces_[i-1].slope == pieces_[i].slope)
         {   
             std::cerr << "PWLFunction::check_normalization: pieces are continuations of each other "
                         << pieces_[i-1].domain << " and " << pieces_[i].domain 

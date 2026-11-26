@@ -35,7 +35,6 @@ LinearFunction::LinearFunction(const Point2D& p1, const Point2D& p2)
     else
     {
         slope = (p2.y - p1.y) / (p2.x - p1.x);
-        if (epsilon_equal(slope, 0.0)) slope = 0.0;
         intercept = p2.y - slope * p2.x;
     }
     // Fix for numerical errors.
