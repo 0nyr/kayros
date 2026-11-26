@@ -176,7 +176,8 @@ static void search()
         solver::BCP bcp(s.D, &s.spf);
         VRPSolution solution(INFTY, {});
         auto log = s.Run(bcp, &solution);
-        require(name(log.status) == "Optimum", "exact incumbent search status " + name(log.status));
+        // Without a ledger the search is never optimal (M2 step 5), see test_node_loop.cpp.
+        require(name(log.status) == "Unresolved" && bcp.unresolved_reason == "ledger_unavailable", "exact incumbent search status " + name(log.status));
         require(bcp.ExactIncumbentValue() && *bcp.ExactIncumbentValue() == ExactCost(3, 10), "exact incumbent value 3/10");
         require(log.best_int_value.IsSet() && *log.best_int_value == 0.3 && 0.1 + 0.2 != 0.3,
                 "the binary64 incumbent value is the nearest value of the exact cost");
@@ -225,7 +226,7 @@ static void search()
         bcp.SetInitialIncumbent(ExactCost(3, 10));
         VRPSolution solution(INFTY, {});
         auto log = s.Run(bcp, &solution);
-        require(name(log.status) == "Optimum", "warm search status " + name(log.status));
+        require(name(log.status) == "Unresolved" && bcp.unresolved_reason == "ledger_unavailable", "warm search status " + name(log.status));
         require(s.incumbents == 0 && *bcp.ExactIncumbentValue() == ExactCost(3, 10), "an equal exact cost is not an improvement");
         require(*log.best_int_value == 0.3 && solution.routes.empty(), "the warm-start value is kept");
     }

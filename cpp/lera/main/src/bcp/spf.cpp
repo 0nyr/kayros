@@ -8,6 +8,7 @@
 
 #include "bcp/pricing_problem.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 using namespace std;
@@ -90,17 +91,76 @@ void SPF::AddCut(const SubsetRowCut& cut)
 
 void SPF::SetForbiddenArcs(const vector<Arc>& A)
 {
+	SetForbiddenArcs(A, {});
+}
+
+void SPF::SetForbiddenArcs(const vector<Arc>& A, const vector<Arc>& master_only)
+{
 	// Restore previously forbidden arcs.
-	for (Arc e: forbidden_arcs)
-		for (int j: omega_by_arc[e.tail][e.head])
-			formulation->SetVariableBound(y[j], 0.0, INFTY);
+	for (const auto* L: {&forbidden_arcs, &master_only_arcs})
+		for (Arc e: *L)
+			for (int j: omega_by_arc[e.tail][e.head])
+				formulation->SetVariableBound(y[j], 0.0, INFTY);
 
 	// All routes with forbidden arcs must be set to 0.
-	for (Arc e: A)
-		for (int j: omega_by_arc[e.tail][e.head])
-			formulation->SetVariableBound(y[j], 0.0, 0.0);
+	for (const auto* L: {&A, &master_only})
+		for (Arc e: *L)
+			for (int j: omega_by_arc[e.tail][e.head])
+				formulation->SetVariableBound(y[j], 0.0, 0.0);
 
 	forbidden_arcs = A;
+	master_only_arcs = master_only;
+}
+
+kayros::exact_lp::Master SPF::ExactMaster() const
+{
+	namespace xl = kayros::exact_lp;
+	xl::Master M;
+	const int rows = n + (int)cuts.size();
+	M.sense.assign(rows, xl::Sense::Equal);
+	M.rhs.assign(rows, mpq_class(0));
+	for (int i = 1; i < n-1; ++i) M.rhs[i] = 1;
+	for (int c = 0; c < (int)cuts.size(); ++c) { M.sense[n+c] = xl::Sense::LessEqual; M.rhs[n+c] = 1; }
+	vector<bool> fixed(omega.size(), false);
+	for (const auto* L: {&forbidden_arcs, &master_only_arcs})
+		for (Arc e: *L)
+			for (int j: omega_by_arc[e.tail][e.head]) fixed[j] = true;
+	M.columns.resize(omega.size());
+	for (int j = 0; j < (int)omega.size(); ++j)
+	{
+		xl::Column& col = M.columns[j];
+		col.cost = cost[j];
+		col.fixed_at_zero = fixed[j];
+		// The coefficients that AddRoute, AddArtificial and AddCut write. They
+		// set a coefficient to 1, so a vertex visited twice still gives 1.
+		const GraphPath& p = omega[j].path;
+		vector<int> rows_of;
+		for (int k = 1; k < (int)p.size()-1; ++k) rows_of.push_back(p[k]);
+		for (int c = 0; c < (int)cuts.size(); ++c)
+		{
+			int visits = 0;
+			for (Vertex v: p) visits += cuts[c].test(v) ? 1 : 0;
+			if (visits >= 2) rows_of.push_back(n+c);
+		}
+		sort(rows_of.begin(), rows_of.end());
+		rows_of.erase(unique(rows_of.begin(), rows_of.end()), rows_of.end());
+		for (int r: rows_of) col.entries.push_back({r, 1});
+	}
+	return M;
+}
+
+std::array<int, 3> SPF::CutCustomers(int c) const
+{
+	std::array<int, 3> out{0, 0, 0};
+	int k = 0;
+	for (int v = 0; v < n; ++v)
+		if (cuts[c].test(v))
+		{
+			if (k == 3) throw std::logic_error("a subset-row cut with more than 3 customers");
+			out[k++] = v;
+		}
+	if (k != 3) throw std::logic_error("a subset-row cut with fewer than 3 customers");
+	return out;
 }
 
 const Route& SPF::RouteOf(const Variable& variable) const

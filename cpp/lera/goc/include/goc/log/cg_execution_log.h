@@ -14,6 +14,7 @@
 #include "goc/base/maybe.h"
 #include "goc/lib/json.hpp"
 #include "goc/linear_programming/model/valuation.h"
+#include "goc/log/lp_execution_log.h"
 #include "goc/log/log.h"
 #include "goc/time/duration.h"
 
@@ -38,6 +39,7 @@ public:
 	Maybe<Duration> pricing_time; // time spent solving the pricing problem.
 	Maybe<Duration> lp_time; // time spent solving the lp relaxation.
 	Maybe<std::vector<nlohmann::json>> iterations; // logs of the pricing iterations.
+	Maybe<LPBasis> basis; // basis of the last LP solve when the status is Optimum, on request (CGOption::Basis). Not serialized.
 	
 	CGExecutionLog() = default;
 	

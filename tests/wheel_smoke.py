@@ -20,7 +20,7 @@ def main(root: str) -> int:
     heuristic = kayros.solve(str(path), time_limit=2.0, seed=1, verify=True)
     result = solve_exact(loaded, time_limit=300.0)
     print(f"kayros {kayros.__version__}: ILS {heuristic.cost}, BPC {result.cost} ({result.termination_reason})")
-    if result.status != "feasible" or result.termination_reason != "search_closed" or result.certified_dual_bound is not None:
+    if result.status != "optimal" or result.termination_reason != "search_closed" or result.certified_dual_bound != result.exact_cost:
         return 1
     if result.raw["checker_infeasible_columns"] != 0 or not result.routes:
         return 1

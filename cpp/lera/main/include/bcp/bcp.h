@@ -8,12 +8,15 @@
 #define NETWORKS2019_BP_H
 
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "goc/goc.h"
 #include "pricing_problem.h"
 #include "spf.h"
+#include "exact/ledger.h"
 
 namespace solver
 {
@@ -47,6 +50,47 @@ public:
 	BCPPricingFunction pricing_solver;
 	std::function<void(goc::Duration, double, const std::string&)> on_bound;
 	BCPIncumbentCallback on_incumbent; // optional; called on every new UB.
+
+	// Exact mode (M2 design note of session 139, sections 11 and 12). When set,
+	// the ledger alone removes nodes, holds the incumbent and decides the
+	// status Optimum (Ledger::certified). The search prunes against its U only.
+	// When it is null (the bridge could not build it), the search runs as
+	// before and its status is never Optimum.
+	kayros::exact::Ledger* ledger = nullptr;
+	// Result of admitting a route returned by the ledger as a column.
+	enum class Admission { Added, Duplicate, Rejected, CostMismatch };
+	// Evaluates the search path with the exact column evaluation of the master,
+	// compares its exact cost with expected (the cost of the route as the ledger
+	// priced it) and adds it as a column only when they are equal and the path
+	// is new. Set by the caller in exact mode.
+	std::function<Admission(const goc::GraphPath& path, const ExactCost& expected)> admit_route;
+	// Why the exact mode ended without claim, the first reason met ("" if none),
+	// and the count of each reason.
+	std::string unresolved_reason;
+	std::map<std::string, int> unresolved_counts;
+	// 1 entry per run of the node loop of section 3.
+	struct ExactNodeVisit {
+		int ledger_id = -1;
+		int rounds = 0;            // calls of Ledger::close
+		int negative_rounds = 0;   // closes that returned exactly negative routes
+		int columns_added = 0;     // routes of the ledger added as columns
+		int pivots = 0;            // exact pivots, all rounds
+		double exact_lp_s = 0, exact_pass_s = 0;
+		std::string outcome;       // removed, open, no_incumbent, or the reason of a stop
+	};
+	std::vector<ExactNodeVisit> exact_visits;
+	double exact_lp_time = 0, exact_pass_time = 0;
+	int ledger_offers = 0, ledger_offers_accepted = 0, ledger_removed_by_close = 0, ledger_removed_by_prune = 0;
+	int ledger_branches = 0, pop_retries = 0;
+	// Arcs that the ledger forbids at a child and that the search had not
+	// forbidden (added to the search's own set), and arcs absent from the
+	// search digraph that only fix columns of the master.
+	int ledger_arcs_added_to_search = 0, ledger_arcs_master_only = 0;
+
+	// Offers routes given by the caller (customers only, MAMUT numbering) to
+	// the ledger and sets the incumbent of the search from its U. Exact mode.
+	// Returns: if the ledger accepted them.
+	bool OfferInitialRoutes(const std::vector<std::vector<int>>& routes);
 
 	// Initializes the Branch cut and price solver.
 	// 	D: digraph that the VRP is based on.
@@ -92,6 +136,9 @@ private:
 		std::vector<goc::Arc> A; // forbidden arcs.
 		bool rmp_infeasible = false;
 		goc::Valuation opt; // relaxation optimum.
+		int ledger_id = -1; // id of the node in the ledger (exact mode).
+		std::vector<goc::Arc> A_master; // forbidden by the ledger, absent from D: fix columns only.
+		bool ledger_bound = false; // a close of the ledger finished on the node, so it holds a bound for prune.
 		
 		struct Comparator { inline bool operator() (Node* n1, Node* n2) { return n1->bound > n2->bound; } };
 	};
@@ -118,6 +165,25 @@ private:
 	// Returns: if the solution became the incumbent.
 	bool AcceptIncumbent(const goc::Valuation& z, double native_value, const std::string& origin);
 	
+	// Exact mode. Outcome of solving a node: removed by the ledger, still open in
+	// the ledger (to be queued or branched), or the run stops without claim.
+	enum class Exit { Removed, Open, Stop };
+	// Column generation at the node (forbidden arcs set first), then the node
+	// loop of section 3 while it is CG optimal, then a prune. Used at processing
+	// and when a node without a bound in the ledger is popped.
+	Exit SolveNodeExact(Node* node);
+	// The node loop of section 3 on a node whose column generation is optimal.
+	Exit ExactLoop(Node* node, goc::CGExecutionLog& cg_log);
+	// Offers the columns (indices of the SPF) as a solution to the ledger, and
+	// sets the incumbent of the search from its U when it accepts.
+	bool OfferColumns(const std::vector<int>& columns, double native_value, const std::string& origin);
+	// Takes the incumbent of the search from the ledger.
+	void SyncIncumbent(const std::vector<int>& columns, const std::string& origin);
+	// Ends the exact mode without claim for the given reason.
+	void Unresolve(const std::string& reason);
+	bool freeze_done = false;
+	bool root_logged = false;
+
 	// Separates subset row cuts with n = 3, k = 2.
 	// Returns: if any cut was added.
 	bool SeparateCuts(const goc::Valuation& z);

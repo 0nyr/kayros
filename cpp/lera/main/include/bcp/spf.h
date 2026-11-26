@@ -7,12 +7,14 @@
 #ifndef NETWORKS2019_SPF_H
 #define NETWORKS2019_SPF_H
 
+#include <array>
 #include <vector>
 
 #include <goc/goc.h>
 #include <nyr/nyr.h>
 
 #include "bcp/exact_cost.h"
+#include "exact_lp/exact_lp.h"
 
 namespace solver
 {
@@ -54,6 +56,30 @@ public:
 	//	- Sets y_j = 0 for all j that contains any arc in A.
 	void SetForbiddenArcs(const std::vector<goc::Arc>& A);
 	
+	// Same, and also sets y_j = 0 for every column that uses an arc of
+	// master_only. Those arcs fix columns only: they are not handed to the
+	// pricing problem (InterpretDuals), whose labeling would add them to its
+	// digraph when it restores the arcs of the previous node.
+	void SetForbiddenArcs(const std::vector<goc::Arc>& A, const std::vector<goc::Arc>& master_only);
+	
+	// Returns: the restricted master as exact data for kayros::exact_lp, row for
+	// row and column for column as the formulation (same indices, so that a
+	// basis of the backend is a basis of it): the depot rows "= 0", the
+	// customer rows "= 1", the cut rows "<= 1", the exact cost of every column,
+	// and fixed_at_zero for every column that the current forbidden arcs fix.
+	kayros::exact_lp::Master ExactMaster() const;
+	
+	// Returns: the 3 customers of cut c, in increasing order.
+	std::array<int, 3> CutCustomers(int c) const;
+	
+	// Returns: the number of columns.
+	int ColumnCount() const { return (int)omega.size(); }
+	
+	// Column j: its route, its exact cost, if it is artificial.
+	const goc::Route& RouteAt(int j) const { return omega.at(j); }
+	const ExactCost& ExactCostAt(int j) const { return cost.at(j); }
+	bool IsArtificialAt(int j) const { return artificial.at(j); }
+	
 	// Returns: the route associated to the variable.
 	const goc::Route& RouteOf(const goc::Variable& variable) const;
 	
@@ -71,6 +97,7 @@ public:
 	
 private:
 	std::vector<goc::Arc> forbidden_arcs; // arcs that are removed from the SPF (i.e. all routes containing one of these arcs are set to 0).
+	std::vector<goc::Arc> master_only_arcs; // arcs that fix columns but are not handed to the pricing problem.
 	int n; // number of vertices.
 	std::vector<goc::Route> omega; // set of routes in the restricted master problem.
 	std::vector<ExactCost> cost; // cost[j] = exact cost of column j.

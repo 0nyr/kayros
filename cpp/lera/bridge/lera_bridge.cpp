@@ -7,7 +7,9 @@
 #include <cstdint>
 #include <stdexcept>
 #include <cstdlib>
+#include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -17,6 +19,7 @@
 
 #include "bcp/bcp.h"
 #include "bcp/exact_cost.h"
+#include "bcp/exact_wiring.h"
 #include "bcp/pricing_problem.h"
 #include "bcp/spf.h"
 #include "core/exact_route_pricer.h"
@@ -71,6 +74,37 @@ kayros::Instance build_checker_instance(const nlohmann::json& raw) {
     return ci;
 }
 
+// The instance of the ledger, from the same arrays and in the same way as the exact column evaluation (ExactRoutePricer::time, i.e. route_timing of the header): the original binary64 knots of every arc, the windows, services and demands of the customers, the capacity, and the depot departure bounds and close. Never from the preprocessed instance or digraph of the search.
+kayros::exact::InstanceData ledger_instance(const kayros::Instance& ci) {
+    kayros::exact::InstanceData d;
+    d.capacity = ci.vehicle_capacity;
+    d.lo = ci.horizon_start;
+    d.hi = ci.horizon_end;
+    if (ci.has_time_windows) {
+        d.lo = std::max(d.lo, ci.tw_earliest[0]);
+        d.depot_close = ci.tw_latest[0];
+        d.hi = std::min(d.hi, *d.depot_close);
+    }
+    for (int32_t v = 1; v <= ci.num_customers; ++v) {
+        kayros::exact::CustomerInput c;
+        if (ci.has_time_windows) c.window = std::pair{ci.tw_earliest[v], ci.tw_latest[v]};
+        c.service = ci.service_times[v];
+        c.demand = ci.demands[v];
+        d.customers.push_back(c);
+    }
+    for (int32_t i = 0; i <= ci.num_customers; ++i)
+        for (int32_t j = 0; j <= ci.num_customers; ++j) {
+            const auto a = ci.arc(i, j);
+            if (a.n == 0) continue;
+            kayros::exact::ArcInput e;
+            e.from = i, e.to = j;
+            e.xs.assign(a.xs, a.xs + a.n);
+            e.ys.assign(a.ys, a.ys + a.n);
+            d.arcs.push_back(std::move(e));
+        }
+    return d;
+}
+
 }  // namespace
 
 std::string solve_exact_json(const std::string& payload, const SolveParams& params) {
@@ -115,6 +149,20 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     }
 
     BCP bcp(vrp.D, &spf);
+    // The ledger of the exact layer, 1 per solve. If it cannot be built (the
+    // instance is outside what the exact pass accepts), the run proceeds without
+    // it and its status is never Optimum.
+    std::unique_ptr<kayros::exact::Ledger> ledger;
+    std::string ledger_error;
+    try {
+        ledger = std::make_unique<kayros::exact::Ledger>(ledger_instance(checker_inst),
+            checker_inst.num_vehicles < 0 ? std::nullopt : std::optional<int>(checker_inst.num_vehicles));
+    } catch (const std::exception& e) {
+        ledger_error = e.what();
+        clog << "Exact layer unavailable: " << ledger_error << endl;
+    }
+    bcp.ledger = ledger.get();
+    const solver::wiring::VertexMap vertex_map{checker_inst.num_customers};
     bcp.time_limit = Duration(params.time_limit, DurationUnit::Seconds);
     bcp.cut_limit = params.cut_limit;
     bcp.node_limit = params.node_limit;
@@ -143,10 +191,15 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
             for (int c : customers) ++cover[c];
         }
         for (Vertex v : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) valid_ub &= cover[v] == 1;
-        if (valid_ub && added > 0) bcp.SetInitialIncumbent(ub_value);
+        // Exact mode: the routes go through the ledger, which evaluates them itself. There is no cost-only incumbent.
+        if (ledger) valid_ub = bcp.OfferInitialRoutes(params.initial_routes);
+        else if (valid_ub && added > 0) bcp.SetInitialIncumbent(ub_value);
         warm_log["routes_given"] = params.initial_routes.size();
         warm_log["routes_added"] = added;
-        if (valid_ub && added > 0) {
+        if (ledger && valid_ub) {
+            warm_log["ub"] = nearest_binary64(*ledger->U());
+            warm_log["ub_exact"] = ledger->U()->get_str();
+        } else if (!ledger && valid_ub && added > 0) {
             warm_log["ub"] = nearest_binary64(ub_value);
             warm_log["ub_exact"] = ub_value.get_str();
         }
@@ -158,6 +211,19 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     const ExactCost artificial = artificial_cost(checker_inst);
     for (Vertex i : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) spf.AddArtificial(i, artificial);
     bcp.fleet_limit = checker_inst.num_vehicles;
+
+    // A route of the ledger enters the master only through here, so that the deduplication of the paths stays coherent. Its exact cost must be the one the ledger priced.
+    long long ledger_columns = 0;
+    bcp.admit_route = [&](const GraphPath& path, const ExactCost& expected) {
+        if (column_keys.count(path_key(path))) return BCP::Admission::Duplicate;
+        const auto col = exact_column(pricer, checker_inst, path);
+        if (!col.feasible) return BCP::Admission::Rejected;
+        if (col.cost != expected) return BCP::Admission::CostMismatch;
+        column_keys.insert(path_key(path));
+        spf.AddRoute(Route(path, col.departure, 0.0), col.cost);
+        ++ledger_columns;
+        return BCP::Admission::Added;
+    };
 
     int exact_calls = 0, exact_finished = 0;
     bool last_exact_finished = false, ladder_certified = false;
@@ -497,9 +563,57 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         {"peak_rss_mb", (double)MemoryMonitor::PeakRSSBytes() / 1048576.0},
         {"limit_reached", MemoryMonitor::Exceeded()},
     };
+    // The exact layer. The status Optimum of exact_log means ledger.certified.
+    {
+        nlohmann::json L;
+        L["available"] = (bool)ledger;
+        if (!ledger) L["error"] = ledger_error;
+        else {
+            L["certified"] = ledger->certified();
+            L["open_nodes"] = ledger->open_count();
+            L["operations"] = ledger->record().size();
+            L["U"] = ledger->U() ? nlohmann::json(ledger->U()->get_str()) : nlohmann::json(nullptr);
+            L["U_binary64"] = ledger->U() ? nlohmann::json(nearest_binary64(*ledger->U())) : nlohmann::json(nullptr);
+            L["incumbent"] = ledger->incumbent();
+            std::ostringstream rec;
+            ledger->write(rec);
+            L["record"] = rec.str();
+        }
+        result["ledger"] = L;
+        nlohmann::json visits = nlohmann::json::array();
+        for (const auto& v : bcp.exact_visits)
+            visits.push_back({{"node", v.ledger_id}, {"rounds", v.rounds}, {"negative_rounds", v.negative_rounds},
+                {"columns_added", v.columns_added}, {"pivots", v.pivots}, {"exact_lp_s", v.exact_lp_s},
+                {"exact_pass_s", v.exact_pass_s}, {"outcome", v.outcome}});
+        std::string reason = bcp.unresolved_reason;
+        if (reason.empty() && log.status == BCStatus::Unresolved) reason = "lp_unresolved";
+        result["exact_layer"] = {
+            {"unresolved_reason", reason}, {"unresolved_counts", bcp.unresolved_counts},
+            {"open_nodes", ledger ? (int)ledger->open_count() : -1},
+            {"exact_lp_s", bcp.exact_lp_time}, {"exact_pass_s", bcp.exact_pass_time},
+            {"ledger_columns", ledger_columns}, {"offers", bcp.ledger_offers}, {"offers_accepted", bcp.ledger_offers_accepted},
+            {"removed_by_close", bcp.ledger_removed_by_close}, {"removed_by_prune", bcp.ledger_removed_by_prune},
+            {"branches", bcp.ledger_branches}, {"pop_retries", bcp.pop_retries},
+            {"ledger_arcs_added_to_search", bcp.ledger_arcs_added_to_search},
+            {"ledger_arcs_master_only", bcp.ledger_arcs_master_only},
+            {"visits", visits}};
+    }
     result["incumbents"] = incumbents;
     if (!warm_log.is_null()) result["warm_start"] = warm_log;
-    if (solution.value != INFTY) {
+    if (ledger) {
+        // Exact mode: the incumbent is the ledger's, routes and exact cost.
+        if (ledger->U()) {
+            vector<Route> routes;
+            for (const auto& customers : ledger->incumbent()) {
+                const GraphPath path = vertex_map.search_path(customers);
+                const auto col = exact_column(pricer, checker_inst, path);
+                routes.push_back(Route(path, col.departure, nearest_binary64(col.cost)));
+            }
+            result["value"] = nearest_binary64(*ledger->U());
+            result["exact_value"] = ledger->U()->get_str();
+            result["routes"] = routes;
+        }
+    } else if (solution.value != INFTY) {
         // The value is the nearest binary64 value of the exact cost of the incumbent, which exact_value gives as a fraction. The public API independently checks the routes with the library checker.
         result["value"] = solution.value;
         result["exact_value"] = bcp.ExactIncumbentValue()->get_str();
