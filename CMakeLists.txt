@@ -65,4 +65,9 @@ if(KAYROS_WITH_LERA)
     add_subdirectory(cpp/lera)
 endif()
 
+# Exact LP multipliers of the restricted master (M2). Its targets are excluded
+# from the default build until the BPC links it, see cpp/exact_lp/CMakeLists.txt.
+# After cpp/lera, so that its driver and backend test can link lera.
+add_subdirectory(cpp/exact_lp)
+
 install(TARGETS _core DESTINATION kayros)

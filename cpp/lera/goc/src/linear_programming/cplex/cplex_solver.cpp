@@ -217,6 +217,22 @@ void extract_cplex_lp_execution_info(CplexFormulation* formulation, LPExecutionL
 		cplex::getpi(env, prob, &(duals[0]), 0, formulation->ConstraintCount() - 1);
 		execution_log->duals = duals;
 	}
+
+	// Basis of an optimum, on request. See LPBasis. Read here, before the
+	// variable domains are restored.
+	if (status == LPStatus::Optimum && includes(options, LPOption::Basis))
+	{
+		const int n = cplex::getnumcols(env, prob), m = cplex::getnumrows(env, prob);
+		vector<int> cstat(max(n, 1)), rstat(max(m, 1));
+		// CPXgetbase directly: the wrapper cplex::getbase fails when there is no basis.
+		if (CPXgetbase(env, prob, cstat.data(), rstat.data()) == 0)
+		{
+			LPBasis basis;
+			for (int j = 0; j < n; ++j) if (cstat[j] == CPX_BASIC) basis.columns.push_back(j);
+			for (int i = 0; i < m; ++i) if (rstat[i] == CPX_BASIC) basis.rows.push_back(i);
+			if ((int)(basis.columns.size() + basis.rows.size()) == m) execution_log->basis = basis;
+		}
+	}
 }
 
 // Extract information about the execution of CPLEX after solving with mipopt and add it to the execution log if necessary.
