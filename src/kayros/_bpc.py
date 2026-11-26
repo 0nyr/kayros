@@ -190,10 +190,9 @@ def solve_duration(
     memory_limit_mb: float | None = None,
     verify_final_mask: int = 0,
 ) -> dict[str, Any]:
-    """Return the bridge's numerical search record, using its native vertex numbering.
+    """Return the bridge's search record, using its native vertex numbering.
 
-    The BPC's termination, floating-point bounds and pricing counters are diagnostic.
-    The public API checks the incumbents under the selected family profile.
+    The status Optimum of exact_log means that the ledger of the exact layer is certified (block "ledger", whose "record" the verifier replays). The floating-point bounds and the pricing counters are diagnostic. The public API (kayros.exact.solve_exact) checks the incumbents under the family profile and gates the claim against the library checker.
     """
     try:
         from kayros import _lera

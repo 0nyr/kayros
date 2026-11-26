@@ -1,12 +1,12 @@
 // kayros-owned helpers of the wiring between the search and the ledger of the
-// exact layer (M2 design note of session 139, section 12). Not trusted: a
+// exact layer (M2 design note of session 139, section 12). Not trusted. A
 // mistake here can only make the ledger refuse an operation or the search
 // stall, since only a verdict of the ledger removes a node.
 //
 // The 2 numberings meet here and nowhere else.
-// - Search: vertex 0 is the start depot, 1..n the customers, n+1 the end depot.
-// - Ledger and exact pass: customers 1..n, vertex 0 is the start depot as a tail
-//   and the end depot as a head.
+// - In the search, vertex 0 is the start depot, 1..n the customers, n+1 the end depot.
+// - In the ledger and the exact pass, customers are 1..n, and vertex 0 is the start
+//   depot as a tail and the end depot as a head.
 // Customers keep their number, so only the depots are mapped.
 #pragma once
 
@@ -77,7 +77,7 @@ struct Multipliers {
 
 // Multipliers of an optimal exact solution of SPF::ExactMaster. The master has
 // n+2 depot and customer rows (row v is vertex v of the search) followed by 1
-// row per cut. The 2 depot rows are empty equality rows: their multipliers
+// row per cut. The 2 depot rows are empty equality rows, so their multipliers
 // enter neither a reduced cost nor the dual value, and are dropped. cut_of(c)
 // gives the customers of cut c.
 template <class CutOf>
@@ -95,7 +95,7 @@ Multipliers multipliers_of(const kayros::exact_lp::Solution& sol, int n, int cut
 }
 
 // Exact cost of a route as the ledger saw it, from its exact reduced cost and
-// the multipliers of the close: c(r) = rc + sum of pi over r + sum of sigma over
+// the multipliers of the close, c(r) = rc + sum of pi over r + sum of sigma over
 // the cuts that r visits at least twice (design note, section 1).
 inline Q cost_from_reduced(const std::vector<int>& customers, const Q& rc, const Multipliers& m) {
 	Q c = rc;
@@ -110,8 +110,8 @@ inline Q cost_from_reduced(const std::vector<int>& customers, const Q& rc, const
 	return c;
 }
 
-// Columns of an exact primal solution when it is integral: every nonzero value
-// is exactly 1. Returns none when some value is fractional.
+// Columns of an exact primal solution when it is integral, i.e. when every
+// nonzero value is exactly 1. Returns none when some value is fractional.
 inline std::optional<std::vector<int>> integral_columns(const kayros::exact_lp::Solution& sol) {
 	std::vector<int> cols;
 	for (const auto& [j, x]: sol.primal) {

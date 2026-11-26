@@ -107,7 +107,7 @@ bool BCP::AcceptIncumbent(const Valuation& z, double native_value, const string&
 	if (!partition || (fleet_limit >= 0 && routes > fleet_limit)) { ++rejected_candidate_count; return false; }
 	if (ledger)
 	{
-		// Exact mode: the ledger evaluates the routes itself and decides.
+		// In exact mode the ledger evaluates the routes itself and decides.
 		vector<int> columns;
 		for (const auto& y_val: z) if (y_val.second >= 0.5) columns.push_back(y_val.first.Index());
 		return OfferColumns(columns, native_value, origin);
@@ -234,7 +234,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 			
 			if (ledger)
 			{
-				// Exact mode: only the ledger removes the node. A node without a
+				// In exact mode only the ledger removes the node. A node without a
 				// bound in the ledger (no incumbent when it was solved) is solved
 				// again now, and a node that stays open is branched.
 				bool branch = true;
@@ -274,7 +274,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		// Only close the gap when the tree was fully explored: a branch
 		// abandoned on the deadline (aborted strong branching drops children)
 		// can empty the queue without proving optimality.
-		if (q.empty() && log.status == BCStatus::DidNotStart && (!ledger || ledger->certified())) z_lb = z_ub;
+		if (q.empty() && log.status == BCStatus::DidNotStart && ledger && ledger->certified()) z_lb = z_ub;
 		
 		tstream.WriteRow({STR(rolex.Peek()), STR(log.nodes_closed), STR(log.nodes_open), STR(z_lb), STR(z_ub), STR(spf->formulation->VariableCount())});
 
@@ -446,9 +446,10 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log)
 		++visit.rounds;
 		if (close.removed) { ++ledger_removed_by_close; return finish(Exit::Removed, "removed"); }
 		// A close without bound was refused or its pass did not finish.
-		if (!close.delta) return deadline.Reached() ? time_stop() : stop("close_refused: " + close.reason);
+		// A pass stopped by the time limit given to it is the time limit of the run.
+		if (!close.delta) return deadline.Reached() || pass_s >= remaining ? time_stop() : stop("close_refused: " + close.reason);
 		node->ledger_bound = true;
-		// (v) No negative route: the exact multipliers are feasible for every
+		// (v) Without negative route, the exact multipliers are feasible for every
 		// route of the node and their value is below U. The caller queues the
 		// node, which is branched when it is popped and prune refuses.
 		if (close.negative_count == 0) return finish(Exit::Open, "open");
@@ -627,7 +628,7 @@ void BCP::BranchNode(Node* node)
     double selected_estimate = -INFTY;
     int selected_infeasible = 0;
     if (x_most.empty()) ++unbranched_fractional_count;
-	// Exact mode: the node stays open in the ledger, so the run has no claim.
+	// In exact mode the node stays open in the ledger, so the run has no claim.
 	if (x_most.empty() && ledger) { Unresolve("no_branching_candidate"); *log.branching_time += rolex_branch.Pause(); return; }
 	if (!x_most.empty())
 	{

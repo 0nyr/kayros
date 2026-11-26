@@ -57,25 +57,25 @@ public:
 	void SetForbiddenArcs(const std::vector<goc::Arc>& A);
 	
 	// Same, and also sets y_j = 0 for every column that uses an arc of
-	// master_only. Those arcs fix columns only: they are not handed to the
+	// master_only. Those arcs fix columns only. They are not handed to the
 	// pricing problem (InterpretDuals), whose labeling would add them to its
 	// digraph when it restores the arcs of the previous node.
 	void SetForbiddenArcs(const std::vector<goc::Arc>& A, const std::vector<goc::Arc>& master_only);
 	
-	// Returns: the restricted master as exact data for kayros::exact_lp, row for
+	// Returns the restricted master as exact data for kayros::exact_lp, row for
 	// row and column for column as the formulation (same indices, so that a
-	// basis of the backend is a basis of it): the depot rows "= 0", the
-	// customer rows "= 1", the cut rows "<= 1", the exact cost of every column,
-	// and fixed_at_zero for every column that the current forbidden arcs fix.
+	// basis of the backend is a basis of it). It holds the depot rows "= 0",
+	// the customer rows "= 1", the cut rows "<= 1", the exact cost of every
+	// column, and fixed_at_zero for every column that the current forbidden arcs fix.
 	kayros::exact_lp::Master ExactMaster() const;
 	
-	// Returns: the 3 customers of cut c, in increasing order.
+	// Returns the 3 customers of cut c, in increasing order.
 	std::array<int, 3> CutCustomers(int c) const;
 	
-	// Returns: the number of columns.
+	// Returns the number of columns.
 	int ColumnCount() const { return (int)omega.size(); }
 	
-	// Column j: its route, its exact cost, if it is artificial.
+	// The route, the exact cost and the artificial mark of column j.
 	const goc::Route& RouteAt(int j) const { return omega.at(j); }
 	const ExactCost& ExactCostAt(int j) const { return cost.at(j); }
 	bool IsArtificialAt(int j) const { return artificial.at(j); }

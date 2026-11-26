@@ -89,7 +89,7 @@ public:
 
 	// Offers routes given by the caller (customers only, MAMUT numbering) to
 	// the ledger and sets the incumbent of the search from its U. Exact mode.
-	// Returns: if the ledger accepted them.
+	// Returns true when the ledger accepted them.
 	bool OfferInitialRoutes(const std::vector<std::vector<int>>& routes);
 
 	// Initializes the Branch cut and price solver.
@@ -165,8 +165,8 @@ private:
 	// Returns: if the solution became the incumbent.
 	bool AcceptIncumbent(const goc::Valuation& z, double native_value, const std::string& origin);
 	
-	// Exact mode. Outcome of solving a node: removed by the ledger, still open in
-	// the ledger (to be queued or branched), or the run stops without claim.
+	// Exact mode. A node is either removed by the ledger, or still open in the
+	// ledger (to be queued or branched), or the run stops without claim.
 	enum class Exit { Removed, Open, Stop };
 	// Column generation at the node (forbidden arcs set first), then the node
 	// loop of section 3 while it is CG optimal, then a prune. Used at processing

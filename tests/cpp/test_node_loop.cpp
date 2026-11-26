@@ -76,7 +76,7 @@ static void helpers()
 	require(w::cost_from_reduced({1, 2}, ExactCost(1, 2), m) == ExactCost(1, 2) + ExactCost(1, 3) + 2 - ExactCost(1, 5) - 1, "cost from reduced cost, 2 cut visits");
 	require(w::cost_from_reduced({3}, 0, m) == ExactCost(-1, 7), "cost from reduced cost, 1 cut visit");
 
-	// Multipliers of an exact solution: depot rows dropped, cuts after the n+2 rows.
+	// Multipliers of an exact solution, with the depot rows dropped and the cuts after the n+2 rows.
 	kayros::exact_lp::Solution sol;
 	sol.status = kayros::exact_lp::Status::Optimal;
 	sol.duals = {7, 1, 2, 3, 9, ExactCost(-1, 2)};
@@ -151,6 +151,9 @@ struct Search
 		spf.AddRoute(Route(p, 0.0, 0.0), Cost(p));
 	}
 
+	// When set, replaces the outcome of every admission (tests of the refusals).
+	std::optional<solver::BCP::Admission> forced;
+
 	BCPExecutionLog Run(solver::BCP& bcp, VRPSolution* solution)
 	{
 		bcp.time_limit = Duration(60, DurationUnit::Seconds);
@@ -160,6 +163,7 @@ struct Search
 		// The binary64 pricing adds nothing, so every new column comes from the exact pass.
 		bcp.pricing_solver = [](const solver::PricingProblem&, int, Duration, CGExecutionLog*) {};
 		bcp.admit_route = [&](const GraphPath& p, const ExactCost& expected) {
+			if (forced) return *forced;
 			if (paths.count(p)) return solver::BCP::Admission::Duplicate;
 			const auto c = ex::path_duration(ledger.instance(), w::VertexMap{n}.customers_of(p));
 			if (!c) return solver::BCP::Admission::Rejected;
@@ -238,7 +242,7 @@ static void warm()
 #endif
 }
 
-// Capacity 1: no pair is feasible and the optimum is the 3 singletons at 3.
+// With capacity 1 no pair is feasible and the optimum is the 3 singletons at 3.
 // The root is integral and closes by its certificate.
 static void singletons()
 {
@@ -252,6 +256,30 @@ static void singletons()
 #else
 	(void)log;
 #endif
+}
+
+// The triangle again, with the admission of the ledger routes refused, or with
+// the reverse pairs missing from the search digraph. The exact pass finds them
+// below the root, so each run must stop at that exit, with the node open.
+static void refusals()
+{
+	using A = solver::BCP::Admission;
+	const std::vector<GraphPath> seeds{{0, 1, 4}, {0, 2, 4}, {0, 3, 4}, {0, 1, 2, 4}, {0, 2, 3, 4}, {0, 1, 3, 4}};
+	const std::vector<std::pair<std::optional<A>, std::string>> cases{
+		{A::CostMismatch, "route_cost_mismatch"}, {A::Rejected, "route_rejected_by_column_evaluation"},
+		{A::Duplicate, "negative_route_already_column"}, {std::nullopt, "route_not_representable"}};
+	for (const auto& [forced, reason]: cases)
+	{
+		Search s(3, 2, 0.5, 0.0, seeds);
+		s.forced = forced;
+		if (!forced) for (const Arc e: std::vector<Arc>{{2, 1}, {3, 2}, {3, 1}}) s.D.RemoveArc(e);
+		solver::BCP bcp(s.D, &s.spf);
+		VRPSolution solution(INFTY, {});
+		auto log = s.Run(bcp, &solution);
+		require(name(log.status) == "Unresolved" && bcp.unresolved_reason == reason,
+		        "refusal " + reason + " ends Unresolved for that reason, got " + name(log.status) + " '" + bcp.unresolved_reason + "'");
+		require(!s.ledger.certified() && s.ledger.open_count() > 0 && s.admitted == 0, "refusal " + reason + " leaves the node open");
+	}
 }
 
 // Without a ledger the search runs as before and is never optimal.
@@ -279,6 +307,9 @@ int main()
 	without_ledger();
 	singletons();
 	warm();
+#ifndef KAYROS_WIRING_MUTANT_TEST
+	refusals();
+#endif
 	triangle();
 #ifdef KAYROS_WIRING_MUTANT_TEST
 	if (failures == 0) { std::cout << "node loop mutant: caught (no claim)\n"; return 0; }

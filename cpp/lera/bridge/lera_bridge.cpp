@@ -74,7 +74,7 @@ kayros::Instance build_checker_instance(const nlohmann::json& raw) {
     return ci;
 }
 
-// The instance of the ledger, from the same arrays and in the same way as the exact column evaluation (ExactRoutePricer::time, i.e. route_timing of the header): the original binary64 knots of every arc, the windows, services and demands of the customers, the capacity, and the depot departure bounds and close. Never from the preprocessed instance or digraph of the search.
+// The instance of the ledger, from the same arrays and in the same way as the exact column evaluation (ExactRoutePricer::time, i.e. route_timing of the header). It holds the original binary64 knots of every arc, the windows, services and demands of the customers, the capacity, and the depot departure bounds and close. Never from the preprocessed instance or digraph of the search.
 kayros::exact::InstanceData ledger_instance(const kayros::Instance& ci) {
     kayros::exact::InstanceData d;
     d.capacity = ci.vehicle_capacity;
@@ -191,7 +191,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
             for (int c : customers) ++cover[c];
         }
         for (Vertex v : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) valid_ub &= cover[v] == 1;
-        // Exact mode: the routes go through the ledger, which evaluates them itself. There is no cost-only incumbent.
+        // In exact mode the routes go through the ledger, which evaluates them itself. There is no cost-only incumbent.
         if (ledger) valid_ub = bcp.OfferInitialRoutes(params.initial_routes);
         else if (valid_ub && added > 0) bcp.SetInitialIncumbent(ub_value);
         warm_log["routes_given"] = params.initial_routes.size();
@@ -601,7 +601,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     result["incumbents"] = incumbents;
     if (!warm_log.is_null()) result["warm_start"] = warm_log;
     if (ledger) {
-        // Exact mode: the incumbent is the ledger's, routes and exact cost.
+        // In exact mode the incumbent is the ledger's, routes and exact cost.
         if (ledger->U()) {
             vector<Route> routes;
             for (const auto& customers : ledger->incumbent()) {

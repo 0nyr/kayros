@@ -24,7 +24,7 @@ __all__ = ["ExactResult", "solve_exact"]
 class ExactResult:
     """Checked incumbent and termination of the BPC for the Duration objective.
 
-    Status is "optimal" only when the ledger of the exact layer certified the run and the final gate passed: the exact cost U of the ledger equals, as a Fraction, the cost that the library checker computes for the returned routes, the returned routes are the ledger's incumbent, and the header of the ledger record describes the instance. Then certified_dual_bound is U. Otherwise status is "feasible" when a checked solution exists, including a retained warm start, or "no_incumbent", and no dual bound is claimed.
+    Status is "optimal" only when the ledger of the exact layer certified the run and the final gate passed. The gate requires that the exact cost U of the ledger equals, as a Fraction, the cost that the library checker computes for the returned routes, the returned routes are the ledger's incumbent, and the header of the ledger record describes the instance. Then certified_dual_bound is U. Otherwise status is "feasible" when a checked solution exists, including a retained warm start, or "no_incumbent", and no dual bound is claimed.
 
     The rational cost and its display belong to the returned customer-only routes. A run without a checked incumbent has empty routes and no cost. The raw record contains the native numerical bounds and pricing diagnostics. Its routes also use customer IDs.
     """
@@ -133,7 +133,7 @@ def _record_header(text: str) -> dict[str, Any]:
 def _expected_header(loaded: LoadedTDInstance) -> dict[str, Any]:
     """The header that the record must carry for this instance, from the loaded instance file.
 
-    Depot departure bounds and close follow the exact column evaluation of the bridge: the horizon of the ATFs, narrowed by the depot window when the instance has windows.
+    Depot departure bounds and close follow the exact column evaluation of the bridge, i.e. the horizon of the ATFs, narrowed by the depot window when the instance has windows.
     """
     instance, atfs = loaded.instance, loaded.atfs
     n = instance.num_customers

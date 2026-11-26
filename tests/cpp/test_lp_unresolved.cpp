@@ -121,7 +121,7 @@ struct Search
 
 static void search()
 {
-    // Control: the search closes at 2 after branching. Without a ledger the
+    // Control, the search closes at 2 after branching. Without a ledger the
     // status is Unresolved for that reason only (M2 step 5).
     {
         Search s;
