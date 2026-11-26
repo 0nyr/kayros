@@ -8,6 +8,8 @@
 
 #include "bcp/pricing_problem.h"
 
+#include <stdexcept>
+
 using namespace std;
 using namespace goc;
 
@@ -31,11 +33,14 @@ SPF::~SPF()
 	delete formulation;
 }
 
-void SPF::AddRoute(const Route& r)
+void SPF::AddRoute(Route r, const ExactCost& c)
 {
 	// Add route r to Omega.
 	int j = omega.size();
+	r.duration = nearest_binary64(c);
 	omega.push_back(r);
+	cost.push_back(c);
+	artificial.push_back(false);
 	
 	// Add variable y_j to the formulation.
 	Variable y_j = formulation->AddVariable("y_" + STR(j), VariableDomain::Binary, 0.0, INFTY);
@@ -54,6 +59,21 @@ void SPF::AddRoute(const Route& r)
 	for (int i = 0; i < cuts.size(); ++i)
 		if (sum<Vertex>(r.path, [&] (Vertex v) { return cuts[i].test(v) ? 1 : 0; }) >= 2)
 			formulation->SetConstraintCoefficient(n+i, y[j], 1.0);
+}
+
+void SPF::AddArtificial(Vertex i, const ExactCost& c)
+{
+	if (ExactCost(nearest_binary64(c)) != c) throw std::invalid_argument("the cost of an artificial column must be a binary64 value");
+	int j = omega.size();
+	// The path only records the customer. The column is not indexed by arc, so
+	// SetForbiddenArcs never fixes it, and it visits 1 customer of any cut.
+	omega.push_back(Route({0, i, n-1}, 0.0, nearest_binary64(c)));
+	cost.push_back(c);
+	artificial.push_back(true);
+	Variable y_j = formulation->AddVariable("a_" + STR(j), VariableDomain::Binary, 0.0, INFTY);
+	y.push_back(y_j);
+	formulation->SetConstraintCoefficient(i, y_j, 1.0);
+	formulation->SetObjectiveCoefficient(y_j, nearest_binary64(c));
 }
 
 void SPF::AddCut(const SubsetRowCut& cut)
@@ -86,6 +106,16 @@ void SPF::SetForbiddenArcs(const vector<Arc>& A)
 const Route& SPF::RouteOf(const Variable& variable) const
 {
 	return omega[variable.Index()];
+}
+
+const ExactCost& SPF::ExactCostOf(const Variable& variable) const
+{
+	return cost[variable.Index()];
+}
+
+bool SPF::IsArtificial(const Variable& variable) const
+{
+	return artificial[variable.Index()];
 }
 
 PricingProblem SPF::InterpretDuals(const vector<double>& duals) const

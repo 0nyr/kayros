@@ -590,7 +590,7 @@ void BidirectionalLabeling::Merge(Label* l, Label* m)
 	}
 
 	Route r;
-	// The label window and its duration domain can differ at a rounded boundary. Clamp the evaluation to the domain before taking the minimum over departure choices. Master columns are priced separately with the binary64 reference fold.
+	// The label window and its duration domain can differ at a rounded boundary. Clamp the evaluation to the domain before taking the minimum over departure choices. Master columns are priced separately by the exact header.
 	auto duration_at = [](const Label* x, double t) {
 		t = std::max(min(dom(x->duration)), std::min(t, max(dom(x->duration))));
 		// Minimum over the departure-choice set (see

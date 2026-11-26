@@ -16,9 +16,12 @@
 #include <nyr/nyr.h>
 
 #include "bcp/bcp.h"
+#include "bcp/exact_cost.h"
 #include "bcp/pricing_problem.h"
 #include "bcp/spf.h"
+#include "core/exact_route_pricer.h"
 #include "core/instance.h"
+#include "exact_columns.h"
 #include "labeling/bidirectional_labeling.h"
 #include "labeling/labeling_level.h"
 #include "preprocess/preprocess_capacity.h"
@@ -34,7 +37,7 @@ namespace kayros::lera {
 
 namespace {
 
-// Build the binary64 reference instance for column pricing from the original MAMUT arrival functions, windows and service times. Preprocessing shifts the windows and folds service into the travel times.
+// Build the instance of the exact column evaluation from the original MAMUT arrival functions, windows and service times. Preprocessing shifts the windows and folds service into the travel times.
 kayros::Instance build_checker_instance(const nlohmann::json& raw) {
     kayros::Instance ci;
     ci.num_customers = raw.at("num_customers").get<int32_t>();
@@ -68,14 +71,6 @@ kayros::Instance build_checker_instance(const nlohmann::json& raw) {
     return ci;
 }
 
-// Lera path (o=0, customers..., d=n+1) -> checker evaluation of the customers.
-kayros::RouteEval checker_eval(const kayros::Instance& ci, const goc::GraphPath& path) {
-    vector<int32_t> customers;
-    for (goc::Vertex v : path)
-        if (v != 0 && v != ci.num_customers + 1) customers.push_back(v);
-    return kayros::evaluate_route(ci, customers.data(), (int64_t)customers.size());
-}
-
 }  // namespace
 
 std::string solve_exact_json(const std::string& payload, const SolveParams& params) {
@@ -84,8 +79,9 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
 
     nlohmann::json inst = nlohmann::json::parse(payload);
 
-    // Preserve the original binary64 data before preprocessing mutates the payload.
+    // Preserve the original binary64 data before preprocessing mutates the payload. Every column of the master is evaluated on it by the exact header.
     const kayros::Instance checker_inst = build_checker_instance(inst.at("mamut_raw"));
+    kayros::ExactRoutePricer pricer(checker_inst);
     inst.erase("mamut_raw");
 
     // Lera's shared preprocessing. travel_times are already in the payload
@@ -99,7 +95,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
 
     nyr::VRPInstance vrp = inst.get<nyr::VRPInstance>();
 
-    // Initialize the set-partitioning formulation with one singleton column per customer. The binary64 reference fold supplies its cost. If the fold rejects a singleton, the bridge uses the path, departure and value returned by BestDurationRoute.
+    // Initialize the set-partitioning formulation with one singleton column per customer, at its exact cost. A singleton that the exact evaluation rejects does not enter. The artificial column of its customer covers it.
     // A duplicate path cannot improve the restricted master.
     unordered_set<string> column_keys;
     auto path_key = [](const GraphPath& p) {
@@ -109,13 +105,13 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     };
 
     SPF spf(vrp.D.NbVertices());
+    int infeasible_singletons = 0;
     for (Vertex i : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) {
         const GraphPath seed_path{vrp.o, i, vrp.d};
-        auto r = vrp.BestDurationRoute(seed_path);
-        auto ev = checker_eval(checker_inst, seed_path);
+        const auto col = exact_column(pricer, checker_inst, seed_path);
+        if (!col.feasible) { ++infeasible_singletons; continue; }
         column_keys.insert(path_key(seed_path));
-        spf.AddRoute(ev.feasible ? Route(seed_path, ev.departure, ev.duration)
-                                 : Route(r.path, r.t0, r.value));
+        spf.AddRoute(Route(seed_path, col.departure, 0.0), col.cost);
     }
 
     BCP bcp(vrp.D, &spf);
@@ -126,11 +122,11 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     // Each native solve thread enforces its own limit against process RSS.
     const MemoryMonitor memory_scope((int64_t)(params.memory_limit_mb * 1048576.0));
 
-    // Reprice each warm-start path with the same binary64 fold used for every master column. Set the numerical upper bound only if the feasible paths still partition the customers.
+    // Evaluate each warm-start path exactly, as every master column. Set the upper bound to the exact cost only if the feasible paths still partition the customers.
     nlohmann::json warm_log;
     if (!params.initial_routes.empty()) {
         vector<int> cover(vrp.D.NbVertices(), 0);
-        double ub_value = 0.0;
+        ExactCost ub_value = 0;
         int added = 0;
         bool valid_ub = true;
         for (const auto& customers : params.initial_routes) {
@@ -138,22 +134,30 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
             path.push_back(vrp.o);
             for (int c : customers) path.push_back(c);
             path.push_back(vrp.d);
-            auto ev = checker_eval(checker_inst, path);
-            if (!ev.feasible) { valid_ub = false; continue; }
+            const auto col = exact_column(pricer, checker_inst, path);
+            if (!col.feasible) { valid_ub = false; continue; }
             column_keys.insert(path_key(path));
-            spf.AddRoute(Route(path, ev.departure, ev.duration));
+            spf.AddRoute(Route(path, col.departure, 0.0), col.cost);
             ++added;
-            ub_value += ev.duration;
+            ub_value += col.cost;
             for (int c : customers) ++cover[c];
         }
         for (Vertex v : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) valid_ub &= cover[v] == 1;
         if (valid_ub && added > 0) bcp.SetInitialIncumbent(ub_value);
         warm_log["routes_given"] = params.initial_routes.size();
         warm_log["routes_added"] = added;
-        if (valid_ub && added > 0) warm_log["ub"] = ub_value;
+        if (valid_ub && added > 0) {
+            warm_log["ub"] = nearest_binary64(ub_value);
+            warm_log["ub_exact"] = ub_value.get_str();
+        }
         clog << "Warm start: " << added << "/" << params.initial_routes.size()
              << " columns added" << (valid_ub && added > 0 ? ", UB set" : ", no UB") << endl;
     }
+
+    // 1 artificial column per customer, of cost M at least the cost of any solution, so that every restricted master has an LP optimum. The exact evaluation never accepts an integer solution that selects one. The master has no fleet row, so the exact evaluation of an incumbent enforces the fleet limit.
+    const ExactCost artificial = artificial_cost(checker_inst);
+    for (Vertex i : exclude(vrp.D.Vertices(), {vrp.o, vrp.d})) spf.AddArtificial(i, artificial);
+    bcp.fleet_limit = checker_inst.num_vehicles;
 
     int exact_calls = 0, exact_finished = 0;
     bool last_exact_finished = false, ladder_certified = false;
@@ -179,6 +183,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         nlohmann::json entry = {
             {"time", elapsed.Amount(DurationUnit::Seconds)},
             {"value", sol.value},
+            {"exact_value", bcp.ExactIncumbentValue()->get_str()},
             {"origin", origin},
             {"routes", sol.routes},
         };
@@ -209,8 +214,8 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         LabelingLevel::HeuristicCost, LabelingLevel::HeuristicElementarity, LabelingLevel::Exact};
     const vector<string> level_names = {"Heuristic Cost", "Heuristic Elementarity", "Exact"};
 
-    // Compare the labeling and reference-fold reduced costs at the same customer and subset-row duals. A phantom has negative labeling reduced cost and positive reference reduced cost above tolerance. Count it even when its path is already in the master.
-    // The duration counters compare merge-time labeling and BestDurationRoute with the reference fold. The separate duplicate and verification counters count reference reduced costs below minus the integrity tolerance.
+    // Compare the labeling reduced cost with the reduced cost of the master cost (the nearest binary64 value of the exact cost) at the same customer and subset-row duals. A phantom has negative labeling reduced cost and positive master reduced cost above tolerance. Count it even when its path is already in the master.
+    // The duration counters compare merge-time labeling and BestDurationRoute with the master cost. The separate duplicate and verification counters count master reduced costs below minus the integrity tolerance.
     const double integrity_eps = 1e-6;
     const PricingProblem* integrity_pp = nullptr;
     const std::vector<double>* integrity_pool = nullptr;
@@ -278,10 +283,10 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         return R;
     };
 
-    int checker_infeasible_count = 0; // Rejected by the binary64 column fold.
+    int checker_infeasible_count = 0; // Rejected by the exact column evaluation.
 
 
-    // Both pricing passes deduplicate paths and reprice each new column with the binary64 reference fold. Poll time and memory per route so a large pool can be interrupted during insertion.
+    // Both pricing passes deduplicate paths and evaluate each new column exactly. Poll time and memory per route so a large pool can be interrupted during insertion.
     auto add_columns = [&](const vector<Route>& R, size_t begin, size_t end, bool priced_negative) {
         int added = 0;
         for (size_t route_index = begin; route_index < end && route_index < R.size(); ++route_index) {
@@ -291,35 +296,36 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
             if (!column_keys.insert(path_key(r.path)).second) {
                 ++duplicate_columns;
                 if (priced_negative && integrity_pp) {
-                    auto dup = checker_eval(checker_inst, r.path);
+                    const auto dup = exact_column(pricer, checker_inst, r.path);
                     if (dup.feasible) {
-                        const double rc = checker_reduced_cost(r.path, dup.duration, *integrity_pp);
+                        const double rc = checker_reduced_cost(r.path, nearest_binary64(dup.cost), *integrity_pp);
                         if (rc > integrity_eps) { ++phantom_duplicates; max_phantom_reduced_cost = std::max(max_phantom_reduced_cost, rc); }
                         else if (rc < -integrity_eps) ++negative_duplicates;
                     }
                 }
                 continue;
             }
-            auto ev = checker_eval(checker_inst, r.path);
-            if (!ev.feasible)
+            const auto col = exact_column(pricer, checker_inst, r.path);
+            if (!col.feasible)
             {
                 // Skip the column and count it in pricing_integrity. A rejected negative-priced route leaves the closure diagnostic incomplete.
                 ++checker_infeasible_count;
-                clog << "M5.9: skipped checker-infeasible priced route (path "
-                     << STR(r.path) << "), certificate poisoned" << endl;
+                clog << "Skipped a priced route that the exact evaluation rejects (path "
+                     << STR(r.path) << ")" << endl;
                 continue;
             }
-            spf.AddRoute(Route(r.path, ev.departure, ev.duration));
+            spf.AddRoute(Route(r.path, col.departure, 0.0), col.cost);
             ++added;
             if (priced_negative && integrity_pp) {
-                const double rc = checker_reduced_cost(r.path, ev.duration, *integrity_pp);
+                const double duration = nearest_binary64(col.cost);
+                const double rc = checker_reduced_cost(r.path, duration, *integrity_pp);
                 if (rc > integrity_eps) { ++phantom_columns; max_phantom_reduced_cost = std::max(max_phantom_reduced_cost, rc); }
                 if (integrity_verifying && rc < -integrity_eps) ++verify_negative_columns;
-                const double route_gap = std::abs(r.duration - ev.duration);
+                const double route_gap = std::abs(r.duration - duration);
                 if (route_gap > integrity_eps) { ++route_duration_mismatches; max_route_duration_gap = std::max(max_route_duration_gap, route_gap); }
-                if (r.duration < ev.duration - integrity_eps) ++route_duration_below;
+                if (r.duration < duration - integrity_eps) ++route_duration_below;
                 if (integrity_pool && route_index < integrity_pool->size()) {
-                    const double gap = ev.duration - (*integrity_pool)[route_index];
+                    const double gap = duration - (*integrity_pool)[route_index];
                     if (gap > integrity_eps) { ++labeling_below_checker; max_labeling_gap = std::max(max_labeling_gap, gap); }
                 }
             }
@@ -330,7 +336,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     // Ladder escalation is driven by NEW columns, not by a
     // non-empty pricing pool. A heuristic level can keep re-pricing an
     // EXISTING column (its labeling-arithmetic reduced cost slightly negative
-    // while the binary64 reference master cost is not), the fingerprint dedup then
+    // while the master cost is not), the fingerprint dedup then
     // adds 0, and the old ladder broke without escalating — so the BCP read
     // "no new columns" as node-optimal WITHOUT the Exact level ever running:
     // unsound termination (the Rifki-14 k=15 reproducer certified 5606 with
@@ -439,6 +445,13 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     result["closure_census"] = closure_census();
     result["exact_pricing"] = {{"calls", exact_calls}, {"finished", exact_finished}};
     result["checker_infeasible_columns"] = checker_infeasible_count;
+    // The exact master: cost M of the artificial columns, singletons that the exact evaluation rejects, and the incumbent candidates of the BCP (see BCP::AcceptIncumbent).
+    result["exact_master"] = {
+        {"artificial_cost", nearest_binary64(artificial)}, {"artificial_columns", vrp.D.NbVertices() - 2},
+        {"infeasible_singletons", infeasible_singletons},
+        {"artificial_candidates", bcp.artificial_candidate_count},
+        {"rejected_candidates", bcp.rejected_candidate_count},
+        {"repriced_candidates", bcp.repriced_candidate_count}};
     // See the comment at the declaration of the counters.
     result["pricing_integrity"] = {
         {"epsilon", integrity_eps},
@@ -461,6 +474,7 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     //    unbranched_fractional_unverified are all 0.
     //  - no_checker_infeasible_column: checker_infeasible_columns == 0.
     //  - no_empty_negative_priced_route: all negative-priced paths were reconstructed.
+    //  - no_rejected_candidate: the exact evaluation rejected no integer solution of the master (fleet limit or coverage), so no node closed on a solution that was not one.
     // all_hold records coverage of the native closure checks. A certified lower bound under the exact evaluation profile also needs a verified pricing argument.
     {
         const bool status_optimum = log.status == BCStatus::Optimum;
@@ -468,11 +482,13 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
         const bool no_unpriced = bcp.cg_infeasible_count == 0 && bcp.selected_rmp_infeasible_count == 0
             && bcp.unbranched_fractional_count == 0;
         const bool no_infeasible = checker_infeasible_count == 0;
+        const bool no_rejected = bcp.rejected_candidate_count == 0;
         result["closure_conditions"] = {
             {"status_optimum", status_optimum}, {"all_closures_certified", all_certified},
             {"no_unpriced_closure", no_unpriced}, {"no_checker_infeasible_column", no_infeasible},
             {"no_empty_negative_priced_route", empty_negative_routes == 0},
-            {"all_hold", status_optimum && all_certified && no_unpriced && no_infeasible && empty_negative_routes == 0},
+            {"no_rejected_candidate", no_rejected},
+            {"all_hold", status_optimum && all_certified && no_unpriced && no_infeasible && empty_negative_routes == 0 && no_rejected},
             {"verify_final_mask", verify_mask}};
     }
     // Record the memory guard diagnostics.
@@ -484,18 +500,9 @@ std::string solve_exact_json(const std::string& payload, const SolveParams& para
     result["incumbents"] = incumbents;
     if (!warm_log.is_null()) result["warm_start"] = warm_log;
     if (solution.value != INFTY) {
-        // Sum reference-fold durations in first-customer order to reproduce the binary64 objective used by this bridge. The public API independently checks the routes under the exact profile.
-        if (!solution.routes.empty()) {
-            vector<const Route*> ordered;
-            for (const auto& r : solution.routes) ordered.push_back(&r);
-            sort(ordered.begin(), ordered.end(),
-                 [](const Route* a, const Route* b) { return a->path[1] < b->path[1]; });
-            double v = 0.0;
-            for (const Route* r : ordered) v += r->duration;
-            result["value"] = v;
-        } else {
-            result["value"] = solution.value;
-        }
+        // The value is the nearest binary64 value of the exact cost of the incumbent, which exact_value gives as a fraction. The public API independently checks the routes with the library checker.
+        result["value"] = solution.value;
+        result["exact_value"] = bcp.ExactIncumbentValue()->get_str();
         result["routes"] = solution.routes;
     }
     return result.dump();

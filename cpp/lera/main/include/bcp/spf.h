@@ -12,6 +12,8 @@
 #include <goc/goc.h>
 #include <nyr/nyr.h>
 
+#include "bcp/exact_cost.h"
+
 namespace solver
 {
 typedef nyr::VertexSet SubsetRowCut; // We only consider cuts with n = 3, k = 2. So the set of vertices define the cut.
@@ -35,8 +37,15 @@ public:
 	// Frees formulation memory.
 	~SPF();
 	
-	// Adds the specified route to the formulation (using the duration as its cost).
-	void AddRoute(const goc::Route& r);
+	// Adds the specified route to the formulation. The master keeps the exact
+	// cost of the route and gives its nearest binary64 value to the LP, which
+	// also becomes the duration of the stored route.
+	void AddRoute(goc::Route r, const ExactCost& cost);
+	
+	// Adds the artificial column of customer i: coefficient 1 in the row of i
+	// and in no cut, exact cost `cost`, which must be a binary64 value. Branching
+	// never fixes it, so every node has an LP optimum.
+	void AddArtificial(goc::Vertex i, const ExactCost& cost);
 	
 	// Adds a subset row cut with n = 3, k = 2.
 	// \sum_{j \in Omega and #(r_j \cap cut) >= 2} y_j <= 1.0.
@@ -48,6 +57,12 @@ public:
 	// Returns: the route associated to the variable.
 	const goc::Route& RouteOf(const goc::Variable& variable) const;
 	
+	// Returns: the exact cost of the column of the variable.
+	const ExactCost& ExactCostOf(const goc::Variable& variable) const;
+	
+	// Returns: if the variable is an artificial column.
+	bool IsArtificial(const goc::Variable& variable) const;
+	
 	// Returns: the pricing problem for the duals.
 	PricingProblem InterpretDuals(const std::vector<double>& duals) const;
 	
@@ -58,6 +73,8 @@ private:
 	std::vector<goc::Arc> forbidden_arcs; // arcs that are removed from the SPF (i.e. all routes containing one of these arcs are set to 0).
 	int n; // number of vertices.
 	std::vector<goc::Route> omega; // set of routes in the restricted master problem.
+	std::vector<ExactCost> cost; // cost[j] = exact cost of column j.
+	std::vector<bool> artificial; // artificial[j] = column j is artificial.
 	std::vector<goc::Variable> y; // variables associated with routes in omega.
 	goc::Matrix<std::vector<int>> omega_by_arc; // omega_by_arc[i][j] = { r \in omega : (i, j) \in path(r) }.
 };

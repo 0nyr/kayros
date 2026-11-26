@@ -78,9 +78,39 @@ int BCP::SeparateCutRounds()
 	return cuts_added;
 }
 
-void BCP::SetInitialIncumbent(double value)
+void BCP::SetInitialIncumbent(const ExactCost& value)
 {
-	if (value < z_ub) z_ub = value;
+	if (z_ub_exact && *z_ub_exact <= value) return;
+	z_ub_exact = value;
+	z_ub = nearest_binary64(value);
+}
+
+bool BCP::AcceptIncumbent(const Valuation& z, double native_value, const string& origin)
+{
+	ExactCost cost = 0;
+	int routes = 0;
+	vector<int> visits(D.NbVertices(), 0);
+	for (const auto& y_val: z)
+	{
+		if (y_val.second < 0.5) continue;
+		if (spf->IsArtificial(y_val.first)) { ++artificial_candidate_count; return false; }
+		cost += spf->ExactCostOf(y_val.first);
+		++routes;
+		const auto& path = spf->RouteOf(y_val.first).path;
+		for (int k = 1; k < (int)path.size()-1; ++k) ++visits[path[k]];
+	}
+	bool partition = routes > 0;
+	for (Vertex v = 1; v < D.NbVertices()-1; ++v) partition &= visits[v] == 1;
+	if (!partition || (fleet_limit >= 0 && routes > fleet_limit)) { ++rejected_candidate_count; return false; }
+	if (z_ub_exact && *z_ub_exact <= cost) return false;
+	z_ub_exact = cost;
+	z_ub = nearest_binary64(cost);
+	if (z_ub != native_value) ++repriced_candidate_count;
+	ub = z;
+	Duration tsol = rolex.Peek();
+	clog << "New UB: " << z_ub << " (" << origin << ") - time: " << tsol << endl;
+	if (on_incumbent) on_incumbent(tsol, goc::VRPSolution(z_ub, spf->InterpretSolution(ub)), origin);
+	return true;
 }
 
 BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
@@ -272,14 +302,8 @@ void BCP::ProcessNode(Node* node)
 	{
 		if (node->opt.IsInteger())
 		{
-			if (z_ub > node->bound) // Found a new optimum.
-			{
-				z_ub = node->bound;
-				ub = node->opt;
-				Duration tsol = rolex.Peek();
-				clog << "New UB: " << z_ub << " at node " << node->index << " - time: " << tsol << endl;
-				if (on_incumbent) on_incumbent(tsol, goc::VRPSolution(z_ub, spf->InterpretSolution(ub)), "BCP");
-			}
+			// The incumbent value is the exact cost of the routes, not the LP value.
+			AcceptIncumbent(node->opt, node->bound, "BCP");
 			log.nodes_closed++;
 			delete node;
 		}
@@ -412,14 +436,7 @@ void BCP::FreezeHeuristic()
 	// A TL-truncated MILP may still carry a feasible incumbent — take it.
 	bool has_incumbent = (bc_log.status == BCStatus::Optimum || bc_log.status == BCStatus::TimeLimitReached)
 		&& bc_log.best_int_value.IsSet() && bc_log.best_int_solution.IsSet();
-	if (has_incumbent && bc_log.best_int_value < z_ub)
-	{
-		z_ub = bc_log.best_int_value;
-		ub = *bc_log.best_int_solution;
-		Duration tsol = rolex.Peek();
-		clog << "New UB: " << z_ub << " in freeze heuristic - time: " << tsol << endl;
-		if (on_incumbent) on_incumbent(tsol, goc::VRPSolution(z_ub, spf->InterpretSolution(ub)), "BCP-freezeH");
-	}
+	if (has_incumbent) AcceptIncumbent(*bc_log.best_int_solution, *bc_log.best_int_value, "BCP-freezeH");
 }
 
 bool BCP::SeparateCuts(const Valuation& z)

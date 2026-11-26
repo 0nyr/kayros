@@ -100,7 +100,7 @@ struct Search
                 if (i != j && !(i == 0 && j == 4)) D.AddArc({i, j});
         for (const GraphPath& path : std::vector<GraphPath>{
                  {0, 1, 4}, {0, 2, 4}, {0, 3, 4}, {0, 1, 2, 4}, {0, 2, 3, 4}, {0, 1, 3, 4}})
-            spf.AddRoute(Route(path, 0.0, 1.0));
+            spf.AddRoute(Route(path, 0.0, 1.0), 1);
     }
 
     // The injected status is the one an unmapped LP status produced before

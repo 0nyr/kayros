@@ -26,7 +26,7 @@ namespace
 // can disagree by epsilon (goc's piece arithmetic is epsilon-tolerant, and the
 // reverse-side normalizer can nudge reverse-arrival domain boundaries), and
 // Value() throws outside the domain. Clamp boundary evaluations into the
-// domain. Column pricing separately uses the binary64 reference fold.
+// domain. Column pricing separately uses the exact header.
 double duration_at(const Label* l, double t)
 {
 	t = std::max(min(dom(l->duration)), std::min(t, max(dom(l->duration))));
