@@ -133,3 +133,18 @@ def test_native_closure_with_no_routes_is_no_incumbent(instance_path, monkeypatc
     assert result.routes == [] and result.incumbents == []
     assert result.cost is result.exact_cost is result.certified_dual_bound is result.certified_gap is None
     assert result.reported_best_bound == 0.0 and result.closure_conditions["all_hold"]
+
+
+@pytest.mark.parametrize("instance_path", C101, ids=["C101"])
+def test_unresolved_lp_keeps_checked_warm_start_without_claim(instance_path, monkeypatch):
+    seed = solve_exact(instance_path, time_limit=120)
+    from kayros import _bpc
+    monkeypatch.setattr(_bpc, "solve_duration", lambda *args, **kwargs: {
+        "routes": [], "incumbents": [], "value": 0.0,
+        "exact_log": {"status": "Unresolved", "time": 0.1},
+        "closure_conditions": {"all_hold": False}, "pricing_integrity": {},
+    })
+    result = solve_exact(instance_path, initial_routes=seed.routes)
+    assert result.status == "feasible" and result.termination_reason == "lp_unresolved"
+    assert result.routes == seed.routes and result.exact_cost == seed.exact_cost
+    assert result.reported_best_bound is None and result.certified_dual_bound is None

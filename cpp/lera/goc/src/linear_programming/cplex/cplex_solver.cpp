@@ -184,11 +184,17 @@ void extract_cplex_lp_execution_info(CplexFormulation* formulation, LPExecutionL
 											  {CPX_STAT_CONFLICT_ABORT_MEM_LIM,  LPStatus::MemoryLimitReached},
 											  {CPX_STAT_OPTIMAL_INFEAS,          LPStatus::Optimum},
 											  {CPX_STAT_OPTIMAL,                 LPStatus::Optimum}};
-	execution_log->status = cplex_status_mapper[cplex_status];
-	
+	auto mapped = cplex_status_mapper.find(cplex_status);
+	LPStatus status = mapped == cplex_status_mapper.end() ? LPStatus::Unresolved : mapped->second;
+
 	// Incumbent and Incumbent value.
 	double objval;
-	if (cplex::getobjval(env, prob, &objval)) // If incumbent was found
+	bool has_value = cplex::getobjval(env, prob, &objval);
+	// An optimum is only usable with its value.
+	if (status == LPStatus::Optimum && !has_value) status = LPStatus::Unresolved;
+	execution_log->status = status;
+	if (status == LPStatus::Unresolved) return;
+	if (has_value) // If incumbent was found
 	{
 		// Incumbent value.
 		execution_log->incumbent_value = objval;

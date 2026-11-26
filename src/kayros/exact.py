@@ -70,6 +70,7 @@ _TERMINATION = {
     "DidNotStart": "did_not_start",
     "Infeasible": "solver_reported_infeasible",
     "Unbounded": "solver_reported_unbounded",
+    "Unresolved": "lp_unresolved",
 }
 
 

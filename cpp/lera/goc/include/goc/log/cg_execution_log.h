@@ -20,7 +20,8 @@
 namespace goc
 {
 // All the status that can result from a column generation execution.
-enum class CGStatus { DidNotStart, Infeasible, Unbounded, TimeLimitReached, MemoryLimitReached, Optimum };
+// Unresolved: an LP of the loop ended Unresolved (see LPStatus).
+enum class CGStatus { DidNotStart, Infeasible, Unbounded, TimeLimitReached, MemoryLimitReached, Optimum, Unresolved };
 
 // This class stores information about the execution of a column generation algorithm.
 // It is compatible with the Kaleidoscope kd_type "cg".

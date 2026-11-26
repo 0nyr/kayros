@@ -125,7 +125,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		
 		while (!q.empty())
 		{
-			if (log.status == BCStatus::TimeLimitReached || log.status == BCStatus::MemoryLimitReached) break;
+			if (log.status == BCStatus::TimeLimitReached || log.status == BCStatus::MemoryLimitReached || log.status == BCStatus::Unresolved) break;
 			if (deadline.Reached()) { log.status = BCStatus::TimeLimitReached; break; }
 			if (MemoryMonitor::Exceeded()) { log.status = BCStatus::MemoryLimitReached; break; }
 			if (log.nodes_closed >= node_limit) { log.status = BCStatus::NodeLimitReached; break; }
@@ -209,6 +209,9 @@ double BCP::EstimateBound(Node* node)
     if (node->rmp_infeasible) ++strong_rmp_infeasible_count;
 	if (lp_log.status == LPStatus::TimeLimitReached) log.status = BCStatus::TimeLimitReached;
 	if (lp_log.status == LPStatus::MemoryLimitReached) log.status = BCStatus::MemoryLimitReached;
+	// Any other non-optimal outcome drops the child below, so it must stop
+	// the run as well.
+	if (lp_log.status == LPStatus::Unresolved || lp_log.status == LPStatus::DidNotStart) log.status = BCStatus::Unresolved;
 	return lp_log.status == LPStatus::Optimum ? *lp_log.incumbent_value : INFTY;
 }
 
@@ -265,7 +268,7 @@ void BCP::ProcessNode(Node* node)
 		delete node;
 	}
 	// Node was solved to optimality.
-	else
+	else if (cg_log.status == CGStatus::Optimum)
 	{
 		if (node->opt.IsInteger())
 		{
@@ -292,6 +295,15 @@ void BCP::ProcessNode(Node* node)
 			log.nodes_open++;
 			q.push(node);
 		}
+	}
+	// Any other outcome (Unresolved, or a status the column generation
+	// never reached) leaves the node unsolved. Its default relaxation
+	// optimum is empty and would pass IsInteger, so it must give neither
+	// an incumbent nor a bound. The run stops without claim.
+	else
+	{
+		log.status = BCStatus::Unresolved;
+		delete node;
 	}
 }
 
@@ -386,7 +398,7 @@ void BCP::BranchNode(Node* node)
 	// Process new children to the queue.
 	for (Node& candidate: best_candidate)
 	{
-		if (log.status == BCStatus::TimeLimitReached || log.status == BCStatus::MemoryLimitReached) break;
+		if (log.status == BCStatus::TimeLimitReached || log.status == BCStatus::MemoryLimitReached || log.status == BCStatus::Unresolved) break;
 		ProcessNode(new Node(candidate));
 	}
 }

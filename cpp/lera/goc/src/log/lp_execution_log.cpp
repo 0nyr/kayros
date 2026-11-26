@@ -39,7 +39,8 @@ ostream& operator<<(ostream& os, LPStatus status)
 											  {LPStatus::Unbounded, "Unbounded"},
 											  {LPStatus::TimeLimitReached, "TimeLimitReached"},
 											  {LPStatus::MemoryLimitReached, "MemoryLimitReached"},
-											  {LPStatus::Optimum, "Optimum"}};
+											  {LPStatus::Optimum, "Optimum"},
+											  {LPStatus::Unresolved, "Unresolved"}};
 	return os << mapper[status];
 }
 } // namespace goc

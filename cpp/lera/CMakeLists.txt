@@ -199,6 +199,10 @@ set(KAYROS_CPP_TESTS
 if(LERA_LP_BACKEND STREQUAL "cplex")
     list(APPEND KAYROS_CPP_TESTS cplex_variable_domains)
 endif()
+# The unresolved-status test drives HiGHS through its options.
+if(LERA_LP_BACKEND STREQUAL "highs")
+    list(APPEND KAYROS_CPP_TESTS lp_unresolved)
+endif()
 set(KAYROS_CPP_TEST_RUNS)
 foreach(name IN LISTS KAYROS_CPP_TESTS)
     add_executable(kayros_test_${name} EXCLUDE_FROM_ALL ${KAYROS_CPP_TEST_DIR}/test_${name}.cpp)

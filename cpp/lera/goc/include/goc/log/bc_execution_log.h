@@ -21,8 +21,11 @@
 namespace goc
 {
 // All the status that can result from a branch and cut execution.
+// Unresolved: the BCP stopped on a node or a strong-branching probe whose LP
+// ended Unresolved (see LPStatus). The run then claims neither optimality
+// nor a bound from that node.
 enum class BCStatus {
-	DidNotStart, Infeasible, Unbounded, TimeLimitReached, MemoryLimitReached, Optimum, NodeLimitReached
+	DidNotStart, Infeasible, Unbounded, TimeLimitReached, MemoryLimitReached, Optimum, NodeLimitReached, Unresolved
 };
 
 // This class stores information about the execution of a branch-and-cut solver.

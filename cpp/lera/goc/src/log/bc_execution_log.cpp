@@ -60,7 +60,8 @@ ostream& operator<<(ostream& os, BCStatus status)
 											   {BCStatus::TimeLimitReached, "TimeLimitReached"},
 											   {BCStatus::MemoryLimitReached, "MemoryLimitReached"},
 											   {BCStatus::Optimum, "Optimum"},
-											   {BCStatus::NodeLimitReached, "NodeLimitReached"}};
+											   {BCStatus::NodeLimitReached, "NodeLimitReached"},
+											   {BCStatus::Unresolved, "Unresolved"}};
 	return os << mapper[status];
 }
 } // namespace goc

@@ -27,7 +27,8 @@ unordered_map<LPStatus, CGStatus> mapper = {
 	{LPStatus::Unbounded, CGStatus::Unbounded},
 	{LPStatus::TimeLimitReached, CGStatus::TimeLimitReached}, 
 	{LPStatus::MemoryLimitReached, CGStatus::MemoryLimitReached},
-	{LPStatus::Optimum, CGStatus::Optimum}
+	{LPStatus::Optimum, CGStatus::Optimum},
+	{LPStatus::Unresolved, CGStatus::Unresolved}
 };
 CGStatus parse_lp_status(LPStatus status)
 {
@@ -74,6 +75,9 @@ CGExecutionLog solve_colgen(
 		*execution_log.lp_time += *lp_log.time;
 		
 		if (*lp_log.status != LPStatus::Optimum) { execution_log.status = parse_lp_status(*lp_log.status); break; }
+		// The backend wrappers report an optimum without value or duals as
+		// Unresolved. Never dereference them unset.
+		if (!lp_log.incumbent_value.IsSet() || !lp_log.duals.IsSet()) { execution_log.status = CGStatus::Unresolved; break; }
 		objective_value = lp_log.incumbent_value;
 		if (output.RegisterAttempt()) output.WriteRow({STR(rolex.Peek()), STR(execution_log.iteration_count++), STR(objective_value), STR(formulation->VariableCount())});
 		
