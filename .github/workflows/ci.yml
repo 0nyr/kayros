@@ -3,7 +3,17 @@ name: CI
 on:
   push:
     branches: [main, "dev/*-ci"]
+    # A push that only changes Markdown files at the repository root (README,
+    # CHANGELOG, AUTHORS) starts no run. cpp/lera/NOTICE.md is shipped in the
+    # wheel as a license file and still starts one.
+    paths-ignore: ["*.md"]
   pull_request:
+
+# A newer push to the same branch or pull request cancels the run in progress.
+# Only the latest pushed commit of a branch gets a verdict.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   no-cplex-gate:
