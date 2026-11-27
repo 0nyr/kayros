@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <deque>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -158,7 +159,10 @@ struct Pricer {
     std::vector<Q> pi, w;  // w = -sigma >= 0
     std::vector<std::array<int, 3>> cuts;
     std::vector<bool> forbid;  // (n+1)^2
-    std::vector<Label> L;
+    // A deque, so that growth moves no stored label. A vector copies every
+    // label when it grows wherever the move of mpq_class may throw. Labels
+    // are reached by index only.
+    std::deque<Label> L;
     std::vector<std::vector<int>> bucket;
     std::vector<std::vector<int>> cuts_of;
     Result res;
