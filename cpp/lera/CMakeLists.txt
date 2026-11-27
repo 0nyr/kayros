@@ -108,7 +108,16 @@ target_include_directories(lera PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include
 )
 target_include_directories(lera SYSTEM PUBLIC ${Boost_INCLUDE_DIRS})
-target_link_libraries(lera PUBLIC ${Boost_LIBRARIES} dl m)
+# The master keeps the exact cost of each column (GMP rationals), and the bridge
+# evaluates every column with the exact header of the library.
+target_link_libraries(lera PUBLIC ${Boost_LIBRARIES} dl m MAMUTRouting::td_exact)
+# The search is wired to the ledger of the exact layer (cpp/exact, trusted) and
+# solves the basis of the master in rationals (cpp/exact_lp, not trusted). Both
+# end up in the _lera module, so they are built as position-independent code.
+# kayros_exact_lp is declared after this directory, which CMake resolves at
+# generation. Nothing is added to the link list of kayros_exact itself.
+set_target_properties(kayros_exact PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(lera PUBLIC kayros_exact kayros_exact_lp)
 
 if(LERA_LP_BACKEND STREQUAL "highs")
     # Prefer an installed HiGHS (nix shell, -Dhighs_DIR=...); otherwise fetch
@@ -142,13 +151,11 @@ else()
 endif()
 
 # kayros-owned bridge (bridge/ is not vendored code): MAMUT instance payload
-# -> Lera preprocessing -> VRPInstance -> duration-objective BCP. Links the
-# Link the binary64 reference fold used to reprice master columns.
+# -> Lera preprocessing -> VRPInstance -> duration-objective BCP, with every
+# master column evaluated by the exact header of the library.
 pybind11_add_module(_lera
     bridge/lera_module.cpp
     bridge/lera_bridge.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../pwlf/pwlf.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/../core/route_eval.cpp
 )
 target_include_directories(_lera PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge
@@ -196,6 +203,8 @@ set(KAYROS_CPP_TESTS
     partial_dominance
     jump_representation
     exact_slopes
+    exact_master
+    node_loop
 )
 if(LERA_LP_BACKEND STREQUAL "cplex")
     list(APPEND KAYROS_CPP_TESTS cplex_variable_domains)
@@ -211,15 +220,63 @@ foreach(name IN LISTS KAYROS_CPP_TESTS)
     target_link_libraries(kayros_test_${name} PRIVATE lera)
     list(APPEND KAYROS_CPP_TEST_RUNS COMMAND kayros_test_${name})
 endforeach()
+# The exact-master test also evaluates columns with the bridge helpers.
+target_include_directories(kayros_test_exact_master PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
 # The ordered-valuation test builds its variables with the solver-agnostic
 # MatrixFormulation, which the CPLEX backend does not compile into lera.
 if(LERA_LP_BACKEND STREQUAL "cplex")
     target_sources(kayros_test_ordered_valuation PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/goc/src/linear_programming/highs/matrix_formulation.cpp)
 endif()
+# Negative checks of the wiring to the ledger (M2 step 5). Each mutant is a copy
+# of bcp.cpp with 1 exit of the wiring broken, written at configure time so that
+# bcp.cpp carries no switch, compiled into its own copy of test_node_loop.cpp.
+# Its object defines every symbol of bcp.cpp, so the linker never takes bcp.cpp
+# from lera. The test exits 0 only when the broken exit was reached and the run
+# ends without claim.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/main/src/bcp/bcp.cpp)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/main/src/bcp/bcp.cpp KAYROS_BCP_SOURCE)
+function(kayros_wiring_mutant name from to)
+    string(FIND "${KAYROS_BCP_SOURCE}" "${from}" first)
+    string(FIND "${KAYROS_BCP_SOURCE}" "${from}" last REVERSE)
+    if(first EQUAL -1 OR NOT first EQUAL last)
+        message(FATAL_ERROR "wiring mutant ${name}: the text to replace must occur exactly once in bcp.cpp")
+    endif()
+    string(REPLACE "${from}" "${to}" mutated "${KAYROS_BCP_SOURCE}")
+    set(source ${CMAKE_CURRENT_BINARY_DIR}/bcp_mutant_${name}.cpp)
+    file(WRITE ${source} "${mutated}")
+    add_executable(kayros_test_node_loop_mutant_${name} EXCLUDE_FROM_ALL ${KAYROS_CPP_TEST_DIR}/test_node_loop.cpp ${source})
+    target_compile_definitions(kayros_test_node_loop_mutant_${name} PRIVATE KAYROS_WIRING_MUTANT_TEST KAYROS_WIRING_MUTANT_${name})
+    target_compile_options(kayros_test_node_loop_mutant_${name} PRIVATE -ffp-contract=off)
+    target_link_libraries(kayros_test_node_loop_mutant_${name} PRIVATE lera)
+    set(KAYROS_CPP_TEST_RUNS ${KAYROS_CPP_TEST_RUNS} COMMAND kayros_test_node_loop_mutant_${name} PARENT_SCOPE)
+    set(KAYROS_WIRING_MUTANTS ${KAYROS_WIRING_MUTANTS} ${name} PARENT_SCOPE)
+endfunction()
+# A node popped from the queue is deleted without the verdict of prune.
+kayros_wiring_mutant(pop_skip_prune
+    "const auto pr = ledger->prune(bbnode->ledger_id);\n\t\t\t\t\tif (pr.removed) { ++ledger_removed_by_prune; branch = false; }"
+    "branch = false; if (false) {}")
+# The right child of a branching is never solved.
+kayros_wiring_mutant(drop_child "ProcessNode(new Node(c));" "if (&c == &children[0]) ProcessNode(new Node(c));")
+# A node left open by the node loop is deleted as if closed. Under the lazy close
+# the open exit that is reached is the node deferred without a pass (value below U).
+kayros_wiring_mutant(open_as_removed
+    "{ ++passes_avoided; return finish(Exit::Open, \"deferred\"); }"
+    "{ ++passes_avoided; return finish(Exit::Removed, \"deferred\"); }")
+# A popped node whose stored value reaches U is deleted without the close of the ledger.
+kayros_wiring_mutant(pop_close_skipped
+    "const Exit e = ExactLoop(bbnode, cg_log, true);"
+    "const Exit e = Exit::Removed;")
+
 add_custom_target(kayros_cpp_tests ${KAYROS_CPP_TEST_RUNS}
     COMMENT "Running the C++ unit tests of the exact component"
     VERBATIM)
 foreach(name IN LISTS KAYROS_CPP_TESTS)
     add_dependencies(kayros_cpp_tests kayros_test_${name})
+endforeach()
+foreach(name IN LISTS KAYROS_WIRING_MUTANTS)
+    add_dependencies(kayros_cpp_tests kayros_test_node_loop_mutant_${name})
 endforeach()

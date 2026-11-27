@@ -17,9 +17,9 @@ struct SolveParams {
     int solution_limit = 3000;  // labeling negative-reduced-cost pool size
     // Warm start: heuristic incumbent routes as customer-id sequences
     // (MAMUT numbering 1..n, no depots — e.g. kayros Solution.routes). Each
-    // route is repriced with the binary64 reference fold and added as an
-    // initial SPF column; when the surviving routes partition the customers
-    // exactly, their total becomes the initial UB for pruning.
+    // route is evaluated by the exact header and added as an initial SPF
+    // column; when the surviving routes partition the customers exactly, their
+    // exact total becomes the initial UB for pruning.
     std::vector<std::vector<int>> initial_routes;
     // Process RSS watermark in MiB. A nonpositive value disables the check. Python resolves the default from available memory and the cgroup ceiling. Crossing the watermark at a solver poll ends the run with MemoryLimitReached.
     double memory_limit_mb = 0.0;

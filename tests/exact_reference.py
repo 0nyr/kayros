@@ -136,10 +136,16 @@ def exact_duration_cost(instance, atfs, routes) -> Fraction:
     )
 
 
+def assert_exact_value(result: dict, exact: Fraction) -> None:
+    """The exact component reports the exact cost of its incumbent, and its float value is the nearest float to it."""
+    assert Fraction(result["exact_value"]) == exact, (result["exact_value"], exact)
+    assert result["value"] == float(exact)
+
+
 def assert_value_close(
     float_value: float, exact: Fraction, ctx=None, family: str = "exact-component (lera)"
 ) -> None:
-    """A float objective value within TOL of an exact one (no loaded instance needed). Used for the exact component, whose internal arithmetic still runs the old float fold."""
+    """A float objective value within TOL of an exact one (no loaded instance needed)."""
     rel, absolute = distance(float_value, exact)
     entry = DISTANCES.setdefault(family, [0.0, 0.0, 0])
     entry[0] = max(entry[0], rel)

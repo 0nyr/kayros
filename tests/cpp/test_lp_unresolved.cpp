@@ -100,7 +100,7 @@ struct Search
                 if (i != j && !(i == 0 && j == 4)) D.AddArc({i, j});
         for (const GraphPath& path : std::vector<GraphPath>{
                  {0, 1, 4}, {0, 2, 4}, {0, 3, 4}, {0, 1, 2, 4}, {0, 2, 3, 4}, {0, 1, 3, 4}})
-            spf.AddRoute(Route(path, 0.0, 1.0));
+            spf.AddRoute(Route(path, 0.0, 1.0), 1);
     }
 
     // The injected status is the one an unmapped LP status produced before
@@ -121,12 +121,13 @@ struct Search
 
 static void search()
 {
-    // Control: the search closes at 2 after branching.
+    // Control, the search closes at 2 after branching. Without a ledger the
+    // status is Unresolved for that reason only (M2 step 5).
     {
         Search s;
         VRPSolution solution(INFTY, {});
         auto log = s.Run(1000, CGStatus::Optimum, &solution);
-        require(name(log.status) == "Optimum", "control search status " + name(log.status));
+        require(name(log.status) == "Unresolved", "control search status " + name(log.status));
         require(log.root_lp_value.IsSet() && epsilon_equal(*log.root_lp_value, 1.5), "control root LP value");
         require(log.best_int_value.IsSet() && epsilon_equal(*log.best_int_value, 2.0), "control incumbent");
         require(s.pricing_calls > 1, "control search processes a child node");

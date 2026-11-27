@@ -1,5 +1,6 @@
 """Public branch-price-and-cut result and exact-family incumbent checks."""
 
+import copy
 from fractions import Fraction
 
 import pytest
@@ -29,9 +30,12 @@ def test_cold_result_and_callbacks(instance_path):
     result = solve_exact(instance_path, verify=True, time_limit=120, on_incumbent=lambda event, routes: events.append((event, routes)))
     loaded = load_td_instance(instance_path)
     assert isinstance(result, ExactResult)
-    assert result.status == "feasible" and result.termination_reason == "search_closed"
-    assert result.raw["exact_log"]["status"] == "Optimum"
-    assert result.certified_dual_bound is result.certified_gap is None and result.objective == "Duration"
+    # The ledger certified the run and the final gate passed (M2 step 5).
+    assert result.status == "optimal" and result.termination_reason == "search_closed"
+    assert result.raw["exact_log"]["status"] == "Optimum" and result.raw["ledger"]["certified"]
+    assert result.certified_dual_bound == result.exact_cost and result.certified_gap == 0 and result.objective == "Duration"
+    assert result.certified_dual_bound_binary64 == float(result.exact_cost) and result.certificate_gate is None
+    assert result.routes == result.raw["ledger"]["incumbent"]
     assert result.reported_best_bound == result.raw["exact_log"].get("best_bound")
     assert result.pricing_integrity == result.raw["pricing_integrity"]
     assert result.closure_conditions == result.raw["closure_conditions"]
@@ -56,10 +60,12 @@ def test_winning_warm_start_keeps_its_routes(instance_path):
     events = []
     warm = solve_exact(load_td_instance(instance_path), time_limit=120, initial_routes=cold.routes,
                        on_incumbent=lambda event, routes: events.append((event, routes)))
-    assert warm.raw["exact_log"]["status"] == "Optimum" and warm.raw["routes"] == []
+    # The warm start is the incumbent of the ledger, whose routes the native record now returns.
+    assert warm.raw["exact_log"]["status"] == "Optimum"
+    assert [r["path"] for r in warm.raw["routes"]] == cold.routes
     assert warm.routes == cold.routes and warm.exact_cost == cold.exact_cost
     assert warm.incumbents[0].origin == "warm_start" and events[0][1] == cold.routes
-    assert warm.status == "feasible" and warm.certified_dual_bound is None
+    assert warm.status == "optimal" and warm.certified_dual_bound == cold.exact_cost
 
 
 @pytest.mark.parametrize("instance_path", C101, ids=["C101"])
@@ -89,7 +95,9 @@ def test_raw_closure_cannot_certify_an_invalid_incumbent(instance_path, monkeypa
 
     monkeypatch.setattr(_bpc, "solve_duration", raw)
     result = solve_exact(loaded, on_incumbent=lambda *args: pytest.fail("published invalid incumbent"))
-    assert result.status == "no_incumbent" and result.termination_reason == "search_closed"
+    # A native Optimum without a certified ledger is no claim.
+    assert result.status == "no_incumbent" and result.termination_reason == "certificate_gate_failed"
+    assert result.certificate_gate == "ledger_not_certified"
     assert result.routes == [] and not result.incumbents and result.rejected_incumbents == 1
     assert result.cost is result.exact_cost is result.certified_dual_bound is None
 
@@ -129,7 +137,7 @@ def test_native_closure_with_no_routes_is_no_incumbent(instance_path, monkeypatc
         "closure_conditions": {"all_hold": True}, "pricing_integrity": {},
     })
     result = solve_exact(instance_path)
-    assert result.status == "no_incumbent" and result.termination_reason == "search_closed"
+    assert result.status == "no_incumbent" and result.termination_reason == "certificate_gate_failed"
     assert result.routes == [] and result.incumbents == []
     assert result.cost is result.exact_cost is result.certified_dual_bound is result.certified_gap is None
     assert result.reported_best_bound == 0.0 and result.closure_conditions["all_hold"]
@@ -148,3 +156,42 @@ def test_unresolved_lp_keeps_checked_warm_start_without_claim(instance_path, mon
     assert result.status == "feasible" and result.termination_reason == "lp_unresolved"
     assert result.routes == seed.routes and result.exact_cost == seed.exact_cost
     assert result.reported_best_bound is None and result.certified_dual_bound is None
+
+
+@pytest.mark.parametrize("instance_path", RIFKI, ids=["Rifki-1"])
+def test_ledger_record_sidecar_and_header_check(instance_path, tmp_path):
+    from kayros.exact import _header_mismatch
+    loaded = load_td_instance(instance_path)
+    path = tmp_path / "rifki.record"
+    result = solve_exact(loaded, time_limit=120, record_path=path)
+    assert result.status == "optimal" and result.record_path == str(path)
+    record = path.read_text()
+    assert record == result.raw["ledger"]["record"] and record.startswith("kayros-ledger-record 1\n")
+    assert _header_mismatch(record, loaded) is None
+    lines = record.split("\n")
+    capacity = next(k for k, line in enumerate(lines) if line.startswith("capacity "))
+    wrong = list(lines)
+    wrong[capacity] = "capacity " + str(int(lines[capacity].split()[1]) + 1)
+    assert _header_mismatch("\n".join(wrong), loaded) == "capacity"
+    arc = next(k for k, line in enumerate(lines) if line.startswith("arc "))
+    tokens = lines[arc].split()
+    tokens[-1] = float(float.fromhex(tokens[-1]) + 1).hex()
+    wrong = list(lines)
+    wrong[arc] = " ".join(tokens)
+    assert _header_mismatch("\n".join(wrong), loaded) == "arcs"
+    assert _header_mismatch("garbage", loaded).startswith("unreadable header")
+
+
+@pytest.mark.parametrize("instance_path", RIFKI, ids=["Rifki-1"])
+def test_final_gate_refuses_a_certified_ledger_that_disagrees_with_the_checker(instance_path, monkeypatch):
+    from kayros import _bpc
+    loaded = load_td_instance(instance_path)
+    real = _bpc.solve_duration(loaded, time_limit=120)
+    assert real["ledger"]["certified"] and real["exact_log"]["status"] == "Optimum"
+    for field, value in (("U", str(Fraction(real["ledger"]["U"]) - Fraction(1, 3))), ("record", "kayros-ledger-record 1\nfleet none\n")):
+        tampered = copy.deepcopy(real)
+        tampered["ledger"][field] = value
+        monkeypatch.setattr(_bpc, "solve_duration", lambda *args, _t=tampered, **kwargs: _t)
+        result = solve_exact(loaded)
+        assert result.status == "feasible" and result.certified_dual_bound is None
+        assert result.termination_reason == "certificate_gate_failed" and result.certificate_gate

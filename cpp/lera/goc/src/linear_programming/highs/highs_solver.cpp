@@ -273,6 +273,20 @@ LPExecutionLog solve_lp(MatrixFormulation* formulation, ostream* screen_output, 
 	if (includes(options, LPOption::Duals) && solution.dual_valid)
 		execution_log.duals = solution.row_dual;
 
+	// Basis of an optimum, on request. See LPBasis.
+	if (status == LPStatus::Optimum && includes(options, LPOption::Basis))
+	{
+		const HighsBasis& basis = solver.getBasis();
+		const int n = formulation->VariableCount(), m = formulation->ConstraintCount();
+		if (basis.valid && (int)basis.col_status.size() == n && (int)basis.row_status.size() == m)
+		{
+			LPBasis b;
+			for (int j = 0; j < n; ++j) if (basis.col_status[j] == HighsBasisStatus::kBasic) b.columns.push_back(j);
+			for (int i = 0; i < m; ++i) if (basis.row_status[i] == HighsBasisStatus::kBasic) b.rows.push_back(i);
+			if ((int)(b.columns.size() + b.rows.size()) == m) execution_log.basis = b;
+		}
+	}
+
 	return execution_log;
 }
 

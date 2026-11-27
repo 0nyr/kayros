@@ -24,7 +24,10 @@ namespace goc
 //							advantage: saving the space of the iteration logs.
 // - ScreenOutput: 			if not included, the output will not be stored.
 //							advantage: saving space.
-enum class CGOption { IterationsInformation, ScreenOutput };
+// - Basis:					if included, every LP solve of the loop requests its basis, and {basis} holds the
+//							basis of the last solve, the one that gives {incumbent}, when the status is Optimum
+//							and the backend gave one. The exact layer solves it in rationals.
+enum class CGOption { IterationsInformation, ScreenOutput, Basis };
 
 // Function type for the pricing solver.
 // - duals: the dual variables of the iteration.

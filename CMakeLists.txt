@@ -57,8 +57,17 @@ if(KAYROS_NATIVE)
     target_compile_options(_core PRIVATE -march=native)
 endif()
 
+# Exact pricing pass of the exact layer (M2). Its targets are excluded from the
+# default build until the BPC links it, see cpp/exact/CMakeLists.txt.
+add_subdirectory(cpp/exact)
+
 if(KAYROS_WITH_LERA)
     add_subdirectory(cpp/lera)
 endif()
+
+# Exact LP multipliers of the restricted master (M2). Its targets are excluded
+# from the default build until the BPC links it, see cpp/exact_lp/CMakeLists.txt.
+# After cpp/lera, so that its driver and backend test can link lera.
+add_subdirectory(cpp/exact_lp)
 
 install(TARGETS _core DESTINATION kayros)

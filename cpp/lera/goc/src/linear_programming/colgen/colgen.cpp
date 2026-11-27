@@ -71,7 +71,8 @@ CGExecutionLog solve_colgen(
 
 		// Solve LP relaxation to get dual variables.
 		lp_solver->time_limit = time_limit - rolex.Peek();
-		lp_log = lp_solver->Solve(formulation, {LPOption::Duals, LPOption::Incumbent});
+		if (option.count(CGOption::Basis)) lp_log = lp_solver->Solve(formulation, {LPOption::Duals, LPOption::Incumbent, LPOption::Basis});
+		else lp_log = lp_solver->Solve(formulation, {LPOption::Duals, LPOption::Incumbent});
 		*execution_log.lp_time += *lp_log.time;
 		
 		if (*lp_log.status != LPStatus::Optimum) { execution_log.status = parse_lp_status(*lp_log.status); break; }
@@ -103,6 +104,7 @@ CGExecutionLog solve_colgen(
 	{
 		execution_log.incumbent_value = lp_log.incumbent_value;
 		execution_log.incumbent = lp_log.incumbent;
+		if (lp_log.basis.IsSet()) execution_log.basis = lp_log.basis;
 	}
 	execution_log.columns_added = formulation->VariableCount() - initial_variable_count;
 	execution_log.time = rolex.Peek();

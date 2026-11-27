@@ -29,6 +29,7 @@ json LPExecutionLog::ToJSON() const
 	if (constraint_count.IsSet()) j["constraint_count"] = constraint_count.Value();
 	if (variable_count.IsSet()) j["variable_count"] = variable_count.Value();
 	if (duals.IsSet()) j["duals"] = duals.Value();
+	if (basis.IsSet()) j["basis"] = {{"columns", basis.Value().columns}, {"rows", basis.Value().rows}};
 	return j;
 }
 

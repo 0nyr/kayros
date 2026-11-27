@@ -11,7 +11,7 @@ from mamut_routing_lib.enums import ObjectiveFunction
 from mamut_routing_lib.td import check_td_solution, load_td_instance
 
 from conftest import benchmarks_root, family_instances, instance_path, require_benchmarks
-from exact_reference import assert_value_close, exact_duration_cost
+from exact_reference import assert_exact_value, exact_duration_cost
 
 
 def _pick(paths, name):
@@ -188,10 +188,20 @@ def _exact_cold_result(name):
     return _cold(loaded, tl=tl), truth
 
 
-def test_exact_path_rifki2_n20_certifies_truth():
+def test_exact_path_rifki2_n20_is_sound():
+    # Since the ledger decides Optimum (M2 step 5), the root of Rifki-2 n=20
+    # needs 1 exact pass of 320 to 410 s, beyond this 300 s budget. The run
+    # certifies at 7378 in 368 s (HiGHS) and 433 s (CPLEX). Within 300 s it
+    # must end on the time limit without claim.
     res, truth = _exact_cold_result("Rifki-2")
-    assert res["exact_log"]["status"] == "Optimum"
-    assert res["value"] <= truth + 1e-6
+    status = res["exact_log"]["status"]
+    if status == "Optimum":
+        assert res["ledger"]["certified"]
+        assert res["value"] <= truth + 1e-6
+    else:
+        assert status == "TimeLimitReached" and not res["ledger"]["certified"]
+        assert res["exact_log"]["best_int_value"] == pytest.approx(truth, abs=1e-6)
+        assert res["exact_log"]["best_bound"] <= truth + 1e-6
 
 
 def test_exact_path_rifki17_n50_certifies_truth():
@@ -209,7 +219,7 @@ def test_exact_path_rifki18_n20_is_sound():
         # Honest TL: the incumbent must have reached the true optimum and the
         # dual bound must not contradict it (an above-truth certificate is the
         # defect this gate exists for).
-        assert status == "TimeLimitReached"
+        assert status == "TimeLimitReached" and not res["ledger"]["certified"]
         assert res["exact_log"]["best_int_value"] == pytest.approx(truth, abs=1e-6)
         assert res["exact_log"]["best_bound"] <= truth + 1e-6
 
@@ -255,8 +265,7 @@ def test_jumpfree_vu2020_certificate_is_not_above_the_truth():
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
     ]
-    # The master currently sums binary64 column costs.
-    assert_value_close(res["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
+    assert_exact_value(res, exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 # --- The reverse-side discriminators (2026-08-05) ---------------------------
@@ -304,8 +313,7 @@ def test_jumpfree_reverse_side_certificate_is_not_above_the_truth(name):
     routes = [
         r[1:-1] for r in routes_to_mamut(res["routes"], loaded.instance.num_customers)
     ]
-    # The master currently sums binary64 column costs.
-    assert_value_close(res["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
+    assert_exact_value(res, exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 # --- Regression guards: jump-free family proofs must stay correct/stable -----
@@ -328,8 +336,7 @@ def test_jumpfree_certification_is_warm_start_independent():
     assert warm["exact_log"]["status"] == "Optimum"
     assert cold["value"] == warm["value"]
     # Check the native value against an independent exact evaluation.
-    # The master currently sums binary64 column costs.
-    assert_value_close(cold["value"], exact_duration_cost(loaded.instance, loaded.atfs, routes))
+    assert_exact_value(cold, exact_duration_cost(loaded.instance, loaded.atfs, routes))
 
 
 def test_jumpfree_certification_is_deterministic():

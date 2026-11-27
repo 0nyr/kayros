@@ -7,8 +7,11 @@
 #include "bcp/bcp.h"
 #include "bcp/branch_trace.h"
 #include "bcp/ordered_valuation.h"
+#include "bcp/exact_wiring.h"
 
+#include <chrono>
 #include <climits>
+#include <set>
 
 using namespace std;
 using namespace goc;
@@ -78,9 +81,101 @@ int BCP::SeparateCutRounds()
 	return cuts_added;
 }
 
-void BCP::SetInitialIncumbent(double value)
+void BCP::SetInitialIncumbent(const ExactCost& value)
 {
-	if (value < z_ub) z_ub = value;
+	if (z_ub_exact && *z_ub_exact <= value) return;
+	z_ub_exact = value;
+	z_ub = nearest_binary64(value);
+}
+
+bool BCP::AcceptIncumbent(const Valuation& z, double native_value, const string& origin)
+{
+	ExactCost cost = 0;
+	int routes = 0;
+	vector<int> visits(D.NbVertices(), 0);
+	for (const auto& y_val: z)
+	{
+		if (y_val.second < 0.5) continue;
+		if (spf->IsArtificial(y_val.first)) { ++artificial_candidate_count; return false; }
+		cost += spf->ExactCostOf(y_val.first);
+		++routes;
+		const auto& path = spf->RouteOf(y_val.first).path;
+		for (int k = 1; k < (int)path.size()-1; ++k) ++visits[path[k]];
+	}
+	bool partition = routes > 0;
+	for (Vertex v = 1; v < D.NbVertices()-1; ++v) partition &= visits[v] == 1;
+	if (!partition || (fleet_limit >= 0 && routes > fleet_limit)) { ++rejected_candidate_count; return false; }
+	if (ledger)
+	{
+		// In exact mode the ledger evaluates the routes itself and decides.
+		vector<int> columns;
+		for (const auto& y_val: z) if (y_val.second >= 0.5) columns.push_back(y_val.first.Index());
+		return OfferColumns(columns, native_value, origin);
+	}
+	if (z_ub_exact && *z_ub_exact <= cost) return false;
+	z_ub_exact = cost;
+	z_ub = nearest_binary64(cost);
+	if (z_ub != native_value) ++repriced_candidate_count;
+	ub = z;
+	Duration tsol = rolex.Peek();
+	clog << "New UB: " << z_ub << " (" << origin << ") - time: " << tsol << endl;
+	if (on_incumbent) on_incumbent(tsol, goc::VRPSolution(z_ub, spf->InterpretSolution(ub)), origin);
+	return true;
+}
+
+void BCP::Unresolve(const string& reason)
+{
+	log.status = BCStatus::Unresolved;
+	if (unresolved_reason.empty()) unresolved_reason = reason;
+	++unresolved_counts[reason];
+	clog << "Exact mode: no claim (" << reason << ")" << endl;
+}
+
+void BCP::SyncIncumbent(const vector<int>& columns, const string& origin)
+{
+	z_ub_exact = *ledger->U();
+	z_ub = nearest_binary64(*z_ub_exact);
+	// The routes of the search, for the incumbent callback. The result takes the
+	// routes of the ledger.
+	vector<Route> routes;
+	for (int j: columns) routes.push_back(spf->RouteAt(j));
+	Duration tsol = rolex.Peek();
+	clog << "New UB: " << z_ub << " (" << origin << ") - time: " << tsol << endl;
+	if (on_incumbent && !columns.empty()) on_incumbent(tsol, goc::VRPSolution(z_ub, routes), origin);
+}
+
+bool BCP::OfferColumns(const vector<int>& columns, double native_value, const string& origin)
+{
+	wiring::VertexMap map{D.NbVertices() - 2};
+	vector<vector<int>> routes;
+	for (int j: columns)
+	{
+		if (spf->IsArtificialAt(j)) { ++artificial_candidate_count; return false; }
+		routes.push_back(map.customers_of(spf->RouteAt(j).path));
+	}
+	++ledger_offers;
+	const auto o = ledger->offer(routes);
+	if (!o.accepted)
+	{
+		// An equal or larger cost is no rejection. Anything else is a candidate
+		// that is not a solution under the exact evaluation.
+		if (!o.cost) ++rejected_candidate_count;
+		return false;
+	}
+	++ledger_offers_accepted;
+	SyncIncumbent(columns, origin);
+	if (z_ub != native_value) ++repriced_candidate_count;
+	return true;
+}
+
+bool BCP::OfferInitialRoutes(const vector<vector<int>>& routes)
+{
+	++ledger_offers;
+	const auto o = ledger->offer(routes);
+	if (!o.accepted) return false;
+	++ledger_offers_accepted;
+	SyncIncumbent({}, "warm_start");
+	return true;
 }
 
 BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
@@ -105,6 +200,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 	// Create root node and solve.
 	clog << "Processing root node." << endl;
 	Node* root = new Node{0, INFTY, {}};
+	root->ledger_id = 0; // the root of the ledger
 	ProcessNode(root);
 	log.root_time = rolex.Peek();
 	if (log.root_lp_value.IsSet()) {
@@ -115,7 +211,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 	if (!q.empty())
 	{
 		clog << "Solving BC with existing columns to get an UB." << endl;
-		FreezeHeuristic();
+		if (!freeze_done) FreezeHeuristic();
 		
 		clog << "Branching." << endl;
 		
@@ -136,7 +232,35 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 			log.nodes_open--;
 			log.nodes_closed++;
 			
-			if (epsilon_bigger(z_ub, bbnode->bound))
+			if (ledger)
+			{
+				// In exact mode only the ledger removes the node. A node whose stored
+				// exact LP value reaches U (U dropped while it waited, or it had no
+				// incumbent when it was solved) is closed now with its stored
+				// multipliers. A node that stays open is branched.
+				bool branch = true;
+				if (!ledger->is_open(bbnode->ledger_id)) branch = false;
+				else
+				{
+					const auto pr = ledger->prune(bbnode->ledger_id);
+					if (pr.removed) { ++ledger_removed_by_prune; branch = false; }
+					else if (bbnode->exact_bound && ledger->U() && *bbnode->exact_bound >= *ledger->U())
+					{
+						++closes_at_pop;
+						spf->SetForbiddenArcs(bbnode->A, bbnode->A_master);
+						CGExecutionLog cg_log;
+						const Exit e = ExactLoop(bbnode, cg_log, true);
+						if (e != Exit::Open) branch = false;
+					}
+				}
+				if (branch)
+				{
+					z_lb = bbnode->bound; // diagnostic only in exact mode
+					BranchNode(bbnode);
+					if (tstream.RegisterAttempt()) tstream.WriteRow({STR(rolex.Peek()), STR(log.nodes_closed), STR(log.nodes_open), STR(z_lb), STR(z_ub), STR(spf->formulation->VariableCount())});
+				}
+			}
+			else if (epsilon_bigger(z_ub, bbnode->bound))
 			{
 				z_lb = bbnode->bound; // Update z_lb here, because we use Best Bound selection.
 				BranchNode(bbnode);
@@ -153,7 +277,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		// Only close the gap when the tree was fully explored: a branch
 		// abandoned on the deadline (aborted strong branching drops children)
 		// can empty the queue without proving optimality.
-		if (q.empty() && log.status == BCStatus::DidNotStart) z_lb = z_ub;
+		if (q.empty() && log.status == BCStatus::DidNotStart && ledger && ledger->certified()) z_lb = z_ub;
 		
 		tstream.WriteRow({STR(rolex.Peek()), STR(log.nodes_closed), STR(log.nodes_open), STR(z_lb), STR(z_ub), STR(spf->formulation->VariableCount())});
 
@@ -170,11 +294,18 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 		while (!q.empty()) { delete q.top(); q.pop(); }
 	}
 
-	// If log was not changed to some error (time limit, memory limit, ...) then optimum was found.
+	// If log was not changed to some error (time limit, memory limit, ...) then
+	// the search ended. In exact mode the status is Optimum iff the ledger is
+	// certified. Without a ledger the run can never be optimal.
 	if (log.status == BCStatus::DidNotStart)
 	{
-		log.status = BCStatus::Optimum;
-		z_lb = z_ub;
+		if (!ledger) Unresolve("ledger_unavailable");
+		else if (!ledger->certified()) Unresolve(ledger->U() ? "ledger_open_nodes" : "ledger_no_incumbent");
+		else
+		{
+			log.status = BCStatus::Optimum;
+			z_lb = z_ub;
+		}
 	}
 	log.time = rolex.Peek();
 	if (on_bound) on_bound(log.time, z_lb,
@@ -200,7 +331,7 @@ BCPExecutionLog BCP::Run(goc::VRPSolution* solution)
 
 double BCP::EstimateBound(Node* node)
 {
-	spf->SetForbiddenArcs(node->A);
+	spf->SetForbiddenArcs(node->A, node->A_master);
 	lp_solver.time_limit = deadline.Remaining();
 	auto lp_log = lp_solver.Solve(spf->formulation);
 	// An aborted probe must poison the run status: dropping both
@@ -215,9 +346,197 @@ double BCP::EstimateBound(Node* node)
 	return lp_log.status == LPStatus::Optimum ? *lp_log.incumbent_value : INFTY;
 }
 
+BCP::Exit BCP::SolveNodeExact(Node* node)
+{
+	spf->SetForbiddenArcs(node->A, node->A_master);
+	cg_solver.screen_output = node->index == 0 ? &clog : nullptr;
+	cg_solver.time_limit = deadline.Remaining();
+	auto cg_log = cg_solver.Solve(spf->formulation, {CGOption::IterationsInformation, CGOption::Basis});
+	*log.lp_time += cg_log.lp_time;
+	if (cg_log.status == CGStatus::Optimum)
+	{
+		++cg_optimum_count;
+		bool certified = cg_log.iterations.IsSet() && !cg_log.iterations->empty()
+			&& cg_log.iterations->back().value("ablation_final_pricing_certified", false);
+		if (certified) ++cg_certified_count; else ++cg_unresolved_count;
+		node->bound = cg_log.incumbent_value;
+		node->opt = *cg_log.incumbent;
+	}
+	if (node->index == 0 && !root_logged)
+	{
+		root_logged = true;
+		log.root_log = cg_log;
+		log.root_variable_count = spf->formulation->VariableCount();
+		log.root_constraint_count = spf->formulation->ConstraintCount();
+		if (cg_log.status == CGStatus::Optimum) log.root_lp_value = cg_log.incumbent_value;
+	}
+	// Every exit but Optimum leaves the node open in the ledger.
+	if (cg_log.status == CGStatus::TimeLimitReached) { log.status = BCStatus::TimeLimitReached; return Exit::Stop; }
+	if (cg_log.status == CGStatus::MemoryLimitReached) { log.status = BCStatus::MemoryLimitReached; return Exit::Stop; }
+	if (cg_log.status == CGStatus::Unbounded) fail("Node relaxation can not be unbounded.");
+	// Not reachable with the artificial columns (design note, section 12).
+	if (cg_log.status == CGStatus::Infeasible) { ++cg_infeasible_count; Unresolve("cg_infeasible"); return Exit::Stop; }
+	if (cg_log.status != CGStatus::Optimum) { Unresolve("cg_unresolved"); return Exit::Stop; }
+	// A binary64 integral optimum is offered first, so that a cold start has an
+	// incumbent for the first close.
+	if (node->opt.IsInteger()) AcceptIncumbent(node->opt, node->bound, "BCP");
+	Exit e = ExactLoop(node, cg_log);
+	if (e == Exit::Open && ledger->U() && node->ledger_bound)
+	{
+		const auto pr = ledger->prune(node->ledger_id);
+		if (pr.removed) { ++ledger_removed_by_prune; e = Exit::Removed; }
+	}
+	return e;
+}
+
+BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log, bool at_pop)
+{
+	namespace xl = kayros::exact_lp;
+	using clock = std::chrono::steady_clock;
+	const int n = D.NbVertices() - 2;
+	const wiring::VertexMap map{n};
+	ExactNodeVisit visit;
+	visit.ledger_id = node->ledger_id;
+	visit.at_pop = at_pop;
+	// At a pop, the first round uses the multipliers stored at processing.
+	bool stored = at_pop;
+	auto finish = [&](Exit e, const string& outcome) {
+		visit.outcome = outcome;
+		exact_visits.push_back(visit);
+		return e;
+	};
+	auto stop = [&](const string& reason) {
+		Unresolve(reason);
+		return finish(Exit::Stop, reason);
+	};
+	auto time_stop = [&]() {
+		log.status = BCStatus::TimeLimitReached;
+		return finish(Exit::Stop, "time_limit");
+	};
+	auto memory_stop = [&]() {
+		log.status = BCStatus::MemoryLimitReached;
+		return finish(Exit::Stop, "memory_limit");
+	};
+	while (true)
+	{
+		if (!ledger->is_open(node->ledger_id)) return finish(Exit::Removed, "removed");
+		if (deadline.Reached()) return time_stop();
+		if (MemoryMonitor::Exceeded()) return memory_stop();
+		if (!stored)
+		{
+			if (!cg_log.basis.IsSet()) return stop("no_basis");
+
+			// (i) The basis of the last LP solve of the search, solved in rationals.
+			const auto t0 = clock::now();
+			const xl::Master M = spf->ExactMaster();
+			xl::Basis B(cg_log.basis->columns.begin(), cg_log.basis->columns.end());
+			for (int i: cg_log.basis->rows) B.push_back(xl::logical(i));
+			const xl::Solution sol = xl::solve_from_basis(M, B, xl::default_pivot_budget);
+			const double lp_s = std::chrono::duration<double>(clock::now() - t0).count();
+			visit.exact_lp_s += lp_s;
+			exact_lp_time += lp_s;
+			visit.pivots += sol.pivots;
+			if (sol.status != xl::Status::Optimal) return stop(string("exact_lp_") + xl::to_string(sol.reason));
+			node->exact_mult = wiring::multipliers_of(sol, n, (int)spf->cuts.size(),
+				[&](int c) { return spf->CutCustomers(c); });
+			// The value the ledger computes from these multipliers when the pass
+			// finds no negative route (Claim 1 with Delta = 0).
+			ExactCost value = 0;
+			for (const auto& p: node->exact_mult.pi) value += p;
+			for (const auto& g: node->exact_mult.sigma) value += g;
+			node->exact_bound = value;
+
+			// An integral exact primal solution is a candidate. Offered before the
+			// close, so that the close compares with the lowest U known.
+			if (const auto cols = wiring::integral_columns(sol)) OfferColumns(*cols, nearest_binary64(sol.z), "BCP-exact");
+			if (!ledger->U() && node->index == 0 && !freeze_done) FreezeHeuristic();
+			// Close needs an incumbent. The node stays open, without bound.
+			if (!ledger->U()) return finish(Exit::Open, "no_incumbent");
+			// Lazy close. Only a node that would be removed needs the
+			// pass. Below U the node stays open and is branched at its pop, unless
+			// U has dropped to its value by then.
+			if (*node->exact_bound < *ledger->U()) { ++passes_avoided; return finish(Exit::Open, "deferred"); }
+		}
+		const wiring::Multipliers& mult = node->exact_mult;
+
+		// (ii) and (iii) The exact pass of the ledger and its verdict.
+		const double remaining = deadline.Remaining().Amount(DurationUnit::Seconds);
+		if (remaining <= 0) return time_stop();
+		const auto t1 = clock::now();
+		// The pass gets the remaining time and the memory limit of the run (the
+		// resident bytes of the process, as MemoryMonitor reads them).
+		const auto close = ledger->close(node->ledger_id, mult.cuts, mult.pi, mult.sigma, {0, remaining, std::max<int64_t>(0, MemoryMonitor::LimitBytes())});
+		const double pass_s = std::chrono::duration<double>(clock::now() - t1).count();
+		visit.exact_pass_s += pass_s;
+		exact_pass_time += pass_s;
+		++visit.rounds;
+		++passes_run;
+		if (!stored) ++closes_at_processing;
+		if (close.removed) { ++ledger_removed_by_close; return finish(Exit::Removed, "removed"); }
+		// A close without bound was refused or its pass did not finish.
+		// A pass stopped by the time limit given to it is the time limit of the run.
+		// The pass has no other limit than time and memory, so an unresolved pass
+		// that did not run out of time ran out of memory.
+		if (!close.delta)
+		{
+			if (deadline.Reached() || pass_s >= remaining) return time_stop();
+			if (close.reason == "exact pass unresolved" && MemoryMonitor::LimitBytes() > 0) return memory_stop();
+			return stop("close_refused: " + close.reason);
+		}
+		node->ledger_bound = true;
+		// (v) Without negative route the pass gave Delta = 0, so L is the stored
+		// value, which reached U. The ledger then removed the node, and this exit
+		// is not expected. The node stays open and is branched at its pop.
+		if (close.negative_count == 0) return finish(Exit::Open, "open");
+
+		// (iv) Every negative route enters the master, else no claim.
+		++visit.negative_rounds;
+		for (const auto& [customers, rc]: close.negatives)
+		{
+			const GraphPath path = map.search_path(customers);
+			for (int k = 0; k + 1 < (int)path.size(); ++k)
+				if (!D.IncludesArc({path[k], path[k+1]})) return stop("route_not_representable");
+			const ExactCost expected = wiring::cost_from_reduced(customers, rc, mult);
+			switch (admit_route(path, expected))
+			{
+				case Admission::Added: ++visit.columns_added; break;
+				// Stored multipliers can be older than columns added since at other nodes.
+				case Admission::Duplicate:
+					if (!stored) return stop("negative_route_already_column");
+					++pop_stale_columns;
+					break;
+				case Admission::Rejected: return stop("route_rejected_by_column_evaluation");
+				case Admission::CostMismatch: return stop("route_cost_mismatch");
+			}
+		}
+		// The search prices again from the master with the new columns.
+		if (stored) ++pop_retries;
+		stored = false;
+		cg_solver.screen_output = nullptr;
+		cg_solver.time_limit = deadline.Remaining();
+		cg_log = cg_solver.Solve(spf->formulation, {CGOption::IterationsInformation, CGOption::Basis});
+		*log.lp_time += cg_log.lp_time;
+		if (cg_log.status == CGStatus::TimeLimitReached) return time_stop();
+		if (cg_log.status == CGStatus::MemoryLimitReached) return memory_stop();
+		if (cg_log.status == CGStatus::Infeasible) { ++cg_infeasible_count; return stop("cg_infeasible"); }
+		if (cg_log.status != CGStatus::Optimum) return stop("cg_unresolved");
+		node->bound = cg_log.incumbent_value;
+		node->opt = *cg_log.incumbent;
+		if (node->opt.IsInteger()) AcceptIncumbent(node->opt, node->bound, "BCP");
+	}
+}
+
 void BCP::ProcessNode(Node* node)
 {
 	node_seq++;
+	if (ledger)
+	{
+		const Exit e = SolveNodeExact(node);
+		if (e == Exit::Open) { log.nodes_open++; q.push(node); return; }
+		if (e == Exit::Removed) log.nodes_closed++;
+		delete node; // removed, or the run stops with the node open in the ledger
+		return;
+	}
 	spf->SetForbiddenArcs(node->A);
 	cg_solver.screen_output = node->index == 0 ? &clog : nullptr; // Display only root node CG resolution.
 	cg_solver.time_limit = deadline.Remaining();
@@ -272,14 +591,8 @@ void BCP::ProcessNode(Node* node)
 	{
 		if (node->opt.IsInteger())
 		{
-			if (z_ub > node->bound) // Found a new optimum.
-			{
-				z_ub = node->bound;
-				ub = node->opt;
-				Duration tsol = rolex.Peek();
-				clog << "New UB: " << z_ub << " at node " << node->index << " - time: " << tsol << endl;
-				if (on_incumbent) on_incumbent(tsol, goc::VRPSolution(z_ub, spf->InterpretSolution(ub)), "BCP");
-			}
+			// The incumbent value is the exact cost of the routes, not the LP value.
+			AcceptIncumbent(node->opt, node->bound, "BCP");
 			log.nodes_closed++;
 			delete node;
 		}
@@ -356,6 +669,8 @@ void BCP::BranchNode(Node* node)
     double selected_estimate = -INFTY;
     int selected_infeasible = 0;
     if (x_most.empty()) ++unbranched_fractional_count;
+	// In exact mode the node stays open in the ledger, so the run has no claim.
+	if (x_most.empty() && ledger) { Unresolve("no_branching_candidate"); *log.branching_time += rolex_branch.Pause(); return; }
 	if (!x_most.empty())
 	{
 		double best_estimate = -INFTY;
@@ -368,6 +683,7 @@ void BCP::BranchNode(Node* node)
 			// Left node (x_e = 0).
 			A.push_back(e);
 			Node left{node_seq+1, INFTY, A};
+			left.A_master = node->A_master;
 			left.bound = EstimateBound(&left);
 			
 			// Right node (x_e = 1).
@@ -375,6 +691,7 @@ void BCP::BranchNode(Node* node)
 			for (Vertex j: D.Successors(e.tail)) if (j != e.head) A.push_back({e.tail, j});
 			for (Vertex i: D.Predecessors(e.head)) if (i != e.tail) A.push_back({i, e.head});
 			Node right{node_seq+2, INFTY, A};
+			right.A_master = node->A_master;
 			right.bound = EstimateBound(&right);
 			
 			// If the candidate is the best so far, keep it.
@@ -395,6 +712,47 @@ void BCP::BranchNode(Node* node)
     branch_trace.Finish(selected_tail, selected_head, selected_estimate);
     if (log.status == BCStatus::DidNotStart) selected_rmp_infeasible_count += selected_infeasible;
 	*log.branching_time += rolex_branch.Pause();
+	if (ledger)
+	{
+		// Exact mode. The probes above are untrusted and never reach the ledger.
+		// The ledger branches once on the selected arc, and both children are
+		// always solved, whatever the probes said.
+		if (log.status != BCStatus::DidNotStart || selected_tail < 0) return;
+		const auto b = ledger->branch(node->ledger_id, selected_tail, selected_head);
+		if (!b.accepted) { Unresolve("ledger_branch_refused: " + b.reason); return; }
+		++ledger_branches;
+		const Arc e{selected_tail, selected_head};
+		vector<Node> children(2);
+		children[0] = Node{node_seq+1, node->bound, node->A};
+		children[0].A.push_back(e);
+		children[1] = Node{node_seq+2, node->bound, node->A};
+		for (Vertex j: D.Successors(e.tail)) if (j != e.head) children[1].A.push_back({e.tail, j});
+		for (Vertex i: D.Predecessors(e.head)) if (i != e.tail) children[1].A.push_back({i, e.head});
+		children[0].ledger_id = b.left;
+		children[1].ledger_id = b.right;
+		// The search must forbid at least the arcs of the ledger. Arcs of D that
+		// it had not forbidden are added to its own set. Arcs absent from D only
+		// fix columns of the master (warm-start columns may use them).
+		const wiring::VertexMap map{D.NbVertices() - 2};
+		for (Node& c: children)
+		{
+			const auto F = ledger->forbidden(c.ledger_id);
+			if (!F) { Unresolve("ledger_child_unknown"); return; }
+			const auto [in_d, outside] = wiring::split_forbidden(*F, map, D);
+			set<pair<int, int>> have;
+			for (Arc a: c.A) have.insert({a.tail, a.head});
+			for (Arc a: in_d)
+				if (have.insert({a.tail, a.head}).second) { c.A.push_back(a); ++ledger_arcs_added_to_search; }
+			c.A_master.clear();
+			for (Arc a: outside) { c.A_master.push_back(a); ++ledger_arcs_master_only; }
+		}
+		for (Node& c: children)
+		{
+			if (log.status != BCStatus::DidNotStart) break;
+			ProcessNode(new Node(c));
+		}
+		return;
+	}
 	// Process new children to the queue.
 	for (Node& candidate: best_candidate)
 	{
@@ -406,20 +764,14 @@ void BCP::BranchNode(Node* node)
 void BCP::FreezeHeuristic()
 {
 	if (deadline.Reached()) return;
+	freeze_done = true;
 	BCSolver bc_solver;
 	bc_solver.time_limit = deadline.Remaining(); // residual budget, not the full TL.
 	auto bc_log = bc_solver.Solve(spf->formulation, {BCOption::BestIntSolution});
 	// A TL-truncated MILP may still carry a feasible incumbent — take it.
 	bool has_incumbent = (bc_log.status == BCStatus::Optimum || bc_log.status == BCStatus::TimeLimitReached)
 		&& bc_log.best_int_value.IsSet() && bc_log.best_int_solution.IsSet();
-	if (has_incumbent && bc_log.best_int_value < z_ub)
-	{
-		z_ub = bc_log.best_int_value;
-		ub = *bc_log.best_int_solution;
-		Duration tsol = rolex.Peek();
-		clog << "New UB: " << z_ub << " in freeze heuristic - time: " << tsol << endl;
-		if (on_incumbent) on_incumbent(tsol, goc::VRPSolution(z_ub, spf->InterpretSolution(ub)), "BCP-freezeH");
-	}
+	if (has_incumbent) AcceptIncumbent(*bc_log.best_int_solution, *bc_log.best_int_value, "BCP-freezeH");
 }
 
 bool BCP::SeparateCuts(const Valuation& z)
