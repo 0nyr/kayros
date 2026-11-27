@@ -452,7 +452,7 @@ BCP::Exit BCP::ExactLoop(Node* node, CGExecutionLog& cg_log, bool at_pop)
 			if (!ledger->U() && node->index == 0 && !freeze_done) FreezeHeuristic();
 			// Close needs an incumbent. The node stays open, without bound.
 			if (!ledger->U()) return finish(Exit::Open, "no_incumbent");
-			// Lazy close (S139-D11). Only a node that would be removed needs the
+			// Lazy close. Only a node that would be removed needs the
 			// pass. Below U the node stays open and is branched at its pop, unless
 			// U has dropped to its value by then.
 			if (*node->exact_bound < *ledger->U()) { ++passes_avoided; return finish(Exit::Open, "deferred"); }

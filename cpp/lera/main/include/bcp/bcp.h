@@ -84,7 +84,7 @@ public:
 	double exact_lp_time = 0, exact_pass_time = 0;
 	int ledger_offers = 0, ledger_offers_accepted = 0, ledger_removed_by_close = 0, ledger_removed_by_prune = 0;
 	int ledger_branches = 0;
-	// Lazy close (S139-D11). The exact pass runs only at a node that would be
+	// Lazy close. The exact pass runs only at a node that would be
 	// removed, i.e. whose exact LP value reaches U. passes_run counts the calls of
 	// Ledger::close, passes_avoided the visits that ended with an incumbent and a
 	// value below U without a pass, closes_at_pop the pops whose stored value
